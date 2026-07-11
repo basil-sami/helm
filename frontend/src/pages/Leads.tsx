@@ -167,7 +167,7 @@ export default function Leads() {
           itemColumn={(l) => l.stage}
           onMove={(l, stage) => move(l, stage)}
           columnSummary={(col) => (
-            <span className="kpi-num text-[11px] text-ink-500">{fmtMoney(col.reduce((a, l) => a + (l.valueUsd || 0), 0), "USD", lang)}</span>
+            <span className="kpi-num text-[11px] text-ink-500">{fmtMoney(col.reduce((a, l) => a + Number(l.valueUsd || 0), 0), "USD", lang)}</span>
           )}
           renderCard={(l) => (
             <>

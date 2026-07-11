@@ -132,7 +132,7 @@ export async function computeOverview(windowDays = 365) {
   const sentiment = ["POS", "NEU", "NEG"].map((s) => ({ label: s, count: signals.filter((g) => g.sentimentLabel === s).length }));
 
   // ── Effectiveness: what actually works ─────────────────────────────
-  const er = (p) => { const d = p.reach > 0 ? p.reach : p.impressions; return d > 0 ? (p.engagement / d) * 100 : 0; };
+  const er = (p) => { const d = Number(p.reach) || Number(p.impressions) || 0; return d > 0 ? ((Number(p.engagement) || 0) / d) * 100 : 0; };
   const wPosts = windowDays ? posts.filter((p) => inW(p.publishedAt)) : posts;
   const postsTop = [...wPosts]
     .map((p) => ({ platform: p.platform, title: p.contentTitle || p.url || "—", pillar: p.pillar || null,

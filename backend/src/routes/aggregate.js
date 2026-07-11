@@ -48,7 +48,7 @@ dashboardRouter.get("/", async (_req, res, next) => {
         wonUsd: num(won.usd), wonSdg: num(won.sdg), openUsd: num(openPipe.usd), openSdg: num(openPipe.sdg),
       },
       upcomingEvents, contentDue,
-      setting: { ...setting, usdToSdgRate: num(setting.usdToSdgRate) },
+      setting: { ...(setting || {}), usdToSdgRate: num(setting?.usdToSdgRate) },
     });
   } catch (e) { next(e); }
 });

@@ -98,7 +98,7 @@ export function AreaTrend({
       <div className="mt-1 flex justify-between px-1 text-[10px] text-ink-400">
         {data.map((d) => <span key={d.month}>{monthLabel(d.month)}</span>)}
       </div>
-      {format && <div className="mt-1 text-end text-xs text-ink-500">{lang === "ar" ? "الإجمالي: " : "Total: "}{format(data.reduce((a, d) => a + d.value, 0))}</div>}
+      {format && <div className="mt-1 text-end text-xs text-ink-500">{lang === "ar" ? "الإجمالي: " : "Total: "}{format(data.reduce((a, d) => a + Number(d.value || 0), 0))}</div>}
     </div>
   );
 }
@@ -122,7 +122,7 @@ export function Spark({ data, color = "#E8A33D" }: { data: number[]; color?: str
 
 // ── Donut (sentiment, proportions) ─────────────────────────────────────
 export function Donut({ segments }: { segments: { label: string; value: number; color: string }[] }) {
-  const total = Math.max(1, segments.reduce((a, s) => a + s.value, 0));
+  const total = Math.max(1, segments.reduce((a, s) => a + Number(s.value || 0), 0));
   const R = 42, C = 2 * Math.PI * R;
   let offset = 0;
   return (
