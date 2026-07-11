@@ -29,7 +29,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const toggle = () => setLangState((p) => (p === "ar" ? "en" : "ar"));
 
   const tr = (key: string) => {
-    const entry = (dict as Record<string, { ar: string; en: string }>)[key];
+    const entry = (dict as Record<string, { ar: string; en: string }>)[key] || (enumLabels as Record<string, { ar: string; en: string }>)[key];
     return entry ? entry[lang] : key;
   };
   const el = (value?: string | null) => {
