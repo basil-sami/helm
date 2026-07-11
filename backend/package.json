@@ -1,0 +1,26 @@
+{
+  "name": "helm-backend",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "HELM \u2014 Marketing Department OS for Saria Industrial Complex (API, Postgres/Supabase)",
+  "engines": {
+    "node": ">=18.18"
+  },
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "db:apply": "node scripts/apply-db.js",
+    "seed": "node scripts/apply-db.js --seed",
+    "test": "node tests/verify-all.mjs"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.13.1",
+    "zod": "^3.23.8"
+  }
+}

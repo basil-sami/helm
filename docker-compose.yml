@@ -1,0 +1,26 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: helm-db
+    environment:
+      - POSTGRES_USER=helm
+      - POSTGRES_PASSWORD=helm
+      - POSTGRES_DB=helm
+    volumes:
+      - ./data/pg:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  helm:
+    build: .
+    container_name: helm
+    depends_on: [db]
+    ports:
+      - "4000:4000"
+    environment:
+      - NODE_ENV=production
+      - PORT=4000
+      - DATABASE_URL=postgresql://helm:helm@db:5432/helm
+      - PGSSL=disable
+      # Change this secret for any real deployment:
+      - JWT_SECRET=change-this-secret-in-production
+    restart: unless-stopped
