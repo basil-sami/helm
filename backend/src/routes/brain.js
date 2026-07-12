@@ -78,6 +78,48 @@ brainRouter.delete("/conversations/:id", async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// Update a message text (for edit + resend)
+brainRouter.patch("/conversations/:id/messages/:msgId", async (req, res, next) => {
+  try {
+    const text = (req.body?.text || "").trim();
+    if (!text) return res.status(400).json({ error: "text is required" });
+    const row = await get(
+      `UPDATE ai_messages SET text = $1
+       WHERE id = $2 AND "conversationId" IN (
+         SELECT id FROM ai_conversations WHERE id = $3 AND "userId" = $4
+       )
+       RETURNING id, role, text, reasoning, label, "createdAt"`,
+      [text, req.params.msgId, req.params.id, req.user.id]
+    );
+    if (!row) return res.status(404).json({ error: "Message not found" });
+    res.json(row);
+  } catch (e) { next(e); }
+});
+
+// Rewind: delete all messages after `afterId` in a conversation
+brainRouter.post("/conversations/:id/rewind", async (req, res, next) => {
+  try {
+    const afterId = req.body?.afterId;
+    if (!afterId) return res.status(400).json({ error: "afterId is required" });
+    await run(
+      `DELETE FROM ai_messages
+       WHERE "conversationId" = $1 AND "createdAt" >= (
+         SELECT "createdAt" FROM ai_messages WHERE id = $2
+       )
+       AND "conversationId" IN (
+         SELECT id FROM ai_conversations WHERE id = $1 AND "userId" = $3
+       )`,
+      [req.params.id, afterId, req.user.id]
+    );
+    // Also update conversation timestamp
+    await run(
+      `UPDATE ai_conversations SET "updatedAt" = now() WHERE id = $1`,
+      [req.params.id]
+    );
+    res.json({ rewound: true });
+  } catch (e) { next(e); }
+});
+
 const MODEL = process.env.OPENROUTER_MODEL || "anthropic/claude-3.5-sonnet";
 const API = "https://openrouter.ai/api/v1/chat/completions";
 
@@ -132,7 +174,23 @@ STYLE:
 - ${langLine}`;
 }
 
-async function callClaude({ system, prompt, maxTokens = 2500 }) {
+async function loadHistory(conversationId, limit = 6) {
+  if (!conversationId) return [];
+  const rows = await all(
+    `SELECT role, text FROM ai_messages
+     WHERE "conversationId" = $1
+     ORDER BY "createdAt" DESC LIMIT $2`,
+    [conversationId, limit * 2] // user + AI per exchange
+  );
+  // Reverse back to chronological order
+  rows.reverse();
+  return rows.map((r) => ({
+    role: r.role === "cmo" ? "assistant" : "user",
+    content: r.text || "",
+  }));
+}
+
+async function callClaude({ system, history, prompt, maxTokens = 2500 }) {
   const key = process.env.OPENROUTER_API_KEY || process.env.ANTHROPIC_API_KEY;
   if (!key) {
     return { configured: false };
@@ -151,6 +209,7 @@ async function callClaude({ system, prompt, maxTokens = 2500 }) {
         temperature: 0.4,
         messages: [
           { role: "system", content: system },
+          ...(history || []),
           { role: "user", content: prompt },
         ],
       }),
@@ -179,7 +238,7 @@ async function callClaude({ system, prompt, maxTokens = 2500 }) {
   return { configured: true, answer: text || "(no response)" };
 }
 
-async function callClaudeStream({ system, prompt, userText, maxTokens = 32000, userId, conversationId }, res) {
+async function callClaudeStream({ system, history, prompt, userText, maxTokens = 32000, userId, conversationId }, res) {
   const key = process.env.OPENROUTER_API_KEY || process.env.ANTHROPIC_API_KEY;
   if (!key) {
     res.json({ configured: false, error: "No API key configured" });
@@ -220,6 +279,7 @@ async function callClaudeStream({ system, prompt, userText, maxTokens = 32000, u
         stream: true,
         messages: [
           { role: "system", content: system },
+          ...(history || []),
           { role: "user", content: prompt },
         ],
       }),
@@ -354,7 +414,8 @@ brainRouter.post("/brief", async (req, res, next) => {
       `Write the executive marketing brief for the Head of Marketing. Cover, briefly: (1) the headline state of pipeline & revenue vs objectives, (2) what's working, (3) what's at risk or needs attention, (4) the top 3 actions to take this week. Cite the numbers. Keep it tight.`;
     if (req.body?.stream) {
       const conversationId = await ensureConversation(req.user.id, "(brief)", req);
-      return callClaudeStream({ system: systemPrompt(lang), prompt, userText: "", maxTokens: 1300, userId: req.user.id, conversationId }, res);
+      const history = await loadHistory(conversationId, 6);
+      return callClaudeStream({ system: systemPrompt(lang), history, prompt, userText: "", maxTokens: 1300, userId: req.user.id, conversationId }, res);
     }
     const out = await callClaude({ system: systemPrompt(lang), prompt, maxTokens: 1300 });
     res.json(out);
@@ -367,12 +428,25 @@ brainRouter.post("/ask", async (req, res, next) => {
   if (!question) return res.status(400).json({ error: "question is required" });
   try {
     const lang = req.body?.lang === "ar" ? "ar" : "en";
+    let conversationId = req.body?.conversationId;
+
+    // Handle rewind (edit+resend): delete messages after the specified message
+    if (req.body?.rewindAfterId && conversationId) {
+      await run(
+        `DELETE FROM ai_messages WHERE "conversationId" = $1 AND "createdAt" >= (
+          SELECT "createdAt" FROM ai_messages WHERE id = $2
+        )`,
+        [conversationId, req.body.rewindAfterId]
+      );
+    }
+
     const ctx = await buildContext();
     const prompt = `Marketing data snapshot (JSON):\n\n${JSON.stringify(ctx, null, 1)}\n\n` +
       `The marketing lead asks:\n"""${question}"""\n\nAnswer using the data above. Cite the relevant figures.`;
     if (req.body?.stream) {
-      const conversationId = await ensureConversation(req.user.id, question, req);
-      return callClaudeStream({ system: systemPrompt(lang), prompt, userText: question, userId: req.user.id, conversationId }, res);
+      conversationId = await ensureConversation(req.user.id, question, req);
+      const history = await loadHistory(conversationId, 6);
+      return callClaudeStream({ system: systemPrompt(lang), history, prompt, userText: question, userId: req.user.id, conversationId }, res);
     }
     const out = await callClaude({ system: systemPrompt(lang), prompt });
     res.json(out);

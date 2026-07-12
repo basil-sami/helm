@@ -46,6 +46,8 @@ export default function Brain() {
   const [activeConvoId, setActiveConvoId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [expectingResponse, setExpectingResponse] = useState(false);
+  const [editingIdx, setEditingIdx] = useState<number | null>(null);
+  const [editText, setEditText] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef(activeConvoId);
   activeRef.current = activeConvoId;
@@ -107,6 +109,11 @@ export default function Brain() {
       abortRef.current.abort();
       abortRef.current = null;
     }
+  }, []);
+
+  const startEdit = useCallback((idx: number, text: string) => {
+    setEditingIdx(idx);
+    setEditText(text);
   }, []);
 
   const loadConvo = useCallback(async (id: string) => {
@@ -284,7 +291,10 @@ export default function Brain() {
         }
       }
     } catch (e) {
-      if (activeRef.current === conversationId) {
+      // AbortError = user clicked stop — not an error
+      if ((e as Error)?.name === "AbortError") {
+        // Backend already saved partial content
+      } else if (activeRef.current === conversationId) {
         setMsgs((m) => {
           const u = [...m];
           if (u[msgIdx]) u[msgIdx] = { ...u[msgIdx], text: (e as { message?: string })?.message || tr("saveError") };
@@ -297,6 +307,31 @@ export default function Brain() {
       refreshConvos();
     }
   };
+
+  const resendEdit = useCallback(async (idx: number) => {
+    const text = editText.trim();
+    if (!text) return;
+    setEditingIdx(null);
+    setEditText("");
+    const msg = msgs[idx];
+    if (!msg || msg.role !== "user" || !activeRef.current) return;
+    setMsgs((prev) => {
+      const u = [...prev];
+      if (u[idx]) u[idx] = { ...u[idx], text };
+      return u;
+    });
+    try {
+      const convId = activeRef.current;
+      const c = await getConvo(convId);
+      const dbMsg = c?.messages?.[idx];
+      if (dbMsg?.id) {
+        await api.patch(`/brain/conversations/${convId}/messages/${dbMsg.id}`, { text });
+        await run("/brain/ask", { question: text, rewindAfterId: dbMsg.id }, text);
+        return;
+      }
+    } catch { /* fallback */ }
+    await run("/brain/ask", { question: text }, text);
+  }, [editText, msgs]);
 
   const ask = (q: string) => run("/brain/ask", { question: q }, q);
   const brief = () => run("/brain/brief", {}, undefined, tr("brain_briefLabel"));
@@ -388,7 +423,25 @@ export default function Brain() {
           {msgs.map((m, i) =>
             m.role === "user" ? (
               <div key={i} className="flex justify-end">
-                <div className="max-w-[85%] rounded-xl2 rounded-se-sm bg-amber-500/15 px-3.5 py-2 text-sm text-ink-800">{m.text}</div>
+                {editingIdx === i ? (
+                  <div className="max-w-[85%]">
+                    <textarea value={editText} onChange={(e) => setEditText(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); resendEdit(i); } }}
+                      className="input w-full resize-none text-sm" rows={2} autoFocus />
+                    <div className="mt-1 flex justify-end gap-2">
+                      <button onClick={() => setEditingIdx(null)} className="text-xs text-ink-500 hover:text-ink-700">{tr("cancel")}</button>
+                      <button onClick={() => resendEdit(i)} className="text-xs font-semibold text-amber-600 hover:text-amber-700">{tr("brain_resend")}</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="group relative max-w-[85%]">
+                    <div className="rounded-xl2 rounded-se-sm bg-amber-500/15 px-3.5 py-2 text-sm text-ink-800">{m.text}</div>
+                    <button onClick={() => startEdit(i, m.text)}
+                      className="absolute -top-1.5 -end-1.5 hidden rounded-full border border-paper-300 bg-white p-0.5 text-ink-400 shadow-xs transition hover:text-amber-600 group-hover:block">
+                      <svg className="h-3 w-3" viewBox="0 0 16 16" fill="currentColor"><path d="M12.854.146a.5.5 0 00-.707 0L10.5 1.793 14.207 5.5l1.647-1.646a.5.5 0 000-.708l-3-3zm.646 6.061L9.793 2.5 3.293 9H3.5a.5.5 0 01.5.5v.5h.5a.5.5 0 01.5.5v.5h.5a.5.5 0 01.5.5v.207l6.5-6.5zm-7.468 7.468A.5.5 0 016 13.5V13h-.5a.5.5 0 01-.5-.5V12h-.5a.5.5 0 01-.5-.5V11h-.5a.5.5 0 01-.5-.5V10h-.5a.499.499 0 01-.175-.032l-.179.178.558.558.096.096z"/></svg>
+                    </button>
+                  </div>
+                )}
               </div>
             ) : (
               <div key={i} className="flex justify-start">
@@ -418,11 +471,15 @@ export default function Brain() {
           {busy && (
             <div className="flex justify-start">
               <Card className="p-3.5">
-                <div className="flex items-center gap-1.5 text-sm text-ink-500">
+                <div className="flex items-center gap-2 text-sm text-ink-500">
                   <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
                   <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" style={{ animationDelay: "150ms" }} />
                   <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" style={{ animationDelay: "300ms" }} />
                   <span className="ms-1">{tr("brain_thinking")}</span>
+                  <button onClick={cancelStream}
+                    className="ms-2 rounded-md border border-red-200 bg-red-50 px-2 py-0.5 text-xs font-medium text-red-600 transition hover:bg-red-100">
+                    {tr("brain_stop")}
+                  </button>
                 </div>
               </Card>
             </div>
