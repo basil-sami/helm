@@ -85,7 +85,7 @@ export default function Brain() {
         return prev;
       });
     };
-    const interval = setInterval(check, 3000);
+    const interval = setInterval(check, 2000);
     return () => { cancelled = true; clearInterval(interval); };
   }, [activeConvoId, expectingResponse]);
 

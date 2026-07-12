@@ -186,12 +186,23 @@ async function callClaudeStream({ system, prompt, userText, maxTokens = 32000, u
     return;
   }
 
-  // Save user message if conversationId provided (use userText for the label/display, not the full prompt)
+  // Save user message if conversationId provided
   if (conversationId && userText) {
     await run(
       `INSERT INTO ai_messages ("conversationId", role, text) VALUES ($1, 'user', $2)`,
       [conversationId, userText]
     );
+  }
+
+  // Create an empty AI message row now — the poll will see it and know a response is coming
+  let aiMsgId = null;
+  if (conversationId) {
+    const row = await get(
+      `INSERT INTO ai_messages ("conversationId", role, text, reasoning)
+       VALUES ($1, 'cmo', '', '') RETURNING id`,
+      [conversationId]
+    );
+    aiMsgId = row?.id;
   }
 
   let orRes;
@@ -230,6 +241,7 @@ async function callClaudeStream({ system, prompt, userText, maxTokens = 32000, u
 
   let fullContent = "";
   let fullReasoning = "";
+  let lastDbSave = 0;
 
   try {
     const reader = orRes.body.getReader();
@@ -240,7 +252,6 @@ async function callClaudeStream({ system, prompt, userText, maxTokens = 32000, u
       const chunk = decoder.decode(value);
       res.write(chunk);
 
-      // Accumulate content for DB save
       const lines = chunk.split("\n");
       for (const line of lines) {
         const trimmed = line.trim();
@@ -255,18 +266,29 @@ async function callClaudeStream({ system, prompt, userText, maxTokens = 32000, u
           if (delta.content) fullContent += delta.content;
         } catch { /* skip malformed */ }
       }
+
+      // Persist partial content every ~2s so the poll sees progress
+      const now = Date.now();
+      if (aiMsgId && (fullContent || fullReasoning) && now - lastDbSave >= 2000) {
+        lastDbSave = now;
+        try {
+          await run(
+            `UPDATE ai_messages SET text = $1, reasoning = $2 WHERE id = $3`,
+            [fullContent, fullReasoning || null, aiMsgId]
+          );
+        } catch { /* swallow */ }
+      }
     }
   } catch {
     // client disconnected
   }
 
-  // Save AI message to conversation BEFORE res.end() so Vercel doesn't kill the async write
-  if (conversationId && (fullContent || fullReasoning)) {
+  // Final save with complete content + title update
+  if (aiMsgId && (fullContent || fullReasoning)) {
     try {
       await run(
-        `INSERT INTO ai_messages ("conversationId", role, text, reasoning)
-         VALUES ($1, 'cmo', $2, $3)`,
-        [conversationId, fullContent, fullReasoning || null]
+        `UPDATE ai_messages SET text = $1, reasoning = $2 WHERE id = $3`,
+        [fullContent, fullReasoning || null, aiMsgId]
       );
       const msgCount = await get(
         `SELECT COUNT(*)::int AS cnt FROM ai_messages WHERE "conversationId" = $1`,
