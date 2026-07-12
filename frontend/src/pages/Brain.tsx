@@ -64,29 +64,42 @@ export default function Brain() {
 
   useEffect(() => { refreshConvos(); }, [refreshConvos]);
 
-  // Poll for AI response only when expecting one (after sending a message / navigating back mid-stream)
+  // Poll for AI response — fires when expectingResponse is true
+  // Detects both new messages AND incremental text growth in the same row
   useEffect(() => {
     if (!activeConvoId || !expectingResponse) return;
     let cancelled = false;
+    let stalePolls = 0;
     const check = async () => {
       const c = await getConvo(activeConvoId);
       if (cancelled || !c?.messages) return;
       const incoming = c.messages;
       setMsgs((prev) => {
         if (incoming.length > prev.length) {
-          setExpectingResponse(false);
+          stalePolls = 0;
           return incoming.map((m: StoredMsg) => ({
-            role: m.role,
-            text: m.text,
-            reasoning: m.reasoning,
-            label: m.label,
+            role: m.role, text: m.text, reasoning: m.reasoning, label: m.label,
           }));
         }
+        // Same message count — check if last message text grew
+        if (incoming.length > 0 && incoming.length === prev.length) {
+          const li = incoming[incoming.length - 1];
+          const lp = prev[prev.length - 1];
+          if (li.text.length > lp.text.length) {
+            stalePolls = 0;
+            return incoming.map((m: StoredMsg) => ({
+              role: m.role, text: m.text, reasoning: m.reasoning, label: m.label,
+            }));
+          }
+        }
+        stalePolls++;
         return prev;
       });
     };
     const interval = setInterval(check, 2000);
-    return () => { cancelled = true; clearInterval(interval); };
+    // Auto-stop after 30s of no changes (stream probably finished or failed)
+    const timeout = setTimeout(() => { cancelled = true; clearInterval(interval); }, 30000);
+    return () => { cancelled = true; clearInterval(interval); clearTimeout(timeout); };
   }, [activeConvoId, expectingResponse]);
 
   const cancelStream = useCallback(() => {
