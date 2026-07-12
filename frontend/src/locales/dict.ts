@@ -282,7 +282,6 @@ export const t: Dict = {
   brain_noConvos: { ar: "لا توجد محادثات سابقة", en: "No previous conversations" },
   brain_resend: { ar: "إعادة إرسال", en: "Resend" },
   brain_stop: { ar: "إيقاف", en: "Stop" },
-  cancel: { ar: "إلغاء", en: "Cancel" },
 };
 
 // Enum value -> bilingual label
