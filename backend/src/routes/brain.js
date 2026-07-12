@@ -61,7 +61,7 @@ STYLE:
 - ${langLine}`;
 }
 
-async function callClaude({ system, prompt, maxTokens = 1100 }) {
+async function callClaude({ system, prompt, maxTokens = 2000 }) {
   const key = process.env.OPENROUTER_API_KEY || process.env.ANTHROPIC_API_KEY;
   if (!key) {
     return { configured: false };
@@ -101,13 +101,11 @@ async function callClaude({ system, prompt, maxTokens = 1100 }) {
   if (data.error) {
     return { configured: true, error: `AI provider error: ${data.error.message || JSON.stringify(data.error)}`, detail: body.slice(0, 2000) };
   }
-  const c0 = data.choices?.[0];
-  const msg = c0?.message;
+  const msg = data.choices?.[0]?.message;
   const text = typeof msg?.content === "string" ? msg.content
     : Array.isArray(msg?.content) ? msg.content.map((b) => b.text || "").join("\n")
-    : c0?.delta?.content || c0?.text || "";
-  const keys = Object.keys(data).join(", ");
-  return { configured: true, answer: text || "(no response)", detail: JSON.stringify(c0, null, 2).slice(0, 2500) };
+    : msg?.reasoning || "";
+  return { configured: true, answer: text || "(no response)" };
 }
 
 // Executive brief — the daily/weekly summary.
