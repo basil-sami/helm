@@ -70,9 +70,10 @@ export default function Brain() {
     const check = async () => {
       const c = await getConvo(activeConvoId);
       if (cancelled || !c?.messages) return;
+      const incoming = c.messages;
       setMsgs((prev) => {
-        if (c.messages.length > prev.length) {
-          return c.messages.map((m: StoredMsg) => ({
+        if (incoming.length > prev.length) {
+          return incoming.map((m: StoredMsg) => ({
             role: m.role,
             text: m.text,
             reasoning: m.reasoning,
