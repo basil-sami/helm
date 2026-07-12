@@ -104,6 +104,7 @@ export default function Brain() {
         return;
       }
 
+      if (!res.body) throw new Error("Streaming not supported");
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
