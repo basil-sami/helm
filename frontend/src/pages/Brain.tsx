@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef, Fragment, ReactNode } from "react";
 import { Card } from "../components/ui";
 import { useI18n } from "../context/I18nContext";
-import { api } from "../lib/api";
+import { api, tokenStore } from "../lib/api";
 
-interface Msg { role: "user" | "cmo"; text: string; label?: string }
+interface Msg { role: "user" | "cmo"; text: string; reasoning?: string; label?: string }
 
 // Minimal rich-text renderer (bold, bullets, headings) — no dependency.
 function Rich({ text }: { text: string }) {
@@ -51,19 +51,116 @@ export default function Brain() {
     if (busy) return;
     if (userText) setMsgs((m) => [...m, { role: "user", text: userText }]);
     setBusy(true);
+
+    const msgIdx = msgs.length + (userText ? 1 : 0);
+    setMsgs((m) => [...m, { role: "cmo", text: "", reasoning: "", label }]);
+
     try {
-      const r = await api.post<{ configured?: boolean; answer?: string; error?: string }>(path, { ...body, lang });
-      if (r.configured === false) { setConfigured(false); setMsgs((m) => [...m, { role: "cmo", text: tr("brain_notConfiguredHint"), label }]); }
-      else if (r.error) setMsgs((m) => [...m, { role: "cmo", text: "⚠️ " + r.error, label }]);
-      else setMsgs((m) => [...m, { role: "cmo", text: r.answer || "", label }]);
+      const token = tokenStore.get();
+      const res = await fetch(`/api${path}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ ...body, lang, stream: true }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        setMsgs((m) => {
+          const u = [...m];
+          if (u[msgIdx]) u[msgIdx] = { ...u[msgIdx], text: "⚠️ " + (err.error || "Request failed") };
+          return u;
+        });
+        setBusy(false);
+        return;
+      }
+
+      const ct = res.headers.get("content-type") || "";
+      if (!ct.includes("text/event-stream")) {
+        const json = await res.json();
+        if (json.configured === false) {
+          setConfigured(false);
+          setMsgs((m) => {
+            const u = [...m];
+            if (u[msgIdx]) u[msgIdx] = { ...u[msgIdx], text: tr("brain_notConfiguredHint") };
+            return u;
+          });
+        } else if (json.error) {
+          setMsgs((m) => {
+            const u = [...m];
+            if (u[msgIdx]) u[msgIdx] = { ...u[msgIdx], text: "⚠️ " + json.error };
+            return u;
+          });
+        } else {
+          setMsgs((m) => {
+            const u = [...m];
+            if (u[msgIdx]) u[msgIdx] = { ...u[msgIdx], text: json.answer || "" };
+            return u;
+          });
+        }
+        setBusy(false);
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let reasoning = "";
+      let content = "";
+      let done = false;
+
+      while (!done) {
+        const { done: streamDone, value } = await reader.read();
+        done = streamDone;
+        buffer += decoder.decode(value, { stream: !done });
+
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || !trimmed.startsWith("data: ")) continue;
+          const payload = trimmed.slice(6);
+          if (payload === "[DONE]") { done = true; break; }
+          try {
+            const parsed = JSON.parse(payload);
+            const delta = parsed.choices?.[0]?.delta;
+            if (!delta) continue;
+            if (delta.reasoning) {
+              reasoning += delta.reasoning;
+              setMsgs((m) => {
+                const u = [...m];
+                if (u[msgIdx]) u[msgIdx] = { ...u[msgIdx], reasoning, text: content || " " };
+                return u;
+              });
+            }
+            if (delta.content) {
+              content += delta.content;
+              setMsgs((m) => {
+                const u = [...m];
+                if (u[msgIdx]) u[msgIdx] = { ...u[msgIdx], reasoning, text: content };
+                return u;
+              });
+            }
+          } catch { /* skip malformed */ }
+        }
+      }
     } catch (e) {
-      setMsgs((m) => [...m, { role: "cmo", text: (e as { message?: string })?.message || tr("saveError"), label }]);
+      setMsgs((m) => {
+        const u = [...m];
+        if (u[msgIdx]) u[msgIdx] = { ...u[msgIdx], text: (e as { message?: string })?.message || tr("saveError") };
+        return u;
+      });
     } finally { setBusy(false); }
   };
 
   const ask = (q: string) => run("/brain/ask", { question: q }, q);
   const brief = () => run("/brain/brief", {}, undefined, tr("brain_briefLabel"));
   const send = () => { const q = input.trim(); if (!q) return; setInput(""); ask(q); };
+
+  const [showReasoning, setShowReasoning] = useState<Record<number, boolean>>({});
 
   const suggestions = [
     tr("brain_s_forecast"), tr("brain_s_budget"), tr("brain_s_diagnose"),
@@ -115,6 +212,20 @@ export default function Brain() {
                 <div className="mb-1 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-amber-700">
                   <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />{m.label || tr("brain_cmo")}
                 </div>
+                {m.reasoning && (
+                  <div className="mb-2">
+                    <button onClick={() => setShowReasoning((s) => ({ ...s, [i]: !s[i] }))}
+                      className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-ink-400 hover:text-ink-600">
+                      <span className={`inline-block transition-transform ${showReasoning[i] ? "rotate-90" : ""}`}>▶</span>
+                      {tr("brain_thinking")}
+                    </button>
+                    {showReasoning[i] && (
+                      <div className="mt-1 rounded-lg bg-paper-200/70 p-2 text-xs text-ink-500 leading-relaxed whitespace-pre-wrap font-mono">
+                        {m.reasoning}
+                      </div>
+                    )}
+                  </div>
+                )}
                 <Rich text={m.text} />
               </Card>
             </div>

@@ -61,7 +61,7 @@ STYLE:
 - ${langLine}`;
 }
 
-async function callClaude({ system, prompt, maxTokens = 8000 }) {
+async function callClaude({ system, prompt, maxTokens = 2500 }) {
   const key = process.env.OPENROUTER_API_KEY || process.env.ANTHROPIC_API_KEY;
   if (!key) {
     return { configured: false };
@@ -108,13 +108,86 @@ async function callClaude({ system, prompt, maxTokens = 8000 }) {
   return { configured: true, answer: text || "(no response)" };
 }
 
+async function callClaudeStream({ system, prompt, maxTokens = 8000 }, res) {
+  const key = process.env.OPENROUTER_API_KEY || process.env.ANTHROPIC_API_KEY;
+  if (!key) {
+    res.json({ configured: false, error: "No API key configured" });
+    return;
+  }
+  let orRes;
+  try {
+    orRes = await fetch(API, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "authorization": `Bearer ${key}`,
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: maxTokens,
+        temperature: 0.4,
+        stream: true,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: prompt },
+        ],
+      }),
+    });
+  } catch {
+    res.json({ configured: true, error: "Couldn't reach the AI provider. Check network egress." });
+    return;
+  }
+  if (!orRes.ok) {
+    const body = await orRes.text();
+    res.json({ configured: true, error: `AI provider error ${orRes.status}.`, detail: body });
+    return;
+  }
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+  });
+  try {
+    const reader = orRes.body.getReader();
+    const decoder = new TextDecoder();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      res.write(decoder.decode(value));
+    }
+  } catch {
+    // client disconnected
+  }
+  res.end();
+}
+
+function buildContext() {
+  return gatherContext().then((ctx) => ({
+    organization: ctx.organization,
+    rate: ctx.currency.usdToSdgRate,
+    scorecard: ctx.scorecard,
+    funnel: ctx.funnel,
+    pipeline: ctx.pipeline,
+    channels: ctx.channels,
+    trends6mo: ctx.trends6mo,
+    contentByStatus: ctx.contentByStatus,
+    sentiment: ctx.marketSentiment,
+    objectives: ctx.objectives,
+    recentSignals: ctx.recentMarketSignals,
+    topCampaigns: ctx.topCampaignsByPipeline,
+  }));
+}
+
 // Executive brief — the daily/weekly summary.
 brainRouter.post("/brief", async (req, res, next) => {
   try {
     const lang = req.body?.lang === "ar" ? "ar" : "en";
-    const ctx = await gatherContext();
+    const ctx = await buildContext();
     const prompt = `Here is the current marketing data snapshot (JSON):\n\n${JSON.stringify(ctx, null, 1)}\n\n` +
       `Write the executive marketing brief for the Head of Marketing. Cover, briefly: (1) the headline state of pipeline & revenue vs objectives, (2) what's working, (3) what's at risk or needs attention, (4) the top 3 actions to take this week. Cite the numbers. Keep it tight.`;
+    if (req.body?.stream) {
+      return callClaudeStream({ system: systemPrompt(lang), prompt }, res);
+    }
     const out = await callClaude({ system: systemPrompt(lang), prompt, maxTokens: 1300 });
     res.json(out);
   } catch (e) { next(e); }
@@ -126,9 +199,12 @@ brainRouter.post("/ask", async (req, res, next) => {
   if (!question) return res.status(400).json({ error: "question is required" });
   try {
     const lang = req.body?.lang === "ar" ? "ar" : "en";
-    const ctx = await gatherContext();
+    const ctx = await buildContext();
     const prompt = `Marketing data snapshot (JSON):\n\n${JSON.stringify(ctx, null, 1)}\n\n` +
       `The marketing lead asks:\n"""${question}"""\n\nAnswer using the data above. Cite the relevant figures.`;
+    if (req.body?.stream) {
+      return callClaudeStream({ system: systemPrompt(lang), prompt }, res);
+    }
     const out = await callClaude({ system: systemPrompt(lang), prompt });
     res.json(out);
   } catch (e) { next(e); }
