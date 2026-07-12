@@ -1,11 +1,82 @@
 import { Router } from "express";
-import { all, get } from "../db.js";
+import { all, get, run } from "../db.js";
 import { requireAuth, requirePerm } from "../auth.js";
 import { computeOverview } from "./analytics.js";
 import { objectivesWithProgress } from "./planning.js";
 
 export const brainRouter = Router();
 brainRouter.use(requireAuth, requirePerm("brain", "read"));
+
+// ── Conversation CRUD ──────────────────────────────────────────────────────
+
+brainRouter.get("/conversations", async (_req, res, next) => {
+  try {
+    const rows = await all(
+      `SELECT id, "userId", title, "createdAt", "updatedAt"
+       FROM ai_conversations WHERE "userId" = $1
+       ORDER BY "updatedAt" DESC LIMIT 50`,
+      [res.locals.user.id]
+    );
+    res.json(rows);
+  } catch (e) { next(e); }
+});
+
+brainRouter.post("/conversations", async (req, res, next) => {
+  try {
+    const title = (req.body?.title || "").trim().slice(0, 100) || "New conversation";
+    const row = await get(
+      `INSERT INTO ai_conversations ("userId", title) VALUES ($1, $2)
+       RETURNING id, "userId", title, "createdAt", "updatedAt"`,
+      [res.locals.user.id, title]
+    );
+    res.status(201).json(row);
+  } catch (e) { next(e); }
+});
+
+brainRouter.get("/conversations/:id", async (req, res, next) => {
+  try {
+    const convo = await get(
+      `SELECT id, "userId", title, "createdAt", "updatedAt"
+       FROM ai_conversations WHERE id = $1 AND "userId" = $2`,
+      [req.params.id, res.locals.user.id]
+    );
+    if (!convo) return res.status(404).json({ error: "Conversation not found" });
+    const messages = await all(
+      `SELECT id, role, text, reasoning, label, "createdAt"
+       FROM ai_messages WHERE "conversationId" = $1
+       ORDER BY "createdAt"`,
+      [req.params.id]
+    );
+    res.json({ ...convo, messages });
+  } catch (e) { next(e); }
+});
+
+brainRouter.patch("/conversations/:id", async (req, res, next) => {
+  try {
+    const title = (req.body?.title || "").trim().slice(0, 100);
+    if (!title) return res.status(400).json({ error: "title is required" });
+    const row = await get(
+      `UPDATE ai_conversations SET title = $1, "updatedAt" = now()
+       WHERE id = $2 AND "userId" = $3
+       RETURNING id, "userId", title, "createdAt", "updatedAt"`,
+      [title, req.params.id, res.locals.user.id]
+    );
+    if (!row) return res.status(404).json({ error: "Conversation not found" });
+    res.json(row);
+  } catch (e) { next(e); }
+});
+
+brainRouter.delete("/conversations/:id", async (req, res, next) => {
+  try {
+    const row = await get(
+      `DELETE FROM ai_conversations WHERE id = $1 AND "userId" = $2
+       RETURNING id`,
+      [req.params.id, res.locals.user.id]
+    );
+    if (!row) return res.status(404).json({ error: "Conversation not found" });
+    res.json({ deleted: true });
+  } catch (e) { next(e); }
+});
 
 const MODEL = process.env.OPENROUTER_MODEL || "anthropic/claude-3.5-sonnet";
 const API = "https://openrouter.ai/api/v1/chat/completions";
@@ -108,12 +179,21 @@ async function callClaude({ system, prompt, maxTokens = 2500 }) {
   return { configured: true, answer: text || "(no response)" };
 }
 
-async function callClaudeStream({ system, prompt, maxTokens = 32000 }, res) {
+async function callClaudeStream({ system, prompt, userText, maxTokens = 32000, userId, conversationId }, res) {
   const key = process.env.OPENROUTER_API_KEY || process.env.ANTHROPIC_API_KEY;
   if (!key) {
     res.json({ configured: false, error: "No API key configured" });
     return;
   }
+
+  // Save user message if conversationId provided (use userText for the label/display, not the full prompt)
+  if (conversationId && userText) {
+    await run(
+      `INSERT INTO ai_messages ("conversationId", role, text) VALUES ($1, 'user', $2)`,
+      [conversationId, userText]
+    );
+  }
+
   let orRes;
   try {
     orRes = await fetch(API, {
@@ -147,18 +227,67 @@ async function callClaudeStream({ system, prompt, maxTokens = 32000 }, res) {
     "Cache-Control": "no-cache",
     "Connection": "keep-alive",
   });
+
+  let fullContent = "";
+  let fullReasoning = "";
+
   try {
     const reader = orRes.body.getReader();
     const decoder = new TextDecoder();
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      res.write(decoder.decode(value));
+      const chunk = decoder.decode(value);
+      res.write(chunk);
+
+      // Accumulate content for DB save
+      const lines = chunk.split("\n");
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith("data: ")) continue;
+        const payload = trimmed.slice(6);
+        if (payload === "[DONE]") break;
+        try {
+          const parsed = JSON.parse(payload);
+          const delta = parsed.choices?.[0]?.delta;
+          if (!delta) continue;
+          if (delta.reasoning) fullReasoning += delta.reasoning;
+          if (delta.content) fullContent += delta.content;
+        } catch { /* skip malformed */ }
+      }
     }
   } catch {
     // client disconnected
   }
   res.end();
+
+  // Save AI message to conversation
+  if (conversationId && (fullContent || fullReasoning)) {
+    try {
+      await run(
+        `INSERT INTO ai_messages ("conversationId", role, text, reasoning)
+         VALUES ($1, 'cmo', $2, $3)`,
+        [conversationId, fullContent, fullReasoning || null]
+      );
+      // Update conversation title from first AI response
+      const msgCount = await get(
+        `SELECT COUNT(*)::int AS cnt FROM ai_messages WHERE "conversationId" = $1`,
+        [conversationId]
+      );
+      if (msgCount && msgCount.cnt <= 2) {
+        const title = fullContent.replace(/["""«»]/g, "").trim().slice(0, 60) || "New conversation";
+        await run(
+          `UPDATE ai_conversations SET title = $1, "updatedAt" = now() WHERE id = $2`,
+          [title, conversationId]
+        );
+      } else {
+        await run(
+          `UPDATE ai_conversations SET "updatedAt" = now() WHERE id = $1`,
+          [conversationId]
+        );
+      }
+    } catch { /* swallow save errors */ }
+  }
 }
 
 function buildContext() {
@@ -178,6 +307,22 @@ function buildContext() {
   }));
 }
 
+// Collect user text from the body for the prompt label (used to generate title).
+function extractUserText(req) {
+  return req.body?.question || req.body?.promptLabel || "";
+}
+
+async function ensureConversation(userId, userText, req) {
+  let conversationId = req.body?.conversationId;
+  if (conversationId) return conversationId;
+  const title = userText ? userText.replace(/["""«»]/g, "").trim().slice(0, 60) : "New conversation";
+  const row = await get(
+    `INSERT INTO ai_conversations ("userId", title) VALUES ($1, $2) RETURNING id`,
+    [userId, title || "New conversation"]
+  );
+  return row.id;
+}
+
 // Executive brief — the daily/weekly summary.
 brainRouter.post("/brief", async (req, res, next) => {
   try {
@@ -186,7 +331,8 @@ brainRouter.post("/brief", async (req, res, next) => {
     const prompt = `Here is the current marketing data snapshot (JSON):\n\n${JSON.stringify(ctx, null, 1)}\n\n` +
       `Write the executive marketing brief for the Head of Marketing. Cover, briefly: (1) the headline state of pipeline & revenue vs objectives, (2) what's working, (3) what's at risk or needs attention, (4) the top 3 actions to take this week. Cite the numbers. Keep it tight.`;
     if (req.body?.stream) {
-      return callClaudeStream({ system: systemPrompt(lang), prompt }, res);
+      const conversationId = await ensureConversation(res.locals.user.id, "(brief)", req);
+      return callClaudeStream({ system: systemPrompt(lang), prompt, userText: "", maxTokens: 1300, userId: res.locals.user.id, conversationId }, res);
     }
     const out = await callClaude({ system: systemPrompt(lang), prompt, maxTokens: 1300 });
     res.json(out);
@@ -203,7 +349,8 @@ brainRouter.post("/ask", async (req, res, next) => {
     const prompt = `Marketing data snapshot (JSON):\n\n${JSON.stringify(ctx, null, 1)}\n\n` +
       `The marketing lead asks:\n"""${question}"""\n\nAnswer using the data above. Cite the relevant figures.`;
     if (req.body?.stream) {
-      return callClaudeStream({ system: systemPrompt(lang), prompt }, res);
+      const conversationId = await ensureConversation(res.locals.user.id, question, req);
+      return callClaudeStream({ system: systemPrompt(lang), prompt, userText: question, userId: res.locals.user.id, conversationId }, res);
     }
     const out = await callClaude({ system: systemPrompt(lang), prompt });
     res.json(out);

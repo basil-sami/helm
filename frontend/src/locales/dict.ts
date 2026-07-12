@@ -277,6 +277,9 @@ export const t: Dict = {
   brain_s_signals: { ar: "ما الفرص التي تشير إليها إشارات السوق؟", en: "What opportunities do the market signals suggest?" },
   brain_s_content: { ar: "اكتب منشور لينكدإن لقسم الطاقة الشمسية", en: "Draft a LinkedIn post for our solar division" },
   brain_s_plan: { ar: "اقترح خطة حملة لزيادة العملاء المؤهلين", en: "Draft a campaign plan to grow qualified leads" },
+  brain_new: { ar: "محادثة جديدة", en: "New conversation" },
+  brain_delete: { ar: "حذف", en: "Delete" },
+  brain_noConvos: { ar: "لا توجد محادثات سابقة", en: "No previous conversations" },
 };
 
 // Enum value -> bilingual label
