@@ -9,7 +9,7 @@ brainRouter.use(requireAuth, requirePerm("brain", "read"));
 
 // ── Conversation CRUD ──────────────────────────────────────────────────────
 
-brainRouter.get("/conversations", async (_req, res, next) => {
+brainRouter.get("/conversations", async (req, res, next) => {
   try {
     const rows = await all(
       `SELECT id, "userId", title, "createdAt", "updatedAt"
