@@ -45,6 +45,7 @@ export default function Brain() {
   const [convos, setConvos] = useState<Conversation[]>([]);
   const [activeConvoId, setActiveConvoId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [expectingResponse, setExpectingResponse] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef(activeConvoId);
   activeRef.current = activeConvoId;
@@ -63,9 +64,9 @@ export default function Brain() {
 
   useEffect(() => { refreshConvos(); }, [refreshConvos]);
 
-  // Poll for missed AI responses when navigating back mid-stream
+  // Poll for AI response only when expecting one (after sending a message / navigating back mid-stream)
   useEffect(() => {
-    if (!activeConvoId) return;
+    if (!activeConvoId || !expectingResponse) return;
     let cancelled = false;
     const check = async () => {
       const c = await getConvo(activeConvoId);
@@ -73,6 +74,7 @@ export default function Brain() {
       const incoming = c.messages;
       setMsgs((prev) => {
         if (incoming.length > prev.length) {
+          setExpectingResponse(false);
           return incoming.map((m: StoredMsg) => ({
             role: m.role,
             text: m.text,
@@ -83,10 +85,9 @@ export default function Brain() {
         return prev;
       });
     };
-    check();
     const interval = setInterval(check, 3000);
     return () => { cancelled = true; clearInterval(interval); };
-  }, [activeConvoId]);
+  }, [activeConvoId, expectingResponse]);
 
   const cancelStream = useCallback(() => {
     if (abortRef.current) {
@@ -108,11 +109,16 @@ export default function Brain() {
       label: m.label,
     }));
     setMsgs(loaded);
+    // If the last message is from user, AI might still be generating — start polling
+    if (loaded.length > 0 && loaded[loaded.length - 1].role === "user") {
+      setExpectingResponse(true);
+    }
   }, []);
 
   const handleNew = useCallback(async () => {
     runIdRef.current++;
     setBusy(false);
+    setExpectingResponse(false);
     setActiveConvoId(null);
     setMsgs([]);
   }, []);
@@ -121,6 +127,7 @@ export default function Brain() {
     e.stopPropagation();
     await deleteConvo(id);
     if (activeRef.current === id) {
+      setExpectingResponse(false);
       setActiveConvoId(null);
       setMsgs([]);
     }
@@ -145,6 +152,7 @@ export default function Brain() {
         refreshConvos();
       }
     }
+    setExpectingResponse(true);
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -272,6 +280,7 @@ export default function Brain() {
       }
     } finally {
       if (runIdRef.current === thisRun) setBusy(false);
+      setExpectingResponse(false);
       refreshConvos();
     }
   };
