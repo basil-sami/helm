@@ -222,7 +222,7 @@ export default function Brain() {
       }
 
       // If user is still on this convo, do a final sync from DB for consistency
-      if (activeRef.current === conversationId) {
+      if (activeRef.current === conversationId && conversationId) {
         const c = await getConvo(conversationId);
         if (c?.messages) {
           const loaded: Msg[] = c.messages.map((m: StoredMsg) => ({
