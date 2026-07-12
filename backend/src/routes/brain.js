@@ -61,7 +61,7 @@ STYLE:
 - ${langLine}`;
 }
 
-async function callClaude({ system, prompt, maxTokens = 2000 }) {
+async function callClaude({ system, prompt, maxTokens = 8000 }) {
   const key = process.env.OPENROUTER_API_KEY || process.env.ANTHROPIC_API_KEY;
   if (!key) {
     return { configured: false };
@@ -96,10 +96,10 @@ async function callClaude({ system, prompt, maxTokens = 2000 }) {
   }
   let data;
   try { data = JSON.parse(body); } catch {
-    return { configured: true, error: "Invalid JSON from AI provider.", detail: body.slice(0, 2000) };
+    return { configured: true, error: "Invalid JSON from AI provider." };
   }
   if (data.error) {
-    return { configured: true, error: `AI provider error: ${data.error.message || JSON.stringify(data.error)}`, detail: body.slice(0, 2000) };
+    return { configured: true, error: `AI provider error: ${data.error.message || JSON.stringify(data.error)}` };
   }
   const msg = data.choices?.[0]?.message;
   const text = typeof msg?.content === "string" ? msg.content
