@@ -55,8 +55,10 @@ export default function Brain() {
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, busy]);
 
   const refreshConvos = useCallback(async () => {
-    const rows = await listConvos();
-    setConvos(rows);
+    try {
+      const rows = await api.get<Conversation[]>("/brain/conversations");
+      setConvos(rows);
+    } catch { /* keep existing convos on error */ }
   }, []);
 
   useEffect(() => { refreshConvos(); }, [refreshConvos]);
