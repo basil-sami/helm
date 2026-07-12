@@ -108,7 +108,7 @@ async function callClaude({ system, prompt, maxTokens = 2500 }) {
   return { configured: true, answer: text || "(no response)" };
 }
 
-async function callClaudeStream({ system, prompt, maxTokens = 8000 }, res) {
+async function callClaudeStream({ system, prompt, maxTokens = 32000 }, res) {
   const key = process.env.OPENROUTER_API_KEY || process.env.ANTHROPIC_API_KEY;
   if (!key) {
     res.json({ configured: false, error: "No API key configured" });
