@@ -63,6 +63,30 @@ export default function Brain() {
 
   useEffect(() => { refreshConvos(); }, [refreshConvos]);
 
+  // Poll for missed AI responses when navigating back mid-stream
+  useEffect(() => {
+    if (!activeConvoId) return;
+    let cancelled = false;
+    const check = async () => {
+      const c = await getConvo(activeConvoId);
+      if (cancelled || !c?.messages) return;
+      setMsgs((prev) => {
+        if (c.messages.length > prev.length) {
+          return c.messages.map((m: StoredMsg) => ({
+            role: m.role,
+            text: m.text,
+            reasoning: m.reasoning,
+            label: m.label,
+          }));
+        }
+        return prev;
+      });
+    };
+    check();
+    const interval = setInterval(check, 3000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [activeConvoId]);
+
   const cancelStream = useCallback(() => {
     if (abortRef.current) {
       abortRef.current.abort();
