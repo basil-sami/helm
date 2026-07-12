@@ -7,8 +7,8 @@ import { objectivesWithProgress } from "./planning.js";
 export const brainRouter = Router();
 brainRouter.use(requireAuth, requirePerm("brain", "read"));
 
-const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
-const API = "https://api.anthropic.com/v1/messages";
+const MODEL = process.env.OPENROUTER_MODEL || "anthropic/claude-3.5-sonnet";
+const API = "https://openrouter.ai/api/v1/chat/completions";
 
 // Compact, grounded snapshot of the marketing state for the model to reason over.
 async function gatherContext() {
@@ -62,7 +62,8 @@ STYLE:
 }
 
 async function callClaude({ system, prompt, maxTokens = 1100 }) {
-  if (!process.env.ANTHROPIC_API_KEY) {
+  const key = process.env.OPENROUTER_API_KEY || process.env.ANTHROPIC_API_KEY;
+  if (!key) {
     return { configured: false };
   }
   let res;
@@ -71,28 +72,29 @@ async function callClaude({ system, prompt, maxTokens = 1100 }) {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-api-key": process.env.ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
+        "authorization": `Bearer ${key}`,
       },
       body: JSON.stringify({
         model: MODEL,
         max_tokens: maxTokens,
         temperature: 0.4,
-        system,
-        messages: [{ role: "user", content: prompt }],
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: prompt },
+        ],
       }),
     });
   } catch {
-    return { configured: true, error: "Couldn't reach the AI provider. Check network egress to api.anthropic.com." };
+    return { configured: true, error: "Couldn't reach the AI provider. Check network egress." };
   }
   if (!res.ok) {
-    const hint = res.status === 401 ? " — invalid ANTHROPIC_API_KEY"
-      : res.status === 404 ? ` — model "${MODEL}" not found; set ANTHROPIC_MODEL`
+    const hint = res.status === 401 ? " — invalid API key"
+      : res.status === 404 ? ` — model "${MODEL}" not found; set OPENROUTER_MODEL`
       : res.status === 429 ? " — rate limited; try again shortly" : "";
     return { configured: true, error: `AI provider error ${res.status}${hint}.` };
   }
   const data = await res.json();
-  const text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n").trim();
+  const text = data.choices?.[0]?.message?.content || "";
   return { configured: true, answer: text || "(no response)" };
 }
 
@@ -124,5 +126,5 @@ brainRouter.post("/ask", async (req, res, next) => {
 
 // Lets the UI show "configured / not configured" without making a model call.
 brainRouter.get("/status", (_req, res) => {
-  res.json({ configured: !!process.env.ANTHROPIC_API_KEY, model: process.env.ANTHROPIC_API_KEY ? MODEL : null });
+  res.json({ configured: !!(process.env.OPENROUTER_API_KEY || process.env.ANTHROPIC_API_KEY), model: MODEL });
 });
