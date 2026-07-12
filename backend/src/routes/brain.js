@@ -15,7 +15,7 @@ brainRouter.get("/conversations", async (_req, res, next) => {
       `SELECT id, "userId", title, "createdAt", "updatedAt"
        FROM ai_conversations WHERE "userId" = $1
        ORDER BY "updatedAt" DESC LIMIT 50`,
-      [res.locals.user.id]
+      [req.user.id]
     );
     res.json(rows);
   } catch (e) { next(e); }
@@ -27,7 +27,7 @@ brainRouter.post("/conversations", async (req, res, next) => {
     const row = await get(
       `INSERT INTO ai_conversations ("userId", title) VALUES ($1, $2)
        RETURNING id, "userId", title, "createdAt", "updatedAt"`,
-      [res.locals.user.id, title]
+      [req.user.id, title]
     );
     res.status(201).json(row);
   } catch (e) { next(e); }
@@ -38,7 +38,7 @@ brainRouter.get("/conversations/:id", async (req, res, next) => {
     const convo = await get(
       `SELECT id, "userId", title, "createdAt", "updatedAt"
        FROM ai_conversations WHERE id = $1 AND "userId" = $2`,
-      [req.params.id, res.locals.user.id]
+      [req.params.id, req.user.id]
     );
     if (!convo) return res.status(404).json({ error: "Conversation not found" });
     const messages = await all(
@@ -59,7 +59,7 @@ brainRouter.patch("/conversations/:id", async (req, res, next) => {
       `UPDATE ai_conversations SET title = $1, "updatedAt" = now()
        WHERE id = $2 AND "userId" = $3
        RETURNING id, "userId", title, "createdAt", "updatedAt"`,
-      [title, req.params.id, res.locals.user.id]
+      [title, req.params.id, req.user.id]
     );
     if (!row) return res.status(404).json({ error: "Conversation not found" });
     res.json(row);
@@ -71,7 +71,7 @@ brainRouter.delete("/conversations/:id", async (req, res, next) => {
     const row = await get(
       `DELETE FROM ai_conversations WHERE id = $1 AND "userId" = $2
        RETURNING id`,
-      [req.params.id, res.locals.user.id]
+      [req.params.id, req.user.id]
     );
     if (!row) return res.status(404).json({ error: "Conversation not found" });
     res.json({ deleted: true });
@@ -331,8 +331,8 @@ brainRouter.post("/brief", async (req, res, next) => {
     const prompt = `Here is the current marketing data snapshot (JSON):\n\n${JSON.stringify(ctx, null, 1)}\n\n` +
       `Write the executive marketing brief for the Head of Marketing. Cover, briefly: (1) the headline state of pipeline & revenue vs objectives, (2) what's working, (3) what's at risk or needs attention, (4) the top 3 actions to take this week. Cite the numbers. Keep it tight.`;
     if (req.body?.stream) {
-      const conversationId = await ensureConversation(res.locals.user.id, "(brief)", req);
-      return callClaudeStream({ system: systemPrompt(lang), prompt, userText: "", maxTokens: 1300, userId: res.locals.user.id, conversationId }, res);
+      const conversationId = await ensureConversation(req.user.id, "(brief)", req);
+      return callClaudeStream({ system: systemPrompt(lang), prompt, userText: "", maxTokens: 1300, userId: req.user.id, conversationId }, res);
     }
     const out = await callClaude({ system: systemPrompt(lang), prompt, maxTokens: 1300 });
     res.json(out);
@@ -349,8 +349,8 @@ brainRouter.post("/ask", async (req, res, next) => {
     const prompt = `Marketing data snapshot (JSON):\n\n${JSON.stringify(ctx, null, 1)}\n\n` +
       `The marketing lead asks:\n"""${question}"""\n\nAnswer using the data above. Cite the relevant figures.`;
     if (req.body?.stream) {
-      const conversationId = await ensureConversation(res.locals.user.id, question, req);
-      return callClaudeStream({ system: systemPrompt(lang), prompt, userText: question, userId: res.locals.user.id, conversationId }, res);
+      const conversationId = await ensureConversation(req.user.id, question, req);
+      return callClaudeStream({ system: systemPrompt(lang), prompt, userText: question, userId: req.user.id, conversationId }, res);
     }
     const out = await callClaude({ system: systemPrompt(lang), prompt });
     res.json(out);
