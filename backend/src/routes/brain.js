@@ -96,13 +96,14 @@ async function callClaude({ system, prompt, maxTokens = 1100 }) {
   }
   let data;
   try { data = JSON.parse(body); } catch {
-    return { configured: true, error: "Invalid JSON from AI provider.", detail: body.slice(0, 500) };
+    return { configured: true, error: "Invalid JSON from AI provider.", detail: body.slice(0, 2000) };
   }
   if (data.error) {
-    return { configured: true, error: `AI provider error: ${data.error.message || JSON.stringify(data.error)}`, detail: body.slice(0, 500) };
+    return { configured: true, error: `AI provider error: ${data.error.message || JSON.stringify(data.error)}`, detail: body.slice(0, 2000) };
   }
   const text = data.choices?.[0]?.message?.content || "";
-  return { configured: true, answer: text || "(no response)", detail: body.slice(0, 500) };
+  const keys = Object.keys(data).join(", ");
+  return { configured: true, answer: text || "(no response)", detail: `${body.slice(0, 2000)}\n\n--- response keys: ${keys}` };
 }
 
 // Executive brief — the daily/weekly summary.
