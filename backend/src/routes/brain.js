@@ -87,15 +87,22 @@ async function callClaude({ system, prompt, maxTokens = 1100 }) {
   } catch {
     return { configured: true, error: "Couldn't reach the AI provider. Check network egress." };
   }
+  const body = await res.text();
   if (!res.ok) {
     const hint = res.status === 401 ? " — invalid API key"
       : res.status === 404 ? ` — model "${MODEL}" not found; set OPENROUTER_MODEL`
       : res.status === 429 ? " — rate limited; try again shortly" : "";
-    return { configured: true, error: `AI provider error ${res.status}${hint}.` };
+    return { configured: true, error: `AI provider error ${res.status}${hint}.`, detail: body };
   }
-  const data = await res.json();
+  let data;
+  try { data = JSON.parse(body); } catch {
+    return { configured: true, error: "Invalid JSON from AI provider.", detail: body.slice(0, 500) };
+  }
+  if (data.error) {
+    return { configured: true, error: `AI provider error: ${data.error.message || JSON.stringify(data.error)}`, detail: body.slice(0, 500) };
+  }
   const text = data.choices?.[0]?.message?.content || "";
-  return { configured: true, answer: text || "(no response)" };
+  return { configured: true, answer: text || "(no response)", detail: body.slice(0, 500) };
 }
 
 // Executive brief — the daily/weekly summary.
