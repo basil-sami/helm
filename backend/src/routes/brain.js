@@ -101,9 +101,11 @@ async function callClaude({ system, prompt, maxTokens = 1100 }) {
   if (data.error) {
     return { configured: true, error: `AI provider error: ${data.error.message || JSON.stringify(data.error)}`, detail: body.slice(0, 2000) };
   }
-  const text = data.choices?.[0]?.message?.content || "";
+  const c0 = data.choices?.[0];
+  const text = c0?.message?.content || c0?.delta?.content || c0?.text || "";
   const keys = Object.keys(data).join(", ");
-  return { configured: true, answer: text || "(no response)", detail: `${body.slice(0, 2000)}\n\n--- response keys: ${keys}` };
+  const c0keys = c0 ? Object.keys(c0).join(", ") : "undefined";
+  return { configured: true, answer: text || "(no response)", detail: `${body.slice(0, 2000)}\n\n--- keys: ${keys} | choice[0] keys: ${c0keys} | msg keys: ${c0?.message ? Object.keys(c0.message).join(", ") : "no message"}` };
 }
 
 // Executive brief — the daily/weekly summary.
