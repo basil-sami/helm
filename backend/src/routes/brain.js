@@ -259,9 +259,8 @@ async function callClaudeStream({ system, prompt, userText, maxTokens = 32000, u
   } catch {
     // client disconnected
   }
-  res.end();
 
-  // Save AI message to conversation
+  // Save AI message to conversation BEFORE res.end() so Vercel doesn't kill the async write
   if (conversationId && (fullContent || fullReasoning)) {
     try {
       await run(
@@ -269,7 +268,6 @@ async function callClaudeStream({ system, prompt, userText, maxTokens = 32000, u
          VALUES ($1, 'cmo', $2, $3)`,
         [conversationId, fullContent, fullReasoning || null]
       );
-      // Update conversation title from first AI response
       const msgCount = await get(
         `SELECT COUNT(*)::int AS cnt FROM ai_messages WHERE "conversationId" = $1`,
         [conversationId]
@@ -288,6 +286,8 @@ async function callClaudeStream({ system, prompt, userText, maxTokens = 32000, u
       }
     } catch { /* swallow save errors */ }
   }
+
+  res.end();
 }
 
 function buildContext() {
