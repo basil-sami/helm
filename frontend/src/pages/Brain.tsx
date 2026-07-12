@@ -117,6 +117,7 @@ export default function Brain() {
       if (created) {
         conversationId = created.id;
         setActiveConvoId(created.id);
+        refreshConvos();
       }
     }
 
