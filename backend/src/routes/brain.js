@@ -102,10 +102,12 @@ async function callClaude({ system, prompt, maxTokens = 1100 }) {
     return { configured: true, error: `AI provider error: ${data.error.message || JSON.stringify(data.error)}`, detail: body.slice(0, 2000) };
   }
   const c0 = data.choices?.[0];
-  const text = c0?.message?.content || c0?.delta?.content || c0?.text || "";
+  const msg = c0?.message;
+  const text = typeof msg?.content === "string" ? msg.content
+    : Array.isArray(msg?.content) ? msg.content.map((b) => b.text || "").join("\n")
+    : c0?.delta?.content || c0?.text || "";
   const keys = Object.keys(data).join(", ");
-  const c0keys = c0 ? Object.keys(c0).join(", ") : "undefined";
-  return { configured: true, answer: text || "(no response)", detail: `${body.slice(0, 2000)}\n\n--- keys: ${keys} | choice[0] keys: ${c0keys} | msg keys: ${c0?.message ? Object.keys(c0.message).join(", ") : "no message"}` };
+  return { configured: true, answer: text || "(no response)", detail: JSON.stringify(c0, null, 2).slice(0, 2500) };
 }
 
 // Executive brief — the daily/weekly summary.
