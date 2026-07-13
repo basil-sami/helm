@@ -35,8 +35,10 @@ leadActivitiesRouter.post("/import", requirePerm("leads"), async (req, res, next
   const header = lines[0].split(",").map((h) => h.trim().toLowerCase());
   const col = (name) => header.indexOf(name);
   const iCompany = col("company"), iName = col("contactname"), iPhone = col("phone"),
-        iEmail = col("email"), iSource = col("source"), iValue = col("valueusd");
+        iEmail = col("email"), iSource = col("source"), iValueUsd = col("valueusd"), iValueSdg = col("valuesdg");
   if (iCompany === -1) return res.status(400).json({ error: "CSV must include a 'company' column" });
+  const { default: rateRow } = await get(`SELECT "usdToSdgRate" FROM settings WHERE id = 1`);
+  const rate = Number(rateRow?.usdToSdgRate) || 0;
   let created = 0, skipped = 0;
   try {
     for (const line of lines.slice(1)) {
@@ -44,13 +46,17 @@ leadActivitiesRouter.post("/import", requirePerm("leads"), async (req, res, next
       const company = c[iCompany] || "";
       const phone = iPhone !== -1 ? c[iPhone] || "" : "";
       if (company.length < 2) { skipped++; continue; }
+      let usd = iValueUsd !== -1 ? (parseFloat(c[iValueUsd]) || 0) : 0;
+      let sdg = iValueSdg !== -1 ? (parseFloat(c[iValueSdg]) || 0) : 0;
+      if (!usd && sdg && rate) usd = Number((sdg / rate).toFixed(2));
+      if (!sdg && usd && rate) sdg = Number((usd * rate).toFixed(2));
       const row = await get(
-        `INSERT INTO leads (company, "contactName", phone, email, source, "valueUsd")
-         VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+        `INSERT INTO leads (company, "contactName", phone, email, source, "valueUsd", "valueSdg")
+         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
         [company.slice(0, 200), iName !== -1 ? (c[iName] || null) : null, phone.slice(0, 40) || null,
          iEmail !== -1 ? (c[iEmail] || null) : null,
          iSource !== -1 ? (c[iSource] || "IMPORT") : "IMPORT",
-         iValue !== -1 ? (parseFloat(c[iValue]) || 0) : 0]);
+         usd, sdg]);
       logActivity(req, row.id, "CREATED", null, { via: "IMPORT" });
       created++;
     }
