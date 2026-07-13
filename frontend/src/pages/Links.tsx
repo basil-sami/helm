@@ -19,10 +19,12 @@ export default function Links() {
   const [saving, setSaving] = useState(false);
 
   const create = async () => {
-    if (!/^https?:\/\/.+/.test(form.url)) return toast.push(tr("saveError"), "error");
+    let url = form.url.trim();
+    if (!/^https?:\/\//i.test(url)) url = "https://" + url;
+    if (!/^https?:\/\/.+/.test(url)) return toast.push(tr("saveError"), "error");
     setSaving(true);
     try {
-      await api.post("/links", { ...form, campaignId: form.campaignId || null, code: form.code || undefined });
+      await api.post("/links", { ...form, url, campaignId: form.campaignId || null, code: form.code || undefined });
       setForm({ url: "", code: "", campaignId: "", channel: "" });
       reload();
     } catch (e) { toast.push(e instanceof ApiError ? e.message : tr("saveError"), "error"); console.error(e); }
