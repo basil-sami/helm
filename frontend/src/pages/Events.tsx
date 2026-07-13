@@ -86,6 +86,8 @@ export default function Events() {
   const toast = useToast();
   const { data, loading, reload } = useFetch<EventRow[]>("/events");
   const { data: users } = useFetch<UserRow[]>("/users");
+  const { data: settings } = useFetch<any>("/settings");
+  const rate = Number(settings?.usdToSdgRate) || 0;
   const [editing, setEditing] = useState<Partial<EventRow> | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -183,8 +185,8 @@ export default function Events() {
             <Field label={tr("city")}><input className="input" value={editing.city || ""} onChange={(e) => setEditing({ ...editing, city: e.target.value })} /></Field>
             <Field label={tr("startDate")}><input type="date" className="input" value={editing.startDate || ""} onChange={(e) => setEditing({ ...editing, startDate: e.target.value })} /></Field>
             <Field label={tr("endDate")}><input type="date" className="input" value={editing.endDate || ""} onChange={(e) => setEditing({ ...editing, endDate: e.target.value })} /></Field>
-            <Field label={`${tr("budget")} (USD)`}><input type="number" className="input" value={editing.budgetUsd ?? 0} onChange={(e) => setEditing({ ...editing, budgetUsd: Number(e.target.value) })} /></Field>
-            <Field label={`${tr("budget")} (SDG)`}><input type="number" className="input" value={editing.budgetSdg ?? 0} onChange={(e) => setEditing({ ...editing, budgetSdg: Number(e.target.value) })} /></Field>
+            <Field label={`${tr("budget")} (USD)`}><input type="number" className="input" value={editing.budgetUsd ?? 0} onChange={(e) => { const v = Number(e.target.value); setEditing({ ...editing, budgetUsd: v, budgetSdg: rate ? Number((v * rate).toFixed(2)) : editing.budgetSdg }); }} /></Field>
+            <Field label={`${tr("budget")} (SDG)`}><input type="number" className="input" value={editing.budgetSdg ?? 0} onChange={(e) => { const v = Number(e.target.value); setEditing({ ...editing, budgetSdg: v, budgetUsd: rate ? Number((v / rate).toFixed(2)) : editing.budgetUsd }); }} /></Field>
             <div className="col-span-2"><Field label={tr("owner")}><Select value={editing.ownerId || ""} onChange={(v) => setEditing({ ...editing, ownerId: v })} placeholder={tr("unassigned")} options={(users || []).map((u) => ({ value: u.id, label: u.name }))} /></Field></div>
           </div>
         )}

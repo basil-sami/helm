@@ -98,6 +98,8 @@ export default function Leads() {
   const { data: users } = useFetch<UserRow[]>("/users");
   const { data: campaigns } = useFetch<CampaignRow[]>("/campaigns");
   const { data: productsList } = useFetch<{ id: string; name: string }[]>("/products");
+  const { data: settings } = useFetch<any>("/settings");
+  const rate = Number(settings?.usdToSdgRate) || 0;
   const [editing, setEditing] = useState<Partial<Lead> | null>(null);
   const [imp, setImp] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -210,8 +212,8 @@ export default function Leads() {
             <Field label={tr("source")}><input className="input" value={editing.source || ""} onChange={(e) => setEditing({ ...editing, source: e.target.value })} /></Field>
             <Field label={tr("businessUnit")}><input className="input" value={editing.businessUnit || ""} onChange={(e) => setEditing({ ...editing, businessUnit: e.target.value })} /></Field>
             <Field label={tr("stage")}><Select value={editing.stage || "NEW"} onChange={(v) => setEditing({ ...editing, stage: v })} options={STAGES.map((s) => ({ value: s, label: el(s) }))} /></Field>
-            <Field label={`${tr("value")} (USD)`}><input type="number" className="input" value={editing.valueUsd ?? 0} onChange={(e) => setEditing({ ...editing, valueUsd: Number(e.target.value) })} /></Field>
-            <Field label={`${tr("value")} (SDG)`}><input type="number" className="input" value={editing.valueSdg ?? 0} onChange={(e) => setEditing({ ...editing, valueSdg: Number(e.target.value) })} /></Field>
+            <Field label={`${tr("value")} (USD)`}><input type="number" className="input" value={editing.valueUsd ?? 0} onChange={(e) => { const v = Number(e.target.value); setEditing({ ...editing, valueUsd: v, valueSdg: rate ? Number((v * rate).toFixed(2)) : editing.valueSdg }); }} /></Field>
+            <Field label={`${tr("value")} (SDG)`}><input type="number" className="input" value={editing.valueSdg ?? 0} onChange={(e) => { const v = Number(e.target.value); setEditing({ ...editing, valueSdg: v, valueUsd: rate ? Number((v / rate).toFixed(2)) : editing.valueUsd }); }} /></Field>
             <div className="col-span-2"><Field label={tr("owner")}><Select value={editing.ownerId || ""} onChange={(v) => setEditing({ ...editing, ownerId: v })} placeholder={tr("unassigned")} options={(users || []).map((u) => ({ value: u.id, label: u.name }))} /></Field></div>
             <div className="col-span-2"><Field label={tr("lead_campaign")}><Select value={editing.campaignId || ""} onChange={(v) => setEditing({ ...editing, campaignId: v })} placeholder={tr("lead_noCampaign")} options={(campaigns || []).map((c) => ({ value: c.id, label: c.name }))} /></Field></div>
             <div className="col-span-2"><Field label={tr("product")}><Select value={editing.productId || ""} onChange={(v) => setEditing({ ...editing, productId: v })} placeholder={tr("none")} options={(productsList || []).map((x) => ({ value: x.id, label: x.name }))} /></Field></div>
