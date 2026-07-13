@@ -8,7 +8,7 @@ import { fmtDate } from "../lib/format";
 import { useI18n } from "../context/I18nContext";
 import { useAuth } from "../context/AuthContext";
 
-import { api } from "../lib/api";
+import { api, ApiError } from "../lib/api";
 import { fmtMoney } from "../lib/format";
 
 interface Lead {
@@ -146,6 +146,14 @@ export default function Leads() {
     try { await api.del(`/leads/${id}`); reload(); toast.push(tr("deleted"), "success"); }
     catch { toast.push(tr("deleteError"), "error"); }
   };
+  const convertToCustomer = async (lead: Lead) => {
+    if (lead.stage !== "WON") return;
+    try {
+      await api.post(`/customers/convert/${lead.id}`, {});
+      toast.push(tr("cu_converted"), "success");
+      reload();
+    } catch (e) { toast.push(e instanceof ApiError ? e.message : tr("saveError"), "error"); }
+  };
 
   return (
     <div className="space-y-4">
@@ -190,7 +198,10 @@ export default function Leads() {
                   )}
                 </div>
               )}
-              <div className="mt-2 flex justify-end border-t border-paper-200 pt-2">
+              <div className="mt-2 flex justify-end gap-2 border-t border-paper-200 pt-2">
+                {l.stage === "WON" && canWrite && (
+                  <button onClick={() => convertToCustomer(l)} className="text-[11px] text-moss-700 hover:underline">{tr("cu_convert")}</button>
+                )}
                 <button onClick={() => remove(l.id)} className="text-[11px] text-clay-600 hover:underline">{tr("delete")}</button>
               </div>
             </>
