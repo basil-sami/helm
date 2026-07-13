@@ -37,7 +37,7 @@ leadActivitiesRouter.post("/import", requirePerm("leads"), async (req, res, next
   const iCompany = col("company"), iName = col("contactname"), iPhone = col("phone"),
         iEmail = col("email"), iSource = col("source"), iValueUsd = col("valueusd"), iValueSdg = col("valuesdg");
   if (iCompany === -1) return res.status(400).json({ error: "CSV must include a 'company' column" });
-  const { default: rateRow } = await get(`SELECT "usdToSdgRate" FROM settings WHERE id = 1`);
+  const rateRow = await get(`SELECT "usdToSdgRate" FROM settings WHERE id = 1`);
   const rate = Number(rateRow?.usdToSdgRate) || 0;
   let created = 0, skipped = 0;
   try {

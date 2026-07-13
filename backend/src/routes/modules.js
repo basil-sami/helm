@@ -83,7 +83,7 @@ export const leadsRouter = crudRouter({
       }
       const customer = await get(`SELECT id FROM customers WHERE "leadId" = $1`, [id]);
       if (customer) {
-        const sync: Record<string, unknown> = {};
+        const sync = {};
         if (data.company !== undefined) sync.company = data.company;
         if (data.businessUnit !== undefined) sync.businessUnit = data.businessUnit;
         if (data.valueUsd !== undefined) sync.totalValueUsd = data.valueUsd;
