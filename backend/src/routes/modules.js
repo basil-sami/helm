@@ -1,7 +1,7 @@
 import { crudRouter } from "../crud.js";
 import { notify } from "../notify.js";
 import { logActivity } from "../leadlog.js";
-import { get } from "../db.js";
+import { get, run } from "../db.js";
 
 const ENUMS = {
   campaignStatus: ["PLANNING", "ACTIVE", "PAUSED", "COMPLETED"],
@@ -59,9 +59,47 @@ export const leadsRouter = crudRouter({
   module: "leads",
   validateCreate: async (data) => { if (data.rateAtEntry === undefined) data.rateAtEntry = await currentRate(); return null; },
   afterWrite: async (req, action, id, data, prev) => {
-    if (action === "create") return logActivity(req, id, "CREATED", null, { stage: data.stage || "NEW" });
-    if (data.stage !== undefined && prev && data.stage !== prev.stage) {
-      return logActivity(req, id, "STAGE", null, { from: prev.stage, to: data.stage });
+    if (action === "create") {
+      logActivity(req, id, "CREATED", null, { stage: data.stage || "NEW" });
+      if (data.stage === "WON") {
+        const s = await get(`SELECT "customerReviewDays" FROM settings WHERE id = 1`);
+        const days = s?.customerReviewDays || 90;
+        await run(`INSERT INTO customers ("leadId", company, "businessUnit", "totalValueUsd", status, "accountOwnerId", "firstWonAt", "nextReviewAt")
+          VALUES ($1,$2,$3,$4,'ACTIVE',$5,now(),now() + $6::int * interval '1 day')
+          ON CONFLICT DO NOTHING`, [id, data.company, data.businessUnit, data.valueUsd || 0, data.ownerId, days]);
+      }
+      return;
+    }
+    if (action === "update") {
+      if (data.stage !== undefined && prev && data.stage !== prev.stage) {
+        logActivity(req, id, "STAGE", null, { from: prev.stage, to: data.stage });
+        if (data.stage === "WON" && prev.stage !== "WON") {
+          const s = await get(`SELECT "customerReviewDays" FROM settings WHERE id = 1`);
+          const days = s?.customerReviewDays || 90;
+          await run(`INSERT INTO customers ("leadId", company, "businessUnit", "totalValueUsd", status, "accountOwnerId", "firstWonAt", "nextReviewAt")
+            VALUES ($1,$2,$3,$4,'ACTIVE',$5,now(),now() + $6::int * interval '1 day')
+            ON CONFLICT DO NOTHING`, [id, prev.company, prev.businessUnit, prev.valueUsd || 0, prev.ownerId, days]);
+        }
+      }
+      const customer = await get(`SELECT id FROM customers WHERE "leadId" = $1`, [id]);
+      if (customer) {
+        const sync: Record<string, unknown> = {};
+        if (data.company !== undefined) sync.company = data.company;
+        if (data.businessUnit !== undefined) sync.businessUnit = data.businessUnit;
+        if (data.valueUsd !== undefined) sync.totalValueUsd = data.valueUsd;
+        if (data.ownerId !== undefined) sync.accountOwnerId = data.ownerId;
+        const keys = Object.keys(sync);
+        if (keys.length) {
+          const sets = keys.map((k, i) => `"${k}" = $${i + 1}`).join(", ");
+          await run(`UPDATE customers SET ${sets} WHERE id = $${keys.length + 1}`, [...keys.map((k) => sync[k]), customer.id]).catch(() => {});
+        }
+      }
+    }
+  },
+  beforeDelete: async (req, id) => {
+    const customer = await get(`SELECT id FROM customers WHERE "leadId" = $1`, [id]);
+    if (customer) {
+      await run(`UPDATE customers SET status = 'CHURNED' WHERE id = $1`, [customer.id]).catch(() => {});
     }
   },
   fields: ["company", "contactName", "phone", "email", "source", "businessUnit", "stage", "valueUsd", "valueSdg", "notes", "campaignId", "ownerId", "productId", "rateAtEntry"],

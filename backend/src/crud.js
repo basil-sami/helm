@@ -26,6 +26,7 @@ export function crudRouter(opts) {
     validate,
     module, // permission key (e.g. "campaigns"); reads need "read", writes need "write"
     afterWrite, // optional (req, action, id, data, prev) hook for domain side-effects
+    beforeDelete, // optional async (req, id) hook called before DELETE
     validateUpdate, // optional async (data, prev, req) → error string blocks the write (400)
     validateCreate, // optional async (data, req) → error string blocks the write (400)
   } = opts;
@@ -133,6 +134,7 @@ export function crudRouter(opts) {
 
   router.delete("/:id", guard("write"), async (req, res, next) => {
     try {
+      if (beforeDelete) { try { await beforeDelete(req, req.params.id); } catch { /* ignore */ } }
       await run(`DELETE FROM ${table} WHERE id = $1`, [req.params.id]);
       logAudit(req, `${table}.delete`, table, req.params.id);
       res.status(204).end();
