@@ -299,8 +299,10 @@ async function callClaudeStream({ system, history, prompt, userText, maxTokens =
     "Connection": "keep-alive",
   });
 
+  const streamStart = Date.now();
   let fullContent = "";
   let fullReasoning = "";
+  let finishReason = null;
   let lastDbSave = 0;
 
   try {
@@ -320,7 +322,10 @@ async function callClaudeStream({ system, history, prompt, userText, maxTokens =
         if (payload === "[DONE]") break;
         try {
           const parsed = JSON.parse(payload);
-          const delta = parsed.choices?.[0]?.delta;
+          const choice = parsed.choices?.[0];
+          if (!choice) continue;
+          if (choice.finish_reason) finishReason = choice.finish_reason;
+          const delta = choice.delta;
           if (!delta) continue;
           if (delta.reasoning) fullReasoning += delta.reasoning;
           if (delta.content) fullContent += delta.content;
@@ -341,6 +346,18 @@ async function callClaudeStream({ system, history, prompt, userText, maxTokens =
     }
   } catch {
     // client disconnected
+  }
+
+  // Log finish reason for debugging cutoffs
+  const elapsed = ((Date.now() - streamStart) / 1000).toFixed(1);
+  if (finishReason && finishReason !== "stop") {
+    console.error(`[brain] finish_reason=${finishReason}, elapsed=${elapsed}s — response truncated`);
+    fullReasoning = (fullReasoning || "") + `\n\n[⚠️ Response finished: ${finishReason} after ${elapsed}s — content may be truncated]`;
+  } else if (!finishReason) {
+    console.error(`[brain] No finish_reason, elapsed=${elapsed}s — stream aborted (Vercel 60s timeout?)`);
+    fullReasoning = (fullReasoning || "") + `\n\n[⚠️ Stream ended without finish signal after ${elapsed}s — possible Vercel timeout]`;
+  } else {
+    console.error(`[brain] finish_reason=stop, elapsed=${elapsed}s`);
   }
 
   // Final save with complete content + title update
