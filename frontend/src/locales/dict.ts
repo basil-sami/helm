@@ -322,6 +322,7 @@ export const t: Dict = {
   brain_cmo: { ar: "المدير الذكي", en: "AI CMO" },
   brain_ask_ph: { ar: "اسأل عن الأداء، الميزانية، الأهداف، السوق…", en: "Ask about performance, budget, objectives, the market…" },
   brain_send: { ar: "إرسال", en: "Send" },
+  brain_stop: { ar: "إيقاف", en: "Stop" },
   brain_thinking: { ar: "يحلل بياناتك…", en: "Analyzing your data…" },
   brain_empty: { ar: "اسأل مديرك التسويقي الذكي، أو اطلب موجز اليوم", en: "Ask your AI CMO anything, or generate today's brief" },
   brain_disclaimer: { ar: "قد يخطئ الذكاء الاصطناعي. الإجابات مبنية على بيانات نبض — راجِع الأرقام قبل القرار.", en: "AI can be wrong. Answers are grounded in Pulse data — verify before deciding." },

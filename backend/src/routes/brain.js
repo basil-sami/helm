@@ -8,7 +8,7 @@ export const brainRouter = Router();
 brainRouter.use(requireAuth, requirePerm("brain", "read"));
 
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
-const API = "https://api.anthropic.com/v1/messages";
+const API = process.env.ANTHROPIC_API_URL || "https://api.anthropic.com/v1/messages";
 
 // Compact, grounded snapshot of the marketing state for the model to reason over.
 async function gatherContext() {
@@ -64,6 +64,13 @@ STYLE:
 - ${langLine}`;
 }
 
+const providerError = (res) => {
+  const hint = res.status === 401 ? " — invalid ANTHROPIC_API_KEY"
+    : res.status === 404 ? ` — model "${MODEL}" not found; set ANTHROPIC_MODEL`
+    : res.status === 429 ? " — rate limited; try again shortly" : "";
+  return `AI provider error ${res.status}${hint}.`;
+};
+
 async function callClaude({ system, prompt, maxTokens = 1100 }) {
   if (!process.env.ANTHROPIC_API_KEY) {
     return { configured: false };
@@ -89,14 +96,106 @@ async function callClaude({ system, prompt, maxTokens = 1100 }) {
     return { configured: true, error: "Couldn't reach the AI provider. Check network egress to api.anthropic.com." };
   }
   if (!res.ok) {
-    const hint = res.status === 401 ? " — invalid ANTHROPIC_API_KEY"
-      : res.status === 404 ? ` — model "${MODEL}" not found; set ANTHROPIC_MODEL`
-      : res.status === 429 ? " — rate limited; try again shortly" : "";
-    return { configured: true, error: `AI provider error ${res.status}${hint}.` };
+    return { configured: true, error: providerError(res) };
   }
   const data = await res.json();
   const text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n").trim();
   return { configured: true, answer: text || "(no response)" };
+}
+
+// Streaming variant — Anthropic `stream: true`, forwarded to the client as SSE.
+// Keeps the upstream fetch alive until the stream finishes (or the client
+// disconnects) so mid-stream Vercel timeouts surface as a visible error instead
+// of a silently truncated message.
+async function callClaudeStream({ system, prompt, maxTokens = 1100 }, req, res) {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    res.json({ configured: false });
+    return;
+  }
+
+  let upstream;
+  try {
+    upstream = await fetch(API, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": process.env.ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: maxTokens,
+        temperature: 0.4,
+        stream: true,
+        system,
+        messages: [{ role: "user", content: prompt }],
+      }),
+    });
+  } catch {
+    res.json({ configured: true, error: "Couldn't reach the AI provider. Check network egress to api.anthropic.com." });
+    return;
+  }
+  if (!upstream.ok) {
+    res.json({ configured: true, error: providerError(upstream) });
+    return;
+  }
+
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-cache, no-transform",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+  });
+
+  const started = Date.now();
+  let full = "";
+  let aborted = false;
+  req.on("close", () => { aborted = true; });
+
+  try {
+    const reader = upstream.body.getReader();
+    const decoder = new TextDecoder();
+    // Anthropic message API streams SSE lines: `event:` / `data: {...}`.
+    // We forward a normalized SSE frame per text delta.
+    let buffer = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      // Anthropic floats newlines between events; parse complete SSE blocks.
+      let idx;
+      while ((idx = buffer.indexOf("\n")) !== -1) {
+        const line = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 1);
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data:")) continue;
+        const payload = trimmed.slice(5).trim();
+        if (!payload || payload === "[DONE]") continue;
+        let evt;
+        try { evt = JSON.parse(payload); } catch { continue; }
+        if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta" && evt.delta.text) {
+          full += evt.delta.text;
+          if (aborted) return;
+          res.write(`data: ${JSON.stringify({ text: evt.delta.text })}\n\n`);
+        }
+        if (evt.type === "message_stop" || evt.type === "error") {
+          if (aborted) return;
+          break;
+        }
+      }
+    }
+  } catch {
+    if (aborted) return;
+  }
+
+  if (aborted) return;
+  const elapsed = ((Date.now() - started) / 1000).toFixed(1);
+  if (full) {
+    res.write(`data: ${JSON.stringify({ done: true, text: full, elapsed })}\n\n`);
+  } else {
+    res.write(`data: ${JSON.stringify({ error: "Stream ended without any content" })}\n\n`);
+  }
+  res.end();
 }
 
 // Executive brief — the daily/weekly summary.
@@ -106,6 +205,9 @@ brainRouter.post("/brief", async (req, res, next) => {
     const ctx = await gatherContext();
     const prompt = `Here is the current marketing data snapshot (JSON):\n\n${JSON.stringify(ctx, null, 1)}\n\n` +
       `Write the executive marketing brief for the Head of Marketing. Cover, briefly: (1) the headline state of pipeline & revenue vs objectives, (2) what's working, (3) what's at risk or needs attention, (4) the top 3 actions to take this week. Cite the numbers. Keep it tight.`;
+    if (req.body?.stream) {
+      return await callClaudeStream({ system: systemPrompt(lang, ctx.organization), prompt, maxTokens: 1300 }, req, res);
+    }
     const out = await callClaude({ system: systemPrompt(lang, ctx.organization), prompt, maxTokens: 1300 });
     res.json(out);
   } catch (e) { next(e); }
@@ -120,6 +222,9 @@ brainRouter.post("/ask", async (req, res, next) => {
     const ctx = await gatherContext();
     const prompt = `Marketing data snapshot (JSON):\n\n${JSON.stringify(ctx, null, 1)}\n\n` +
       `The marketing lead asks:\n"""${question}"""\n\nAnswer using the data above. Cite the relevant figures.`;
+    if (req.body?.stream) {
+      return await callClaudeStream({ system: systemPrompt(lang, ctx.organization), prompt }, req, res);
+    }
     const out = await callClaude({ system: systemPrompt(lang, ctx.organization), prompt });
     res.json(out);
   } catch (e) { next(e); }

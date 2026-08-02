@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef, Fragment, ReactNode } from "react";
 import { Card } from "../components/ui";
 import { useI18n } from "../context/I18nContext";
-import { api } from "../lib/api";
+import { api, postSSE } from "../lib/api";
 
-interface Msg { role: "user" | "cmo"; text: string; label?: string }
+interface Msg { id: number; role: "user" | "cmo"; text: string; label?: string }
 
 // Minimal rich-text renderer (bold, bullets, headings) — no dependency.
 function Rich({ text }: { text: string }) {
@@ -43,22 +43,54 @@ export default function Brain() {
   const [busy, setBusy] = useState(false);
   const [configured, setConfigured] = useState<boolean | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const idSeq = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
 
-  useEffect(() => { api.get<{ configured: boolean }>("/brain/status").then((s) => setConfigured(s.configured)).catch(() => setConfigured(false)); }, []);
+  useEffect(() => {
+    api.get<{ configured: boolean }>("/brain/status").then((s) => setConfigured(s.configured)).catch(() => setConfigured(false));
+  }, []);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, busy]);
+
+  const lastCmo = (m: Msg[]) => [...m].reverse().find((x) => x.role === "cmo");
+  const streamStarted = busy && !!lastCmo(msgs)?.text;
+
+  const stop = () => {
+    abortRef.current?.abort();
+    setBusy(false);
+  };
+
+  const patch = (id: number, text: string) =>
+    setMsgs((m) => m.map((x) => (x.id === id ? { ...x, text } : x)));
 
   const run = async (path: string, body: object, userText?: string, label?: string) => {
     if (busy) return;
-    if (userText) setMsgs((m) => [...m, { role: "user", text: userText }]);
+    const aid = ++idSeq.current;
+    if (userText) setMsgs((m) => [...m, { id: ++idSeq.current, role: "user", text: userText }]);
+    setMsgs((m) => [...m, { id: aid, role: "cmo", text: "", label }]);
     setBusy(true);
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
-      const r = await api.post<{ configured?: boolean; answer?: string; error?: string }>(path, { ...body, lang });
-      if (r.configured === false) { setConfigured(false); setMsgs((m) => [...m, { role: "cmo", text: tr("brain_notConfiguredHint"), label }]); }
-      else if (r.error) setMsgs((m) => [...m, { role: "cmo", text: "⚠️ " + r.error, label }]);
-      else setMsgs((m) => [...m, { role: "cmo", text: r.answer || "", label }]);
+      const r = await postSSE(path, { ...body, lang, stream: true }, {
+        signal: controller.signal,
+        onDelta: (t) => setMsgs((m) => m.map((x) => (x.id === aid ? { ...x, text: x.text + t } : x))),
+      });
+      if (r.configured === false) {
+        setConfigured(false);
+        patch(aid, tr("brain_notConfiguredHint"));
+      } else if (r.error) {
+        patch(aid, "⚠️ " + r.error);
+      } else if (r.answer !== undefined) {
+        patch(aid, r.answer);
+      }
     } catch (e) {
-      setMsgs((m) => [...m, { role: "cmo", text: (e as { message?: string })?.message || tr("saveError"), label }]);
-    } finally { setBusy(false); }
+      if (!controller.signal.aborted) {
+        patch(aid, (e as { message?: string })?.message || tr("saveError"));
+      }
+    } finally {
+      if (abortRef.current === controller) abortRef.current = null;
+      setBusy(false);
+    }
   };
 
   const ask = (q: string) => run("/brain/ask", { question: q }, q);
@@ -120,7 +152,7 @@ export default function Brain() {
             </div>
           )
         )}
-        {busy && (
+        {busy && !streamStarted && (
           <div className="flex justify-start">
             <Card className="p-3.5">
               <div className="flex items-center gap-1.5 text-sm text-ink-500">
@@ -130,6 +162,11 @@ export default function Brain() {
                 <span className="ms-1">{tr("brain_thinking")}</span>
               </div>
             </Card>
+          </div>
+        )}
+        {streamStarted && (
+          <div className="flex justify-start ps-4">
+            <span className="me-1 inline-block h-3.5 w-1.5 animate-pulse rounded-sm bg-amber-500" />
           </div>
         )}
         <div ref={endRef} />
@@ -145,7 +182,11 @@ export default function Brain() {
           placeholder={tr("brain_ask_ph")}
           className="input flex-1 resize-none"
         />
-        <button onClick={send} disabled={busy || !input.trim()} className="btn-amber shrink-0">{tr("brain_send")}</button>
+        <button
+          onClick={busy ? stop : send}
+          disabled={!busy && !input.trim()}
+          className={`${busy ? "border border-clay-300 bg-clay-50 text-clay-700 hover:bg-clay-100" : "btn-amber"} shrink-0 rounded-xl2 px-4 py-2 text-sm font-semibold`}
+        >{busy ? tr("brain_stop") : tr("brain_send")}</button>
       </div>
       <p className="mt-1.5 text-center text-[11px] text-ink-400">{tr("brain_disclaimer")}</p>
     </div>

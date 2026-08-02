@@ -64,6 +64,87 @@ export const api = {
   del: (path: string) => request<void>("DELETE", path),
 };
 
+export interface SSEHandlers {
+  signal?: AbortSignal;
+  onDelta: (text: string) => void;
+}
+
+/**
+ * POST and consume a server-sent-event stream (e.g. /brain/ask?stream).
+ * Falls back to the plain JSON shape when the server answers before
+ * streaming (unconfigured key, provider error) so the callers don't need
+ * two code paths.
+ */
+export async function postSSE(
+  path: string,
+  body: unknown,
+  { signal, onDelta }: SSEHandlers
+): Promise<{ configured?: boolean; answer?: string; error?: string }> {
+  const headers: Record<string, string> = {};
+  const token = tokenStore.get();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  headers["Content-Type"] = "application/json";
+
+  const res = await fetch(`/api${path}`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+    signal,
+  });
+
+  if (res.status === 401) tokenStore.clear();
+
+  if (!res.ok) {
+    let msg = `Request failed (${res.status})`;
+    try {
+      const payload = await res.json();
+      msg = (payload?.error as string) || msg;
+    } catch {
+      /* ignore */
+    }
+    throw new ApiError(msg, res.status);
+  }
+
+  const ct = res.headers.get("content-type") || "";
+  // Server sent a JSON error before streaming (unconfigured / provider error).
+  if (!ct.includes("text/event-stream")) {
+    return (await res.json().catch(() => ({}))) as { configured?: boolean; answer?: string; error?: string };
+  }
+
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let final: { configured?: boolean; answer?: string; error?: string } = {};
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let idx;
+    while ((idx = buffer.indexOf("\n\n")) !== -1) {
+      const frame = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 2);
+      const dataLine = frame.split("\n").find((l) => l.startsWith("data:"));
+      if (!dataLine) continue;
+      const payload = dataLine.slice(5).trim();
+      if (!payload) continue;
+      let d: Record<string, unknown>;
+      try { d = JSON.parse(payload); } catch { continue; }
+      if (typeof d.text === "string") {
+        onDelta(d.text);
+        final.answer = (final.answer || "") + d.text;
+      } else if (d.done === true) {
+        if (typeof d.text === "string") final.answer = d.text;
+        else if (typeof d.error === "string") final.error = d.error;
+      } else if (typeof d.error === "string") {
+        final.error = d.error;
+      } else if (d.configured === false) {
+        final.configured = false;
+      }
+    }
+  }
+  return final;
+}
+
 export interface UploadedFile {
   id: string; name: string; mime: string; size: number; driver: string; url: string; sha256?: string;
 }
