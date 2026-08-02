@@ -10,6 +10,7 @@ process.env.JWT_SECRET = "test-secret";
 process.env.NODE_ENV = "test";
 // Point the brain route's Anthropic client at the test mock (see Wave 3·C).
 process.env.ANTHROPIC_API_URL = "http://127.0.0.1:4114";
+process.env.OPENROUTER_API_URL = "http://127.0.0.1:4114";
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = "") => { cond ? pass++ : fail++; console.log(`${cond ? "PASS" : "FAIL"}  ${name}${extra ? " — " + extra : ""}`); };
@@ -2409,33 +2410,54 @@ ok("demo seed: agency data present", (await j("GET", "/vendors", null, H)).data.
   const seenAi = [];
   let reply = "The drop is consistent with reduced paid spend [2] and a publishing gap [3].";
 
-  // ── a stand-in model on 4114, speaking the Messages API shape ──
+  // ── a stand-in model on 4114: Anthropic Messages shape for the ai rail,
+  // OpenRouter chat/completions shape for the brain route ──
   const aiMock = httpAi.createServer((rq, rs) => {
     let b = "";
     rq.on("data", (c) => { b += c; });
     rq.on("end", () => {
       const body = b ? JSON.parse(b) : {};
-      seenAi.push({ key: rq.headers["x-api-key"], body });
+      const isAnthropic = !!rq.headers["x-api-key"];
+      seenAi.push({ key: rq.headers["x-api-key"] || rq.headers["authorization"], body, anthropic: isAnthropic });
       rs.setHeader("Content-Type", "application/json");
-      if (rq.headers["x-api-key"] !== "sk-mock-good") {
-        rs.statusCode = 401; return rs.end(JSON.stringify({ error: { message: "invalid x-api-key" } }));
+      const bad = isAnthropic ? rq.headers["x-api-key"] !== "sk-mock-good"
+        : (rq.headers["authorization"] || "") !== "Bearer sk-mock-good";
+      if (bad) {
+        rs.statusCode = 401; return rs.end(JSON.stringify({ error: { message: "invalid key" } }));
       }
+      if (isAnthropic) {
+        if (body.stream) {
+          rs.setHeader("Content-Type", "text/event-stream");
+          const chunk = (type, extra) => rs.write(`event: ${type}\ndata: ${JSON.stringify(extra)}\n\n`);
+          chunk("message_start", { type: "message_start", message: { role: "assistant" } });
+          chunk("content_block_start", { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } });
+          const words = reply.split(/(?<= )/);
+          for (const w of words) {
+            chunk("content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: w } });
+          }
+          chunk("message_delta", { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 120 } });
+          chunk("message_stop", { type: "message_stop" });
+          return rs.end();
+        }
+        rs.end(JSON.stringify({
+          content: [{ type: "text", text: reply }],
+          usage: { input_tokens: 900, output_tokens: 120 },
+        }));
+        return;
+      }
+      // OpenRouter (brain route): OpenAI-style chat completions.
       if (body.stream) {
         rs.setHeader("Content-Type", "text/event-stream");
-        const chunk = (type, extra) => rs.write(`event: ${type}\ndata: ${JSON.stringify(extra)}\n\n`);
-        chunk("message_start", { type: "message_start", message: { role: "assistant" } });
-        chunk("content_block_start", { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } });
         const words = reply.split(/(?<= )/);
         for (const w of words) {
-          chunk("content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: w } });
+          rs.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: w } }] })}\n\n`);
         }
-        chunk("message_delta", { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 120 } });
-        chunk("message_stop", { type: "message_stop" });
-        return rs.end();
+        rs.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\n`);
+        return rs.end(`data: [DONE]\n\n`);
       }
       rs.end(JSON.stringify({
-        content: [{ type: "text", text: reply }],
-        usage: { input_tokens: 900, output_tokens: 120 },
+        choices: [{ index: 0, message: { role: "assistant", content: reply } }],
+        usage: { prompt_tokens: 900, completion_tokens: 120 },
       }));
     });
   });
@@ -2514,7 +2536,7 @@ reply = "The drop is consistent with reduced paid spend [2] and a publishing gap
   ok("a streamed answer is finite and delimited (no runaway stream)",
     frames.length > 1 && frames.at(-1)?.done === true);
   ok("the brain drops in the context snapshot for grounding",
-    seenAi.some((r) => String(r.body?.messages?.[0]?.content).includes("Marketing data snapshot")));
+    seenAi.some((r) => !r.anthropic && String(r.body?.messages?.[1]?.content).includes("Marketing data snapshot")));
 
   // ── brain conversations: the stream survives navigation away ──
   const beforeKey = process.env.ANTHROPIC_API_KEY;

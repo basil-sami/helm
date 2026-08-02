@@ -65,7 +65,7 @@ Full runbook: **`INSTALLER.md`** · per-instance operations: **`ADMIN-GUIDE.md`*
    - `DATABASE_URL` — the **pooled** Supabase URI (port 6543)
    - `JWT_SECRET` — long random string (`openssl rand -base64 32`)
    - `CRON_SECRET` — enables the scheduled Daily Pulse refresh
-   - `ANTHROPIC_API_KEY` — optional, activates the AI Brain
+   - `OPENROUTER_API_KEY` — optional, activates the AI Brain (OpenRouter; ANTHROPIC_API_KEY works as fallback)
 3. **Open the URL** → the Pulse installer appears → create the first admin → the
    onboarding wizard brands the instance → you're live.
 

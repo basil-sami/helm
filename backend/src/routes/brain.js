@@ -119,8 +119,9 @@ brainRouter.post("/conversations/:id/rewind", async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
-const API = process.env.ANTHROPIC_API_URL || "https://api.anthropic.com/v1/messages";
+const MODEL = process.env.OPENROUTER_MODEL || "anthropic/claude-3.5-sonnet";
+const API = process.env.OPENROUTER_API_URL || "https://openrouter.ai/api/v1/chat/completions";
+const brainKey = () => process.env.OPENROUTER_API_KEY || process.env.ANTHROPIC_API_KEY || "";
 
 // Compact, grounded snapshot of the marketing state for the model to reason over.
 async function gatherContext() {
@@ -177,14 +178,15 @@ STYLE:
 }
 
 const providerError = (res) => {
-  const hint = res.status === 401 ? " — invalid ANTHROPIC_API_KEY"
-    : res.status === 404 ? ` — model "${MODEL}" not found; set ANTHROPIC_MODEL`
+  const hint = res.status === 401 ? " — invalid OPENROUTER_API_KEY"
+    : res.status === 404 ? ` — model "${MODEL}" not found; set OPENROUTER_MODEL`
     : res.status === 429 ? " — rate limited; try again shortly" : "";
   return `AI provider error ${res.status}${hint}.`;
 };
 
 async function callClaude({ system, prompt, maxTokens = 1100 }) {
-  if (!process.env.ANTHROPIC_API_KEY) {
+  const key = brainKey();
+  if (!key) {
     return { configured: false };
   }
   let res;
@@ -193,26 +195,29 @@ async function callClaude({ system, prompt, maxTokens = 1100 }) {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-api-key": process.env.ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
+        authorization: `Bearer ${key}`,
       },
       body: JSON.stringify({
         model: MODEL,
         max_tokens: maxTokens,
         temperature: 0.4,
-        system,
-        messages: [{ role: "user", content: prompt }],
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: prompt },
+        ],
       }),
     });
   } catch {
-    return { configured: true, error: "Couldn't reach the AI provider. Check network egress to api.anthropic.com." };
+    return { configured: true, error: "Couldn't reach the AI provider. Check network egress to openrouter.ai." };
   }
   if (!res.ok) {
     return { configured: true, error: providerError(res) };
   }
   const data = await res.json();
-  const text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n").trim();
-  return { configured: true, answer: text || "(no response)" };
+  const text = typeof data?.choices?.[0]?.message?.content === "string"
+    ? data.choices[0].message.content
+    : "";
+  return { configured: true, answer: text.trim() || "(no response)" };
 }
 
 // Streaming variant — Anthropic `stream: true`, forwarded to the client as SSE.
@@ -223,7 +228,8 @@ async function callClaude({ system, prompt, maxTokens = 1100 }) {
 async function callClaudeStream({
   system, prompt, maxTokens = 1100, conversationId, userText,
 }, req, res) {
-  if (!process.env.ANTHROPIC_API_KEY) {
+  const key = brainKey();
+  if (!key) {
     res.json({ configured: false });
     return;
   }
@@ -250,20 +256,21 @@ async function callClaudeStream({
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-api-key": process.env.ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
+        authorization: `Bearer ${key}`,
       },
       body: JSON.stringify({
         model: MODEL,
         max_tokens: maxTokens,
         temperature: 0.4,
         stream: true,
-        system,
-        messages: [{ role: "user", content: prompt }],
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: prompt },
+        ],
       }),
     });
   } catch {
-    res.json({ configured: true, error: "Couldn't reach the AI provider. Check network egress to api.anthropic.com." });
+    res.json({ configured: true, error: "Couldn't reach the AI provider. Check network egress to openrouter.ai." });
     return;
   }
   if (!upstream.ok) {
@@ -309,7 +316,7 @@ async function callClaudeStream({
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
-      // Anthropic floats newlines between events; parse complete SSE blocks.
+      // OpenRouter streams OpenAI-style SSE lines: `data: {...}` and `data: [DONE]`.
       let idx;
       while ((idx = buffer.indexOf("\n")) !== -1) {
         const line = buffer.slice(0, idx);
@@ -320,13 +327,15 @@ async function callClaudeStream({
         if (!payload || payload === "[DONE]") continue;
         let evt;
         try { evt = JSON.parse(payload); } catch { continue; }
-        if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta" && evt.delta.text) {
-          full += evt.delta.text;
+        const delta = evt.choices?.[0]?.delta;
+        if (delta && typeof delta.content === "string" && delta.content) {
+          full += delta.content;
           // Throttled DB write so the poll sees progress even mid-stream.
           if (aiMsgId && Date.now() - lastDbSave >= 2000) await persist(false);
-          send(`data: ${JSON.stringify({ text: evt.delta.text })}\n\n`);
+          send(`data: ${JSON.stringify({ text: delta.content })}\n\n`);
         }
-        if (evt.type === "message_stop" || evt.type === "error") break;
+        if (evt.choices?.[0]?.finish_reason) break;
+        if (evt.error) break;
       }
     }
   } catch {
@@ -400,5 +409,6 @@ brainRouter.post("/ask", async (req, res, next) => {
 
 // Lets the UI show "configured / not configured" without making a model call.
 brainRouter.get("/status", (_req, res) => {
-  res.json({ configured: !!process.env.ANTHROPIC_API_KEY, model: process.env.ANTHROPIC_API_KEY ? MODEL : null });
+  const key = brainKey();
+  res.json({ configured: !!key, model: key ? MODEL : null });
 });
