@@ -1533,3 +1533,30 @@ alter table dashboards     add column if not exists "departmentId" uuid referenc
 create index if not exists idx_leads_dept on leads ("departmentId");
 create index if not exists idx_campaigns_dept on campaigns ("departmentId");
 create index if not exists idx_tasks_dept on tasks ("departmentId");
+
+-- ═══ Wave 3·I — persistent AI CMO conversations ══════════════════════
+
+-- A conversation is a durable thread of asks and answers. Persisting it
+-- means a stream can keep running server-side after the user navigates
+-- away; the poll resumes it visually when they come back.
+create table if not exists ai_conversations (
+  id         uuid primary key default gen_random_uuid(),
+  "userId"   uuid not null references users(id) on delete cascade,
+  title      text not null default 'New conversation',
+  "createdAt" timestamptz not null default now(),
+  "updatedAt" timestamptz not null default now()
+);
+create index if not exists idx_ai_conversations_user on ai_conversations ("userId", "updatedAt" desc);
+
+-- Ordered, append-only ledger of a thread. The 'cmo' row is created empty
+-- the moment the stream starts and grows as tokens arrive; 'user' rows are
+-- the prompts (edited ones stay put, a fresh 'user' row follows).
+create table if not exists ai_messages (
+  id              uuid primary key default gen_random_uuid(),
+  "conversationId" uuid not null references ai_conversations(id) on delete cascade,
+  role            text not null check (role in ('user','cmo')),
+  text            text not null default '',
+  label           text,
+  "createdAt"     timestamptz not null default now()
+);
+create index if not exists idx_ai_messages_conversation on ai_messages ("conversationId", "createdAt");
