@@ -16,7 +16,7 @@
 
 export const SOURCE_TYPES = ["GOOGLE_NEWS", "BING_NEWS", "GDELT", "REDDIT", "RSS", "MANUAL", "SEARCH"];
 
-const UA = "HELM-OSINT/2.0 (market intelligence; contact: admin@saria.sd)";
+const UA = "Pulse-OSINT/2.0 (market intelligence)";
 const TIMEOUT_MS = 12000;
 
 async function fetchText(url, headers = {}) {

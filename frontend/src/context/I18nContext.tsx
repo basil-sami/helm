@@ -11,7 +11,12 @@ interface I18nCtx {
 }
 
 const Ctx = createContext<I18nCtx>(null as unknown as I18nCtx);
-const STORE_KEY = "helm.lang";
+const STORE_KEY = "pulse.lang";
+const legacyLang = localStorage.getItem("helm.lang");
+if (legacyLang && !localStorage.getItem(STORE_KEY)) {
+  localStorage.setItem(STORE_KEY, legacyLang);
+  localStorage.removeItem("helm.lang");
+}
 
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [lang, setLangState] = useState<Lang>(
@@ -29,7 +34,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const toggle = () => setLangState((p) => (p === "ar" ? "en" : "ar"));
 
   const tr = (key: string) => {
-    const entry = (dict as Record<string, { ar: string; en: string }>)[key] || (enumLabels as Record<string, { ar: string; en: string }>)[key];
+    const entry = (dict as Record<string, { ar: string; en: string }>)[key];
     return entry ? entry[lang] : key;
   };
   const el = (value?: string | null) => {

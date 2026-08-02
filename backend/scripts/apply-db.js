@@ -1,7 +1,8 @@
-// Applies supabase/schema.sql (and optionally seed.sql) to DATABASE_URL.
+// Pulse — applies supabase/schema.sql (and optionally a seed) to DATABASE_URL.
 // Usage:
 //   node scripts/apply-db.js          # schema only
-//   node scripts/apply-db.js --seed   # schema + seed
+//   node scripts/apply-db.js --seed   # schema + generic starter seed (new client)
+//   node scripts/apply-db.js --demo   # schema + Saria flagship demo dataset
 import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
@@ -22,9 +23,13 @@ async function main() {
   console.log("Applying schema…");
   await client.query(schema);
 
-  if (process.argv.includes("--seed")) {
+  if (process.argv.includes("--demo")) {
+    const seed = fs.readFileSync(path.join(root, "supabase", "seed-demo.sql"), "utf8");
+    console.log("Seeding the Saria flagship DEMO dataset…");
+    await client.query(seed);
+  } else if (process.argv.includes("--seed")) {
     const seed = fs.readFileSync(path.join(root, "supabase", "seed.sql"), "utf8");
-    console.log("Seeding demo data…");
+    console.log("Seeding the generic starter data…");
     await client.query(seed);
   }
 

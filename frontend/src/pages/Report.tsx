@@ -1,6 +1,8 @@
 import { useFetch, Card, SectionTitle } from "../components/ui";
 import { HBars, Funnel } from "../components/charts";
 import { useI18n } from "../context/I18nContext";
+import { useBranding } from "../context/BrandingContext";
+import PulseMark from "../components/PulseMark";
 import { fmtMoney, fmtNum, fmtDate } from "../lib/format";
 
 interface Ana { scorecard: Record<string, number | null>; funnel: { stage: string; count: number; conversion: number }[]; effectiveness?: { byProduct: { name: string; nameAr?: string; pipelineUsd: number; wonUsd: number }[]; postsTop: { title: string; platform: string; er: number }[] } }
@@ -9,6 +11,8 @@ interface Obj { label: string; labelAr?: string; progress: number; pace: string 
 
 export default function Report() {
   const { lang, tr, el } = useI18n();
+  const { branding } = useBranding();
+  const orgLabel = (lang === "ar" ? branding.orgNameAr || branding.orgName : branding.orgName) || tr("appName");
   const { data: a } = useFetch<Ana>("/analytics?window=12m");
   const { data: li } = useFetch<Li>("/listening");
   const { data: objs } = useFetch<Obj[]>("/planning/objectives");
@@ -29,9 +33,9 @@ export default function Report() {
         <button onClick={() => window.print()} className="btn-amber">🖨 {tr("rp_print")}</button>
       </div>
       <div className="hidden print:flex items-center gap-3 border-b border-paper-300 pb-3">
-        <div className="grid h-10 w-10 place-items-center rounded-lg bg-amber-500 text-xl font-bold text-ink-950">ح</div>
+        <PulseMark size={40} logoUrl={branding.logoUrl} />
         <div>
-          <div className="text-lg font-bold">{tr("rp_title")} — حلم HELM</div>
+          <div className="text-lg font-bold">{tr("rp_title")} — {orgLabel}</div>
           <div className="text-xs text-ink-500">{tr("rp_generated")}: {fmtDate(new Date().toISOString(), lang)} · 12m</div>
         </div>
       </div>

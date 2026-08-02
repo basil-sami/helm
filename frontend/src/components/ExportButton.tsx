@@ -10,7 +10,7 @@ export default function ExportButton({ resource }: { resource: string }) {
     setBusy(true);
     try {
       const stamp = new Date().toISOString().slice(0, 10);
-      await download(`/export/${resource}?format=${format}`, `helm-${resource}-${stamp}.${format}`);
+      await download(`/export/${resource}?format=${format}`, `pulse-${resource}-${stamp}.${format}`);
     } catch {
       /* surfaced by network layer */
     } finally {

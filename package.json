@@ -1,10 +1,12 @@
 {
-  "name": "helm",
+  "name": "pulse",
   "version": "2.0.0",
   "private": true,
   "type": "module",
-  "description": "HELM — Marketing Department OS (Vercel + Supabase deployment root)",
-  "engines": { "node": ">=18.18" },
+  "description": "Pulse (نبض) — The Marketing Operating Platform (Vercel + Supabase deployment root)",
+  "engines": {
+    "node": ">=18.18"
+  },
   "scripts": {
     "build": "cd frontend && npm install && npm run build"
   },

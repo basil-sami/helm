@@ -3,4 +3,4 @@ import { createApp } from "./app.js";
 
 const app = createApp();
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => console.log(`HELM API running on http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`Pulse API running on http://localhost:${PORT}`));

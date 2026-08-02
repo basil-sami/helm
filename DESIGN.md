@@ -1,10 +1,10 @@
-# HELM — Design System & Product Strategy
-### حلم — نظام التصميم واستراتيجية المنتج
+# Pulse — Design System & Product Strategy
+### نبض — نظام التصميم واستراتيجية المنتج
 *Synthesizing IBM Carbon, Stripe, and Apple HIG into one coherent direction.*
 
 ---
 
-## 0. Honest baseline — where HELM stands today
+## 0. Honest baseline — where Pulse stands today
 
 **Strong already:** a coherent "control-room" identity (dark command rail + warm paper
 workspace + amber accent), IBM Plex (Arabic/Sans/Mono) — which is *Carbon's own
@@ -25,19 +25,19 @@ This is a *direction*, not a claim of perfection. Where there are real tradeoffs
 
 ## 1. What each system contributes — and how we fuse them
 
-| System | Its genius | What HELM takes |
+| System | Its genius | What Pulse takes |
 |---|---|---|
 | **IBM Carbon** | Systematic, open, accessible, data-dense enterprise design. Tokens, the 2x grid, rigorous data-viz, "productive vs. expressive" motion, WCAG by default. | The **backbone**: a token system, type ramp, grid discipline, data-table craft, accessibility floor, and motion grammar. |
 | **Stripe** | Craft and restraint. Hides immense complexity behind a calm surface. Micro-interactions, progressive disclosure, optimistic UI, world-class empty/loading/error states, keyboard-first power. | The **finish**: precision, "earn the ink," instant feedback, skeletons, a ⌘K command palette, and making complex flows feel effortless. |
 | **Apple HIG** | Clarity, Deference, Depth. Human-centered. Direct manipulation, immediate feedback, content over chrome, consistency, user control. | The **soul**: reduce cognitive load, let the user's data be the hero, give every action a reaction, and keep one mental model across modules. |
 
-**The fusion — "Calm Command."** HELM is a control room: dense with signal, but calm,
+**The fusion — "Calm Command."** Pulse is a control room: dense with signal, but calm,
 legible, and unhurried. Carbon makes it *rigorous*, Stripe makes it *refined*, HIG makes
 it *humane*. Density without anxiety. Power without clutter.
 
 ---
 
-## 2. HELM's design principles (the constitution)
+## 2. Pulse's design principles (the constitution)
 
 1. **Calm command.** The operator sees a lot at once, but nothing shouts. Hierarchy,
    whitespace, and restraint do the work. (Carbon density × HIG deference.)
@@ -118,7 +118,7 @@ numbers** (tabular figures so columns align — critical for budget/metrics).
 **Navigation + ⌘K command palette (signature).** Keep the command rail, but add a
 Stripe/Carbon-grade **command palette** (⌘K / Ctrl-K): jump to any module, run any action
 ("new lead", "refresh market intel", "export budget"), or search any record — all from the
-keyboard, in Arabic or English. This single feature changes HELM from "an app you click"
+keyboard, in Arabic or English. This single feature changes Pulse from "an app you click"
 to "a tool an operator commands." Add a global "/" to focus search.
 
 **Data tables (Carbon's heartland).** Promote the current tables to a real system:
@@ -155,7 +155,7 @@ restore on dialogs, and screen-reader labels in the active language.
 ## 5. Signature features & competitive edge
 
 ### The moat: the **closed intelligence loop**
-Generic tools are silos — a CRM *or* a social tool *or* a project board. HELM's unique
+Generic tools are silos — a CRM *or* a social tool *or* a project board. Pulse's unique
 mechanic is the **loop**, and it should be made visible and clickable end-to-end:
 
 > **Sense → Capture → Plan → Execute → Measure → (back to Sense)**
@@ -194,7 +194,7 @@ surface*. Lean the entire product narrative on this loop.
 
 ---
 
-## 6. The problems HELM solves (product thesis & positioning)
+## 6. The problems Pulse solves (product thesis & positioning)
 
 **Who:** marketing teams in Arabic-speaking, emerging / dual-currency markets — starting
 with industrial B2B groups like Saria, expandable to any regional SME marketing
@@ -206,7 +206,7 @@ budget, WhatsApp for tasks, and *nothing* for market intelligence — none of it
 Arabic-first, none handles SDG/USD, none works well on a weak connection, and none
 connects market signals to pipeline to execution.
 
-**Why HELM wins:** one Arabic-first, dual-currency, self-hostable surface that runs the
+**Why Pulse wins:** one Arabic-first, dual-currency, self-hostable surface that runs the
 *whole* marketing function and closes the intelligence loop — at a fraction of the cost,
 on the network they actually have. Incumbents (HubSpot, Monday, Salesforce MC) can't
 easily follow into true RTL + dual-currency + sovereignty + built-in OSINT without
@@ -290,7 +290,7 @@ date, number, and direction.
   (cache invalidation, write replay). Phase it; ship read-cache first.
 - **Performance budget.** Every dependency and animation is weighed against a weak-network
   user. Keep the bundle lean (it already is).
-- **Scope discipline.** This is a multi-quarter vision. Phase 1 alone will make HELM feel
+- **Scope discipline.** This is a multi-quarter vision. Phase 1 alone will make Pulse feel
   dramatically more professional; ship it before reaching for Phase 3.
 
 ---

@@ -38,7 +38,7 @@ authxRouter.post("/totp/setup", async (req, res, next) => {
   try {
     const secret = newSecret();
     await run(`UPDATE users SET "totpSecret" = $1, "totpEnabled" = false WHERE id = $2`, [secret, req.user.id]);
-    res.json({ secret, otpauth: otpauthUrl(secret, req.user.email, "HELM حلم") });
+    res.json({ secret, otpauth: otpauthUrl(secret, req.user.email, "Pulse نبض") });
   } catch (e) { next(e); }
 });
 

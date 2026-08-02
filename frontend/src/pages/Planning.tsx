@@ -125,6 +125,7 @@ export default function Planning() {
                     </span>
                   )}
                 </div>
+                <KeyResults objectiveId={o.id} writable={canManage} />
               </Card>
             );
           })}
@@ -152,6 +153,82 @@ export default function Planning() {
           </div>
         )}
       </Modal>
+    </div>
+  );
+}
+
+// ── Self-filling key results — نتائج رئيسية تتحدث ليلاً ─────────────
+interface KR { id: string; objectiveId: string; label: string; labelAr?: string; metric?: unknown; target: number; current: number; auto: boolean }
+
+function KeyResults({ objectiveId, writable }: { objectiveId: string; writable: boolean }) {
+  const { tr, lang } = useI18n();
+  const toast = useToast();
+  const { data, reload } = useFetch<KR[]>("/key-results");
+  const metrics = useFetch<{ key: string; name: string; nameAr?: string }[]>("/metrics");
+  const [adding, setAdding] = useState(false);
+  const [form, setForm] = useState({ label: "", labelAr: "", metricKey: "", target: "", auto: true, current: "" });
+  const rows = (data || []).filter((k) => k.objectiveId === objectiveId);
+
+  const add = async () => {
+    try {
+      await api.post("/key-results", {
+        objectiveId, label: form.label, labelAr: form.labelAr || undefined,
+        metric: form.auto ? { metricKey: form.metricKey } : {},
+        target: Number(form.target) || 0, auto: form.auto,
+        current: form.auto ? undefined : Number(form.current) || 0,
+      });
+      setAdding(false); reload(); toast.push(tr("saved"), "success");
+    } catch (e) { toast.push((e as Error).message, "error"); }
+  };
+
+  return (
+    <div className="mt-3 border-t border-paper-200 pt-2.5">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] font-bold uppercase tracking-wide text-ink-400">{tr("kr_title")}</span>
+        {writable && <button onClick={() => { setForm({ label: "", labelAr: "", metricKey: "", target: "", auto: true, current: "" }); setAdding(true); }}
+          className="text-[11px] font-medium text-amber-700 hover:underline">+ {tr("kr_add")}</button>}
+      </div>
+      {rows.length > 0 && (
+        <div className="mt-1.5 space-y-1.5">
+          {rows.map((k) => {
+            const pct = Math.min(100, k.target ? Math.round((Number(k.current) / Number(k.target)) * 100) : 0);
+            return (
+              <div key={k.id}>
+                <div className="flex items-center justify-between gap-2 text-xs">
+                  <span className="truncate text-ink-700">{k.auto && <span title={tr("kr_autoBadge")}>⚡ </span>}{lang === "ar" && k.labelAr ? k.labelAr : k.label}</span>
+                  <span className="kpi-num shrink-0 text-ink-500" dir="ltr">{Number(k.current).toLocaleString()} / {Number(k.target).toLocaleString()}</span>
+                </div>
+                <div className="mt-0.5 h-1.5 w-full overflow-hidden rounded-full bg-paper-200">
+                  <div className={`h-full rounded-full ${pct >= 100 ? "bg-moss-500" : "bg-amber-500"}`} style={{ width: `${pct}%` }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {adding && (
+        <Modal open title={tr("kr_add")} onClose={() => setAdding(false)}>
+          <div className="space-y-3">
+            <input className="input" placeholder={tr("kr_label")} value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} />
+            <input className="input" placeholder={tr("kr_labelAr")} value={form.labelAr} onChange={(e) => setForm({ ...form, labelAr: e.target.value })} dir="rtl" />
+            <label className="flex items-center gap-2 text-sm text-ink-700">
+              <input type="checkbox" checked={form.auto} onChange={(e) => setForm({ ...form, auto: e.target.checked })} className="accent-amber-500" />
+              ⚡ {tr("kr_autoBadge")}
+            </label>
+            {form.auto ? (
+              <select className="input" value={form.metricKey} onChange={(e) => setForm({ ...form, metricKey: e.target.value })}>
+                <option value="">{tr("kr_metricPick")}</option>
+                {(metrics.data || []).map((m) => <option key={m.key} value={m.key}>{lang === "ar" && m.nameAr ? m.nameAr : m.name}</option>)}
+              </select>
+            ) : (
+              <input className="input kpi-num" type="number" placeholder={tr("kr_current")} value={form.current} onChange={(e) => setForm({ ...form, current: e.target.value })} dir="ltr" />
+            )}
+            <input className="input kpi-num" type="number" placeholder={tr("kr_target")} value={form.target} onChange={(e) => setForm({ ...form, target: e.target.value })} dir="ltr" />
+            <p className="text-[11px] text-ink-400">{tr("kr_hint")}</p>
+            <button onClick={add} className="btn-amber w-full" disabled={!form.label || (form.auto && !form.metricKey)}>{tr("save")}</button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

@@ -2,7 +2,7 @@ import pg from "pg";
 
 // Cached pool. On Vercel/serverless, reuse across invocations via globalThis
 // so we don't exhaust Supabase connections. Tests can inject a client.
-let _pool = globalThis.__HELM_POOL__ || null;
+let _pool = globalThis.__PULSE_POOL__ || null;
 
 function pool() {
   if (_pool) return _pool;
@@ -11,13 +11,13 @@ function pool() {
   // Supabase requires SSL. Set PGSSL=disable only for a local trusted Postgres.
   const ssl = process.env.PGSSL === "disable" ? false : { rejectUnauthorized: false };
   _pool = new pg.Pool({ connectionString, ssl, max: 3 });
-  globalThis.__HELM_POOL__ = _pool;
+  globalThis.__PULSE_POOL__ = _pool;
   return _pool;
 }
 
-// In tests we set globalThis.__HELM_DB_CLIENT__ to an embedded Postgres (PGlite).
+// In tests we set globalThis.__PULSE_DB_CLIENT__ to an embedded Postgres (PGlite).
 function client() {
-  return globalThis.__HELM_DB_CLIENT__ || pool();
+  return globalThis.__PULSE_DB_CLIENT__ || pool();
 }
 
 export async function query(text, params = []) {

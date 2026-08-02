@@ -1,14 +1,14 @@
-# HELM — The Marketing Brain
-### حلم — رؤية المنصة وهندسة التشغيل
+# Pulse — The Marketing Brain
+### نبض — رؤية المنصة وهندسة التشغيل
 *From a system that records marketing work to a system that plans, senses, decides, and learns — with an AI CMO as the connective brain. Built Arabic-first, dual-currency, for emerging-market industrial marketing.*
 
 ---
 
 ## 0. The one-line thesis
 
-Most tools are a **system of record** (where work is tracked) or a **system of engagement** (where work is done). HELM's destiny is a **system of intelligence and decision**: the place where the whole marketing function is *planned, sensed, executed, measured, and improved* — and where a CMO (human or AI) can ask "what's happening and what should I do?" and get a grounded answer.
+Most tools are a **system of record** (where work is tracked) or a **system of engagement** (where work is done). Pulse's destiny is a **system of intelligence and decision**: the place where the whole marketing function is *planned, sensed, executed, measured, and improved* — and where a CMO (human or AI) can ask "what's happening and what should I do?" and get a grounded answer.
 
-The evolution: **Record → Engagement → Intelligence.** HELM is already climbing this stack; this document is the map to the top.
+The evolution: **Record → Engagement → Intelligence.** Pulse is already climbing this stack; this document is the map to the top.
 
 A blunt prerequisite stated once: **everything analytical and AI below is only as good as the data the team logs.** The single highest-leverage investment is making capture and logging effortless. Garbage in, garbage out — so Phase work is sequenced to earn the AI, not bolt it on.
 
@@ -16,25 +16,25 @@ A blunt prerequisite stated once: **everything analytical and AI below is only a
 
 ## 1. The five-layer architecture (the "brain")
 
-Think of HELM as five stacked layers. Work and intelligence flow **up** (data → insight → decision) and **down** (decisions → plans → execution), in a loop.
+Think of Pulse as five stacked layers. Work and intelligence flow **up** (data → insight → decision) and **down** (decisions → plans → execution), in a loop.
 
-| Layer | What it is | HELM today |
+| Layer | What it is | Pulse today |
 |---|---|---|
 | **5 · Advisory / Decision** | The AI CMO surface: briefings, consults, natural-language Q&A, the marketing wizard, decision support. "What should I do?" | — (to build) |
 | **4 · Intelligence** | AI over the data: synthesis, diagnosis, forecasting, anomaly detection, recommendations. The reasoning brain. | — (to build) |
 | **3 · Analytics** | The KPI engine: funnels, attribution, pipeline analytics, scorecards, reports. Turns records into meaning. | partial (Command Center) |
-| **2 · Operations** | The modules that run the work: plan → execute → capture across all marketing processes. | strong (most of HELM) |
+| **2 · Operations** | The modules that run the work: plan → execute → capture across all marketing processes. | strong (most of Pulse) |
 | **1 · Data foundation** | The single connected model — every record tagged to campaign / channel / business-unit / owner so it's queryable and attributable. | strong (the loop) |
 
 The vertical loop is the product: **Sense → Plan → Execute → Measure → Learn → re-Plan**, with the brain (layers 4–5) watching every layer and the data foundation (layer 1) making it all connected and attributable.
 
 ---
 
-## 2. The marketing operating model — every process HELM runs
+## 2. The marketing operating model — every process Pulse runs
 
-A marketing department does ten things end-to-end. HELM should run all ten as one connected system (not ten tools). Current coverage:
+A marketing department does ten things end-to-end. Pulse should run all ten as one connected system (not ten tools). Current coverage:
 
-| # | Process | HELM today | The "top 1%" version |
+| # | Process | Pulse today | The "top 1%" version |
 |---|---|---|---|
 | 1 | **Strategy & Planning** | — | Objectives/OKRs cascading to campaigns; unified marketing calendar; budget planning; scenario/what-if |
 | 2 | **Market Intelligence** | OSINT/Market Intel ✓ | + AI-enriched signals, competitor profiles, share-of-voice, alerts |
@@ -47,13 +47,13 @@ A marketing department does ten things end-to-end. HELM should run all ten as on
 | 9 | **Measurement & Analytics** | Command Center (partial) | + the full KPI engine, attribution, scorecards, scheduled/auto reports |
 | 10 | **Governance & Team** | Roles/Users ✓ | + approval chains, audit trail, per-role scoping |
 
-HELM already covers ~70% of the surface. The gap to "top 1%" is three new pillars (Planning, Analytics/Reporting, the AI brain) and a Capture layer — plus depth in what exists.
+Pulse already covers ~70% of the surface. The gap to "top 1%" is three new pillars (Planning, Analytics/Reporting, the AI brain) and a Capture layer — plus depth in what exists.
 
 ---
 
 ## 3. New pillar — Strategy & Planning
 
-Today HELM executes; it doesn't yet *plan*. Add a planning layer that the rest of the system rolls up to:
+Today Pulse executes; it doesn't yet *plan*. Add a planning layer that the rest of the system rolls up to:
 
 - **Objectives & OKRs**, cascading: annual marketing goals → quarterly objectives → campaign targets. Every campaign, lead, and dirham traces to an objective.
 - **Unified marketing calendar** — campaigns + content + events on one timeline (per business unit, per channel), so the Head sees the whole plan at a glance and conflicts surface early.
@@ -148,7 +148,7 @@ Analytics and AI starve without inflow. Make capturing leads and data effortless
 
 ## 6. The pillar that changes the game — the AI CMO / Brain
 
-This is "AI adviser, CMO, brain, consult, wizard" made concrete. Eight modes, all grounded in the org's *own* HELM data — not generic advice.
+This is "AI adviser, CMO, brain, consult, wizard" made concrete. Eight modes, all grounded in the org's *own* Pulse data — not generic advice.
 
 1. **The Brief** — a daily/weekly executive summary in Arabic or English: what changed, what's working, what's at risk, the top 3 things to do. Auto-written from the data.
 2. **The Diagnostician** — explains the numbers: *"CPL rose 32% — paid spend grew while lead volume was flat; channel X is the drag."* Root-cause on any KPI move.
@@ -156,12 +156,12 @@ This is "AI adviser, CMO, brain, consult, wizard" made concrete. Eight modes, al
 4. **The Planner / Wizard** — guided generation: draft a campaign plan, content calendar, or budget split from stated objectives; step-by-step wizards to set up campaigns and plans correctly.
 5. **The Forecaster** — projects pipeline, spend burn, and goal attainment: *"At this pace you'll reach ~80% of the Q3 target; here's the gap and two ways to close it."*
 6. **The Sentinel** — anomaly detection & alerts: budget overrun, stalled pipeline, sentiment drop, SLA breaches, unusual signal spikes — pushed before they become problems.
-7. **The Content Studio** — Arabic-first, on-brand copy drafting for campaigns, posts, and content briefs, with the bilingual nuance HELM already handles well.
+7. **The Content Studio** — Arabic-first, on-brand copy drafting for campaigns, posts, and content briefs, with the bilingual nuance Pulse already handles well.
 8. **The Strategist** — higher-order moves: positioning ideas, segment opportunities, and competitive responses synthesized from OSINT + performance data.
 
 ### How it actually works (honest architecture)
-- An **LLM** sits on top of HELM's data. (HELM is already built on Claude — so a Claude-powered brain is a natural fit.)
-- **Grounding (RAG + tools):** the model is given the relevant slice of *your* data — KPIs, campaign records, pipeline, signals — and can **call HELM's APIs** ("get campaign performance," "get pipeline by stage") so answers are live and accurate, not hallucinated.
+- An **LLM** sits on top of Pulse's data. (Pulse is already built on Claude — so a Claude-powered brain is a natural fit.)
+- **Grounding (RAG + tools):** the model is given the relevant slice of *your* data — KPIs, campaign records, pipeline, signals — and can **call Pulse's APIs** ("get campaign performance," "get pipeline by stage") so answers are live and accurate, not hallucinated.
 - **Guardrails:** it *advises, humans decide*; every claim is **traceable to the numbers** behind it; it flags uncertainty; it never auto-executes consequential or destructive actions without confirmation; it's **role-scoped** (a channel lead's brain sees their channel; the Head's sees everything).
 - **Bilingual by construction** — a CMO brain that reasons natively in Arabic *and* English is a genuine, rare edge.
 
@@ -176,7 +176,7 @@ This is "AI adviser, CMO, brain, consult, wizard" made concrete. Eight modes, al
 
 **Versus the incumbents** (HubSpot, Salesforce, Monday, Adobe): they're English-first, single-currency in mindset, expensive, connectivity-hungry, **siloed** (a CRM *or* a PM tool *or* an analytics suite), have **no built-in market sensing**, no Arabic-native AI CMO, and aren't self-hostable or offline-capable.
 
-**HELM's edges, stacked:**
+**Pulse's edges, stacked:**
 1. The **connected loop** — sense → plan → act → measure → learn in *one* surface.
 2. **Arabic-first + dual-currency native** — built for the region, not localized as an afterthought.
 3. **Built-in OSINT** market sensing — competitors sell that separately.
@@ -185,16 +185,16 @@ This is "AI adviser, CMO, brain, consult, wizard" made concrete. Eight modes, al
 6. **Industrial-B2B fit** — tenders, distributors, long cycles, business units modeled natively.
 7. **Price & fit** for emerging markets.
 
-**The compounding moat (the flywheel):** the more the team uses HELM, the richer the org's data, the smarter its AI CMO becomes *on their specific business* — a data advantage incumbents literally cannot copy, because it's *Saria's* accumulated marketing intelligence.
+**The compounding moat (the flywheel):** the more the team uses Pulse, the richer the org's data, the smarter its AI CMO becomes *on their specific business* — a data advantage incumbents literally cannot copy, because it's *Saria's* accumulated marketing intelligence.
 
 ---
 
 ## 8. Problems it solves, by who feels the pain
 
-- **Head of Marketing / CMO:** no single view of the whole function, can't see ROI, planning lives in spreadsheets, no decision support → HELM gives the cockpit + AI brief + scorecard + a brain to consult.
+- **Head of Marketing / CMO:** no single view of the whole function, can't see ROI, planning lives in spreadsheets, no decision support → Pulse gives the cockpit + AI brief + scorecard + a brain to consult.
 - **Channel leads (digital / paid / events / content):** fragmented tools, manual reporting, no market context → one workspace + auto-reporting + live signals.
 - **Analysts:** data scattered, reports hand-assembled → the KPI engine + scheduled/auto-narrative reports.
-- **The organization (Saria):** foreign tools don't fit its language, currency, connectivity, cost, or sovereignty needs → HELM is built for exactly this context.
+- **The organization (Saria):** foreign tools don't fit its language, currency, connectivity, cost, or sovereignty needs → Pulse is built for exactly this context.
 
 ---
 

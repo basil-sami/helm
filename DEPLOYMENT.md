@@ -1,10 +1,10 @@
-# HELM — Implementation & Deployment (step by step)
+# Pulse — Implementation & Deployment (step by step)
 
 Two paths. Pick one:
 - **A. Vercel + Supabase** — fastest, no server to manage (recommended).
 - **B. Docker on your own server** — fully self-hosted / sovereign.
 
-Demo login after either: `head@saria.sd` / `Helm@2026`.
+Demo login after either: `head@saria.sd` / `Pulse@2026`.
 
 ---
 
@@ -14,10 +14,10 @@ You need free accounts on **GitHub**, **Supabase**, and **Vercel**.
 
 ### 1. Put the code in a Git repo
 ```bash
-unzip helm.zip && cd helm
-git init && git add . && git commit -m "HELM"
+unzip pulse.zip && cd pulse
+git init && git add . && git commit -m "Pulse"
 # create an empty repo on GitHub, then:
-git remote add origin https://github.com/<you>/helm.git
+git remote add origin https://github.com/<you>/pulse.git
 git branch -M main && git push -u origin main
 ```
 `.gitignore` already excludes `node_modules`, `.env`, build output.
@@ -38,7 +38,7 @@ git branch -M main && git push -u origin main
 4. Click **Deploy**. Wait ~1–2 min.
 
 ### 4. First sign-in
-1. Open the deployment URL → log in with `head@saria.sd` / `Helm@2026`.
+1. Open the deployment URL → log in with `head@saria.sd` / `Pulse@2026`.
 2. **Users** → create your real team accounts → then deactivate the demo users.
 3. **Settings** → set the real USD→SDG rate and org name.
 4. **Market Intel** → press **Refresh all** to pull live news/GDELT signals (works immediately, no API keys).
@@ -50,10 +50,10 @@ Push to the Git repo; Vercel redeploys automatically. Schema changes: re-run the
 
 ## B. Docker on your own server (self-hosted)
 
-You need a server with **Docker** + **Docker Compose**. No Supabase, no Node — HELM runs with its own Postgres in a container; data stays on your machine.
+You need a server with **Docker** + **Docker Compose**. No Supabase, no Node — Pulse runs with its own Postgres in a container; data stays on your machine.
 
 ```bash
-unzip helm.zip && cd helm
+unzip pulse.zip && cd pulse
 # 1. edit docker-compose.yml -> change JWT_SECRET to a strong secret
 # 2. start (builds frontend, runs API + Postgres, seeds on first boot)
 docker compose up --build -d
@@ -62,7 +62,7 @@ docker compose up --build -d
 - First sign-in steps are the same as A.4 above.
 - **HTTPS:** put nginx or Caddy in front of port 4000 for a real domain + TLS.
 - **Backups:** the database lives in `./data/pg` — back up that folder, or run
-  `docker exec helm-db pg_dump -U helm helm > helm-backup.sql`.
+  `docker exec pulse-db pg_dump -U pulse pulse > pulse-backup.sql`.
 - **Update:** `git pull` (or re-unzip) then `docker compose up --build -d`. Schema uses
   `IF NOT EXISTS`, so restarts are safe and won't wipe data.
 

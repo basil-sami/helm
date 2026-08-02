@@ -19,7 +19,9 @@
 //
 // Manual entry and CSV import work without any of this.
 
-export const PLATFORMS = ["FACEBOOK", "INSTAGRAM", "X", "LINKEDIN", "YOUTUBE", "TIKTOK"];
+// Account platforms. WA is messaging-only — it has no follower metrics,
+// so syncAccount leaves it alone (see connectors/waba.js caps).
+export const PLATFORMS = ["FACEBOOK", "INSTAGRAM", "X", "LINKEDIN", "YOUTUBE", "TIKTOK", "WA", "GOOGLE"];
 
 const n = (v) => Number(v || 0);
 const empty = { followers: 0, posts: 0, impressions: 0, reach: 0, engagement: 0, clicks: 0, spendUsd: 0 };

@@ -22,8 +22,6 @@ export default function Budget() {
   const toast = useToast();
   const { data, loading, reload } = useFetch<Entry[]>("/budget");
   const { data: campaigns } = useFetch<CampaignRow[]>("/campaigns");
-  const { data: settings } = useFetch<any>("/settings");
-  const rate = Number(settings?.usdToSdgRate) || 0;
   const [editing, setEditing] = useState<Partial<Entry> | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -31,9 +29,9 @@ export default function Budget() {
   const totals = useMemo(() => {
     const spent = entries.filter((e) => e.kind === "SPENT");
     const planned = entries.filter((e) => e.kind === "PLANNED");
-    const sum = (rows: Entry[], k: "amountUsd" | "amountSdg") => rows.reduce((a, r) => a + Number(r[k] || 0), 0);
+    const sum = (rows: Entry[], k: "amountUsd" | "amountSdg") => rows.reduce((a, r) => a + (r[k] || 0), 0);
     const byChannel: Record<string, number> = {};
-    for (const e of spent) byChannel[e.channel] = (byChannel[e.channel] || 0) + Number(e.amountUsd || 0);
+    for (const e of spent) byChannel[e.channel] = (byChannel[e.channel] || 0) + (e.amountUsd || 0);
     return {
       spentUsd: sum(spent, "amountUsd"), spentSdg: sum(spent, "amountSdg"),
       plannedUsd: sum(planned, "amountUsd"), plannedSdg: sum(planned, "amountSdg"),
@@ -145,8 +143,8 @@ export default function Budget() {
             <div className="col-span-2"><Field label={tr("label")}><input className="input" value={editing.label || ""} onChange={(e) => setEditing({ ...editing, label: e.target.value })} /></Field></div>
             <Field label={tr("kind")}><Select value={editing.kind || "SPENT"} onChange={(v) => setEditing({ ...editing, kind: v })} options={KINDS.map((s) => ({ value: s, label: el(s) }))} /></Field>
             <Field label={tr("channel")}><Select value={editing.channel || "PAID"} onChange={(v) => setEditing({ ...editing, channel: v })} options={CHANNELS.map((s) => ({ value: s, label: el(s) }))} /></Field>
-            <Field label={`${tr("amount")} (USD)`}><input type="number" className="input" value={editing.amountUsd ?? 0} onChange={(e) => { const v = Number(e.target.value); setEditing({ ...editing, amountUsd: v, amountSdg: rate ? Number((v * rate).toFixed(2)) : editing.amountSdg }); }} /></Field>
-            <Field label={`${tr("amount")} (SDG)`}><input type="number" className="input" value={editing.amountSdg ?? 0} onChange={(e) => { const v = Number(e.target.value); setEditing({ ...editing, amountSdg: v, amountUsd: rate ? Number((v / rate).toFixed(2)) : editing.amountUsd }); }} /></Field>
+            <Field label={`${tr("amount")} (USD)`}><input type="number" className="input" value={editing.amountUsd ?? 0} onChange={(e) => setEditing({ ...editing, amountUsd: Number(e.target.value) })} /></Field>
+            <Field label={`${tr("amount")} (SDG)`}><input type="number" className="input" value={editing.amountSdg ?? 0} onChange={(e) => setEditing({ ...editing, amountSdg: Number(e.target.value) })} /></Field>
             <Field label={tr("date")}><input type="date" className="input" value={editing.date || ""} onChange={(e) => setEditing({ ...editing, date: e.target.value })} /></Field>
             <Field label={tr("campaign")}><Select value={editing.campaignId || ""} onChange={(v) => setEditing({ ...editing, campaignId: v })} placeholder={tr("none")} options={(campaigns || []).map((c) => ({ value: c.id, label: c.name }))} /></Field>
           </div>

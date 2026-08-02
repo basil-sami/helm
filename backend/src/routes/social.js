@@ -9,11 +9,36 @@ socialRouter.use(requireAuth);
 const num = (v) => Number(v || 0);
 
 // ── Accounts ─────────────────────────────────────────────────────────
+// ── Wave 2·B · connector-backed verification ──
+socialRouter.get("/capabilities", requirePerm("social", "read"), async (_req, res, next) => {
+  try {
+    const { platformCaps } = await import("../connectors/index.js");
+    res.json(platformCaps());
+  } catch (e) { next(e); }
+});
+
+socialRouter.post("/accounts/:id/verify", requirePerm("social"), async (req, res, next) => {
+  try {
+    const acc = await get(`SELECT * FROM social_accounts WHERE id = $1`, [req.params.id]);
+    if (!acc) return res.status(404).json({ error: "Not found" });
+    if (!acc.accessToken) return res.status(400).json({ error: "No access token stored for this account" });
+    const { callAdapter } = await import("../connectors/index.js");
+    const r = await callAdapter(acc, "VERIFY", (adapter, cfg) => adapter.verify(acc, cfg));
+    if (r.ok) {
+      await run(`UPDATE social_accounts SET status = 'CONNECTED', "connectedAt" = COALESCE("connectedAt", now()),
+                 "externalId" = COALESCE($2, "externalId") WHERE id = $1`, [acc.id, r.externalId || null]);
+    } else {
+      await run(`UPDATE social_accounts SET status = 'DISCONNECTED' WHERE id = $1`, [acc.id]);
+    }
+    res.json(r);
+  } catch (e) { next(e); }
+});
+
 socialRouter.get("/accounts", requirePerm("social", "read"), async (_req, res, next) => {
   try {
     const rows = await all(`
       SELECT a.id, a.platform, a.handle, a."displayName", a.status, a."externalId",
-        a."connectedAt", a."createdAt",
+        a."connectedAt", a."createdAt", a."autoPublish", a."tokenExpiresAt",
         (a."accessToken" IS NOT NULL) AS "hasToken",
         (SELECT followers FROM social_metrics m WHERE m."accountId" = a.id ORDER BY m.date DESC LIMIT 1) AS "latestFollowers",
         (SELECT COUNT(*)::int FROM social_metrics m WHERE m."accountId" = a.id) AS "metricCount"
@@ -23,7 +48,7 @@ socialRouter.get("/accounts", requirePerm("social", "read"), async (_req, res, n
 });
 
 // Never return the stored access token to clients.
-const ACCOUNT_PUBLIC = `id, platform, handle, "displayName", status, "externalId", "connectedAt", "createdAt", ("accessToken" IS NOT NULL) AS "hasToken"`;
+const ACCOUNT_PUBLIC = `id, platform, handle, "displayName", status, "externalId", "connectedAt", "createdAt", "autoPublish", "tokenExpiresAt", ("accessToken" IS NOT NULL) AS "hasToken"`;
 
 // Connect / add an account. Storing a token marks it CONNECTED.
 socialRouter.post("/accounts", requirePerm("social"), async (req, res, next) => {
@@ -48,6 +73,8 @@ socialRouter.patch("/accounts/:id", requirePerm("social"), async (req, res, next
   if (req.body.handle !== undefined) push("handle", req.body.handle);
   if (req.body.displayName !== undefined) push("displayName", req.body.displayName);
   if (req.body.status !== undefined) push("status", req.body.status);
+  if (req.body.autoPublish !== undefined) push("autoPublish", !!req.body.autoPublish);
+  if (req.body.tokenExpiresAt !== undefined) push("tokenExpiresAt", req.body.tokenExpiresAt || null);
   if (req.body.accessToken !== undefined) {
     push("accessToken", req.body.accessToken || null);
     push("status", req.body.accessToken ? "CONNECTED" : "DISCONNECTED");

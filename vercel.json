@@ -4,10 +4,18 @@
   "outputDirectory": "frontend/dist",
   "functions": {
     "api/index.js": {
-      "maxDuration": 300
+      "maxDuration": 60
     }
   },
   "rewrites": [
+    {
+      "source": "/pulse.js",
+      "destination": "/api"
+    },
+    {
+      "source": "/r/:code",
+      "destination": "/api"
+    },
     {
       "source": "/api/(.*)",
       "destination": "/api"
@@ -19,8 +27,12 @@
   ],
   "crons": [
     {
-      "path": "/api/cron/osint",
+      "path": "/api/cron/daily-pulse",
       "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/api/cron/publish-tick",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

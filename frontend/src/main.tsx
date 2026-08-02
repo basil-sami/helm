@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import { AuthProvider } from "./context/AuthContext";
+import { BrandingProvider } from "./context/BrandingContext";
 import { I18nProvider } from "./context/I18nContext";
 import { ToastProvider } from "./components/Toast";
 import "./index.css";
@@ -12,9 +13,11 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <I18nProvider>
       <ToastProvider>
         <AuthProvider>
-          <BrowserRouter>
-            <App />
-          </BrowserRouter>
+          <BrandingProvider>
+            <BrowserRouter>
+              <App />
+            </BrowserRouter>
+          </BrandingProvider>
         </AuthProvider>
       </ToastProvider>
     </I18nProvider>

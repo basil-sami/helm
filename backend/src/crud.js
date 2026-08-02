@@ -26,7 +26,6 @@ export function crudRouter(opts) {
     validate,
     module, // permission key (e.g. "campaigns"); reads need "read", writes need "write"
     afterWrite, // optional (req, action, id, data, prev) hook for domain side-effects
-    beforeDelete, // optional async (req, id) hook called before DELETE
     validateUpdate, // optional async (data, prev, req) → error string blocks the write (400)
     validateCreate, // optional async (data, req) → error string blocks the write (400)
   } = opts;
@@ -40,6 +39,17 @@ export function crudRouter(opts) {
 
   const single = async (id) => get(getSql || `SELECT * FROM ${table} WHERE id = $1`, [id]);
 
+  // ── Wave 3·H · department scoping, enforced once ────────────────────
+  // A user assigned to a department sees their own department's rows plus
+  // anything unassigned. Admins and unassigned users see everything, so
+  // an instance that never adopts departments behaves exactly as before.
+  const scopeOf = (req) => (req.user?.isAdmin ? null : req.user?.departmentId || null);
+  const visible = (req, row) => {
+    const scope = scopeOf(req);
+    if (!scope || !row || row.departmentId === undefined) return true;
+    return row.departmentId === null || row.departmentId === scope;
+  };
+
   const pickFields = (body) => {
     const data = {};
     for (const f of fields) if (body[f] !== undefined) data[f] = normalize(body[f]);
@@ -48,7 +58,8 @@ export function crudRouter(opts) {
 
   router.get("/", guard("read"), async (req, res, next) => {
     try {
-      const rows = await all(listSql || `SELECT * FROM ${table} ORDER BY ${orderBy}`);
+      const raw = await all(listSql || `SELECT * FROM ${table} ORDER BY ${orderBy}`);
+      const rows = raw.filter((r) => visible(req, r));
       const limit = parseInt(req.query.limit, 10);
       if (Number.isFinite(limit) && limit > 0) {
         const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
@@ -62,7 +73,9 @@ export function crudRouter(opts) {
   router.get("/:id", guard("read"), async (req, res, next) => {
     try {
       const row = await single(req.params.id);
-      if (!row) return res.status(404).json({ error: "Not found" });
+      // 404 rather than 403: whether another department's record exists is
+      // itself information they are not entitled to.
+      if (!row || !visible(req, row)) return res.status(404).json({ error: "Not found" });
       res.json(row);
     } catch (e) { next(e); }
   });
@@ -78,6 +91,10 @@ export function crudRouter(opts) {
         const err = await validateCreate(data, req);
         if (err) return res.status(400).json({ error: err });
       }
+      // a scoped user cannot create into someone else's department, and
+      // does not have to remember to set their own
+      const scope = scopeOf(req);
+      if (scope && fields.includes("departmentId")) data.departmentId = scope;
       const cols = Object.keys(data);
       let id;
       if (cols.length === 0) {
@@ -100,8 +117,13 @@ export function crudRouter(opts) {
   });
 
   router.patch("/:id", guard("write"), async (req, res, next) => {
-    const existing = await get(`SELECT id FROM ${table} WHERE id = $1`, [req.params.id]);
-    if (!existing) return res.status(404).json({ error: "Not found" });
+    const existing = await single(req.params.id);
+    if (!existing || !visible(req, existing)) return res.status(404).json({ error: "Not found" });
+    // a scoped user may not move a record into another department
+    const pScope = scopeOf(req);
+    if (pScope && req.body.departmentId !== undefined && req.body.departmentId !== pScope) {
+      return res.status(403).json({ error: "You cannot move this into another department" });
+    }
 
     const data = pickFields(req.body);
     if (validate) {
@@ -134,7 +156,8 @@ export function crudRouter(opts) {
 
   router.delete("/:id", guard("write"), async (req, res, next) => {
     try {
-      if (beforeDelete) { try { await beforeDelete(req, req.params.id); } catch { /* ignore */ } }
+      const prev = await single(req.params.id);
+      if (prev && !visible(req, prev)) return res.status(404).json({ error: "Not found" });
       await run(`DELETE FROM ${table} WHERE id = $1`, [req.params.id]);
       logAudit(req, `${table}.delete`, table, req.params.id);
       res.status(204).end();

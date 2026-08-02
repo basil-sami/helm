@@ -1,7 +1,7 @@
 /* حلم — minimal app-shell service worker.
    Static assets: cache-first. Navigations: network-first with offline fallback.
    API calls are NEVER cached (live data + auth). */
-const VERSION = "helm-v2";
+const VERSION = "pulse-v3";
 const SHELL = ["/", "/index.html", "/manifest.webmanifest", "/favicon.svg"];
 
 self.addEventListener("install", (e) => {

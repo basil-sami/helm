@@ -1,11 +1,24 @@
 import { Lang } from "../locales/dict";
 
-export function fmtMoney(amount: number, currency: "USD" | "SDG", lang: Lang): string {
+// ── Local currency (Wave 0) ──────────────────────────────────────────
+// The second currency is per-client (settings.localCurrency). Call sites
+// keep passing the historical "SDG" token — it now means "the local slot".
+let LOCAL_CODE = "SDG";
+let LOCAL_AR = "ج.س";
+export function setLocalCurrency(code?: string | null, ar?: string | null) {
+  LOCAL_CODE = (code || "SDG").toUpperCase();
+  LOCAL_AR = ar || LOCAL_CODE;
+}
+export function localCurrencyLabel(lang: Lang) {
+  return lang === "ar" ? LOCAL_AR : LOCAL_CODE;
+}
+
+export function fmtMoney(amount: number, currency: "USD" | "SDG" | "LOCAL", lang: Lang): string {
   const locale = lang === "ar" ? "ar-EG" : "en-US";
   const n = new Intl.NumberFormat(locale, {
     maximumFractionDigits: 0,
   }).format(amount || 0);
-  return currency === "USD" ? `$${n}` : `${n} ${lang === "ar" ? "ج.س" : "SDG"}`;
+  return currency === "USD" ? `$${n}` : `${n} ${lang === "ar" ? LOCAL_AR : LOCAL_CODE}`;
 }
 
 // Compact dual-currency display, e.g. "$12,000 · 30,000,000 SDG"
@@ -30,10 +43,7 @@ export function toDateInput(iso?: string | null): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "";
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+  return d.toISOString().slice(0, 10);
 }
 
 export function daysUntil(iso?: string | null): number | null {

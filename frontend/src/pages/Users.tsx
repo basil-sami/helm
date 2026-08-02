@@ -6,7 +6,7 @@ import { api } from "../lib/api";
 
 interface UserRow {
   id: string; name: string; email: string; role: string;
-  titleAr?: string; active: boolean; createdAt?: string;
+  titleAr?: string; active: boolean; morningEmail?: boolean; createdAt?: string;
 }
 interface RoleRow {
   id: string; key: string; label: string; labelAr?: string | null;
@@ -31,6 +31,8 @@ const MODULES: { key: string; nav: string }[] = [
   { key: "social", nav: "nav_social" }, { key: "intel", nav: "nav_intel" },
   { key: "planning", nav: "nav_planning" }, { key: "analytics", nav: "nav_analytics" },
   { key: "brain", nav: "nav_brain" },
+  { key: "studio", nav: "nav_studio" }, { key: "agency", nav: "nav_agency" },
+  { key: "automate", nav: "nav_forms" }, { key: "research", nav: "nav_surveys" },
 ];
 const allRead = () => Object.fromEntries(MODULES.map((m) => [m.key, "read"])) as Record<string, PermLevel>;
 
@@ -170,7 +172,11 @@ export default function Users() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-end">
-                      <button onClick={() => { setError(""); setEditing({ ...u, password: "" }); }} className="text-xs text-steel-600 hover:underline">{tr("edit")}</button>
+                      <button onClick={async () => { await api.patch(`/users/${u.id}`, { morningEmail: !u.morningEmail }); reload(); }}
+                        title={tr("ml_optIn")} className={`text-xs ${u.morningEmail ? "text-amber-600" : "text-ink-400"} hover:underline`}>
+                        {u.morningEmail ? "✉︎" : "✉"}
+                      </button>
+                      <button onClick={() => { setError(""); setEditing({ ...u, password: "" }); }} className="ms-3 text-xs text-steel-600 hover:underline">{tr("edit")}</button>
                       {u.id !== user?.id && (
                         <button onClick={() => toggleActive(u)} className="ms-3 text-xs text-clay-600 hover:underline">
                           {u.active ? tr("usr_deactivate") : tr("usr_activate")}

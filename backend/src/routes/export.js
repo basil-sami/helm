@@ -18,7 +18,18 @@ const BACKUP_TABLES = [
   "events", "event_registrations",
   "budget_entries", "tasks", "objectives", "process_templates",
   "tracked_links", "media_contacts", "press_items", "influencers", "influencer_collabs",
-  "social_accounts", "social_metrics", "osint_topics", "osint_signals",
+  "social_accounts", "social_metrics", "osint_topics", "osint_signals", "osint_sources",
+  "vendors", "engagements", "creative_requests", "creative_briefs", "brand_assets",
+  "copy_bank", "asset_versions", "deliverables", "deliverable_comments", "invoices",
+  "portal_tokens", "approvals",
+  "contacts", "forms", "form_submissions", "landing_pages", "surveys", "survey_responses", "insights",
+  "content_variants", "scheduled_posts", "bio_pages", "bio_links",
+  "workflows", "workflow_runs", "lead_score_rules", "wa_templates",
+  "outreach_campaigns", "outreach_touches", "coverage_reports", "competitors",
+  "media_plans", "media_placements", "promotions", "referrals", "partners", "partner_campaigns",
+  "playbooks", "ad_spend", "sites", "web_events", "key_results", "digest_log", "inbox_items", "mail_log", "integration_runs", "osint_sources",
+  "osint_entities", "osint_aliases", "osint_signal_entities", "osint_cases", "osint_case_items", "osint_handle_candidates", "error_log", "ai_runs", "search_runs", "search_budget", "osint_themes", "osint_theme_signals", "mmm_weeks", "mmm_runs", "departments",
+  "metrics", "metric_snapshots", "metric_targets", "metric_alerts", "dashboards", "report_runs",
   "audit_log",
 ].map((t) => [
   t,
@@ -26,7 +37,15 @@ const BACKUP_TABLES = [
     ? `SELECT id, name, email, role, "titleAr", active, "createdAt" FROM users ORDER BY "createdAt"`
     : t === "social_accounts"
       ? `SELECT id, platform, handle, "displayName", status, "createdAt" FROM social_accounts ORDER BY "createdAt"`
-      : `SELECT * FROM ${t} ORDER BY "createdAt"`,
+      // Not every table has a createdAt — search_budget is keyed on provider
+      // and error_log/ai_runs order by `at`. Ordering blindly makes the query
+      // fail and the table back up as silently empty, which is worse than
+      // unordered rows.
+      : ["search_budget"].includes(t)
+        ? `SELECT * FROM ${t} ORDER BY provider`
+        : ["error_log", "ai_runs", "search_runs", "integration_runs"].includes(t)
+          ? `SELECT * FROM ${t} ORDER BY at`
+          : `SELECT * FROM ${t} ORDER BY "createdAt"`,
 ]);
 
 exportRouter.get("/backup", requireAdmin, async (_req, res, next) => {
@@ -36,9 +55,9 @@ exportRouter.get("/backup", requireAdmin, async (_req, res, next) => {
       try { tables[name] = await all(sql); }
       catch { tables[name] = []; /* table may not exist pre-migration */ }
     }
-    const payload = { app: "HELM حلم", exportedAt: new Date().toISOString(), tables };
+    const payload = { app: "Pulse نبض", exportedAt: new Date().toISOString(), tables };
     res.setHeader("Content-Type", "application/json; charset=utf-8");
-    res.setHeader("Content-Disposition", `attachment; filename="helm-backup-${new Date().toISOString().slice(0, 10)}.json"`);
+    res.setHeader("Content-Disposition", `attachment; filename="pulse-backup-${new Date().toISOString().slice(0, 10)}.json"`);
     res.send(JSON.stringify(payload, null, 1));
   } catch (e) { next(e); }
 });
@@ -94,12 +113,12 @@ exportRouter.get("/:resource", async (req, res, next) => {
     const rows = await all(sql);
     const stamp = new Date().toISOString().slice(0, 10);
     if (format === "json") {
-      res.setHeader("Content-Disposition", `attachment; filename="helm-${resource}-${stamp}.json"`);
+      res.setHeader("Content-Disposition", `attachment; filename="pulse-${resource}-${stamp}.json"`);
       res.setHeader("Content-Type", "application/json; charset=utf-8");
       return res.send(JSON.stringify(rows, null, 2));
     }
     // CSV with a UTF-8 BOM so Arabic renders correctly in Excel.
-    res.setHeader("Content-Disposition", `attachment; filename="helm-${resource}-${stamp}.csv"`);
+    res.setHeader("Content-Disposition", `attachment; filename="pulse-${resource}-${stamp}.csv"`);
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.send("\uFEFF" + toCsv(rows));
   } catch (e) { next(e); }
@@ -115,13 +134,24 @@ const RESTORE_ORDER = [
   "campaign_briefs", "tracked_links", "event_registrations", "customers",
   "media_contacts", "press_items", "influencers", "influencer_collabs",
   "posts", "assets", "feedback", "lead_activities",
-  "social_accounts", "social_metrics", "osint_topics", "osint_signals",
+  "social_accounts", "social_metrics", "osint_topics", "osint_signals", "osint_sources",
   "process_templates",
+  "vendors", "engagements", "creative_requests", "creative_briefs", "brand_assets",
+  "copy_bank", "asset_versions", "deliverables", "deliverable_comments", "invoices",
+  "portal_tokens", "approvals",
+  "contacts", "forms", "form_submissions", "landing_pages", "surveys", "survey_responses", "insights",
+  "content_variants", "scheduled_posts", "bio_pages", "bio_links",
+  "workflows", "workflow_runs", "lead_score_rules", "wa_templates",
+  "outreach_campaigns", "outreach_touches", "coverage_reports", "competitors",
+  "media_plans", "media_placements", "promotions", "referrals", "partners", "partner_campaigns",
+  "playbooks", "ad_spend", "sites", "web_events", "key_results", "digest_log", "inbox_items", "mail_log", "integration_runs", "osint_sources",
+  "osint_entities", "osint_aliases", "osint_signal_entities", "osint_cases", "osint_case_items", "osint_handle_candidates", "error_log", "ai_runs", "search_runs", "search_budget", "osint_themes", "osint_theme_signals", "mmm_weeks", "mmm_runs", "departments",
+  "metrics", "metric_snapshots", "metric_targets", "metric_alerts", "dashboards", "report_runs",
 ];
 
 exportRouter.post("/restore", requireAdmin, async (req, res, next) => {
   const tables = req.body?.tables;
-  if (!tables || typeof tables !== "object") return res.status(400).json({ error: "Expected a HELM backup JSON ({ tables: ... })" });
+  if (!tables || typeof tables !== "object") return res.status(400).json({ error: "Expected a Pulse backup JSON ({ tables: ... })" });
   const restored = {};
   try {
     for (const t of [...RESTORE_ORDER].reverse()) {

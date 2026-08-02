@@ -53,8 +53,8 @@ export default function CommandPalette() {
     };
     const onEvt = () => setOpen(true);
     window.addEventListener("keydown", onKey);
-    window.addEventListener("helm:command", onEvt as EventListener);
-    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("helm:command", onEvt as EventListener); };
+    window.addEventListener("pulse:command", onEvt as EventListener);
+    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("pulse:command", onEvt as EventListener); };
   }, []);
 
   useEffect(() => { if (open) { setQ(""); setActive(0); setTimeout(() => inputRef.current?.focus(), 20); } }, [open]);

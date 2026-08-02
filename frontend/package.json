@@ -1,9 +1,9 @@
 {
-  "name": "helm-frontend",
+  "name": "pulse-frontend",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "HELM — Marketing Department OS for Saria Industrial Complex (web client)",
+  "description": "Pulse (نبض) — The Marketing Operating Platform (web client)",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",

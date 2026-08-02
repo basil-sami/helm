@@ -8,19 +8,20 @@ import { fmtDate } from "../lib/format";
 import { useI18n } from "../context/I18nContext";
 import { useAuth } from "../context/AuthContext";
 
-import { api, ApiError } from "../lib/api";
+import { api } from "../lib/api";
 import { fmtMoney } from "../lib/format";
 
 interface Lead {
   productId?: string;
   id: string; company: string; contactName?: string; phone?: string; email?: string;
-  source?: string; businessUnit?: string; stage: string; valueUsd: number; valueSdg: number;
+  source?: string; businessUnit?: string; stage: string; valueUsd: number; valueSdg: number; lostReason?: string; score?: number;
   notes?: string; ownerId?: string; ownerName?: string; campaignId?: string; campaignName?: string;
 }
 interface UserRow { id: string; name: string }
 interface CampaignRow { id: string; name: string }
 
 const STAGES = ["NEW", "QUALIFIED", "PROPOSAL", "NEGOTIATION", "WON", "LOST"];
+const LOST_REASONS = ["PRICE", "TIMING", "COMPETITOR", "NO_BUDGET", "NO_RESPONSE", "NOT_FIT", "OTHER"];
 const STAGE_COLS = [
   { id: "NEW", accent: "bg-steel-500" },
   { id: "QUALIFIED", accent: "bg-violet-500" },
@@ -98,9 +99,9 @@ export default function Leads() {
   const { data: users } = useFetch<UserRow[]>("/users");
   const { data: campaigns } = useFetch<CampaignRow[]>("/campaigns");
   const { data: productsList } = useFetch<{ id: string; name: string }[]>("/products");
-  const { data: settings } = useFetch<any>("/settings");
-  const rate = Number(settings?.usdToSdgRate) || 0;
   const [editing, setEditing] = useState<Partial<Lead> | null>(null);
+  const [losing, setLosing] = useState<Lead | null>(null);
+  const [lostWhy, setLostWhy] = useState("PRICE");
   const [imp, setImp] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -123,7 +124,7 @@ export default function Leads() {
     try {
       const payload = {
         company: editing.company, contactName: editing.contactName, phone: editing.phone, email: editing.email,
-        source: editing.source, businessUnit: editing.businessUnit, stage: editing.stage,
+        source: editing.source, businessUnit: editing.businessUnit, stage: editing.stage, lostReason: editing.lostReason,
         valueUsd: editing.valueUsd, valueSdg: editing.valueSdg, notes: editing.notes,
         campaignId: editing.campaignId || null, ownerId: editing.ownerId || null,
       };
@@ -137,6 +138,7 @@ export default function Leads() {
   };
 
   const move = async (lead: Lead, stage: string) => {
+    if (stage === "LOST" && !lead.lostReason) { setLosing(lead); return; }
     try { await api.patch(`/leads/${lead.id}`, { stage }); reload(); }
     catch { toast.push(tr("saveError"), "error"); }
   };
@@ -145,14 +147,6 @@ export default function Leads() {
     if (!confirm(tr("confirmDelete"))) return;
     try { await api.del(`/leads/${id}`); reload(); toast.push(tr("deleted"), "success"); }
     catch { toast.push(tr("deleteError"), "error"); }
-  };
-  const convertToCustomer = async (lead: Lead) => {
-    if (lead.stage !== "WON") return;
-    try {
-      await api.post(`/customers/convert/${lead.id}`, {});
-      toast.push(tr("cu_converted"), "success");
-      reload();
-    } catch (e) { toast.push(e instanceof ApiError ? e.message : tr("saveError"), "error"); }
   };
 
   return (
@@ -177,11 +171,18 @@ export default function Leads() {
           itemColumn={(l) => l.stage}
           onMove={(l, stage) => move(l, stage)}
           columnSummary={(col) => (
-            <span className="kpi-num text-[11px] text-ink-500">{fmtMoney(col.reduce((a, l) => a + Number(l.valueUsd || 0), 0), "USD", lang)}</span>
+            <span className="kpi-num text-[11px] text-ink-500">{fmtMoney(col.reduce((a, l) => a + (l.valueUsd || 0), 0), "USD", lang)}</span>
           )}
           renderCard={(l) => (
             <>
-              <button onClick={() => setEditing(l)} className="text-start font-medium text-ink-800 hover:text-amber-700">{l.company}</button>
+              <div className="flex items-start justify-between gap-1">
+                <button onClick={() => setEditing(l)} className="text-start font-medium text-ink-800 hover:text-amber-700">{l.company}</button>
+                {(l.score ?? 0) > 0 && (
+                  <span className={`kpi-num shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-bold ${(l.score ?? 0) >= 70 ? "bg-clay-100 text-clay-700" : "bg-paper-200 text-ink-500"}`} dir="ltr" title={tr("au_scoreTip")}>
+                    {(l.score ?? 0) >= 70 ? "🔥 " : ""}{l.score}
+                  </span>
+                )}
+              </div>
               <div className="mt-0.5 text-xs text-ink-500">{l.businessUnit} · {l.contactName || "—"}</div>
               <div className="mt-2 kpi-num text-sm text-ink-700">{fmtMoney(l.valueUsd, "USD", lang)}</div>
               <div className="text-[11px] text-ink-500">{fmtMoney(l.valueSdg, "SDG", lang)}</div>
@@ -198,10 +199,7 @@ export default function Leads() {
                   )}
                 </div>
               )}
-              <div className="mt-2 flex justify-end gap-2 border-t border-paper-200 pt-2">
-                {l.stage === "WON" && canWrite && (
-                  <button onClick={() => convertToCustomer(l)} className="text-[11px] text-moss-700 hover:underline">{tr("cu_convert")}</button>
-                )}
+              <div className="mt-2 flex justify-end border-t border-paper-200 pt-2">
                 <button onClick={() => remove(l.id)} className="text-[11px] text-clay-600 hover:underline">{tr("delete")}</button>
               </div>
             </>
@@ -223,8 +221,14 @@ export default function Leads() {
             <Field label={tr("source")}><input className="input" value={editing.source || ""} onChange={(e) => setEditing({ ...editing, source: e.target.value })} /></Field>
             <Field label={tr("businessUnit")}><input className="input" value={editing.businessUnit || ""} onChange={(e) => setEditing({ ...editing, businessUnit: e.target.value })} /></Field>
             <Field label={tr("stage")}><Select value={editing.stage || "NEW"} onChange={(v) => setEditing({ ...editing, stage: v })} options={STAGES.map((s) => ({ value: s, label: el(s) }))} /></Field>
-            <Field label={`${tr("value")} (USD)`}><input type="number" className="input" value={editing.valueUsd ?? 0} onChange={(e) => { const v = Number(e.target.value); setEditing({ ...editing, valueUsd: v, valueSdg: rate ? Number((v * rate).toFixed(2)) : editing.valueSdg }); }} /></Field>
-            <Field label={`${tr("value")} (SDG)`}><input type="number" className="input" value={editing.valueSdg ?? 0} onChange={(e) => { const v = Number(e.target.value); setEditing({ ...editing, valueSdg: v, valueUsd: rate ? Number((v / rate).toFixed(2)) : editing.valueUsd }); }} /></Field>
+            {editing.stage === "LOST" && (
+              <div className="col-span-2"><Field label={tr("ld_lostReason")}>
+                <Select value={editing.lostReason || ""} onChange={(v) => setEditing({ ...editing, lostReason: v })}
+                  placeholder={tr("ld_lostWhy")} options={LOST_REASONS.map((r) => ({ value: r, label: el(r) }))} />
+              </Field></div>
+            )}
+            <Field label={`${tr("value")} (USD)`}><input type="number" className="input" value={editing.valueUsd ?? 0} onChange={(e) => setEditing({ ...editing, valueUsd: Number(e.target.value) })} /></Field>
+            <Field label={`${tr("value")} (SDG)`}><input type="number" className="input" value={editing.valueSdg ?? 0} onChange={(e) => setEditing({ ...editing, valueSdg: Number(e.target.value) })} /></Field>
             <div className="col-span-2"><Field label={tr("owner")}><Select value={editing.ownerId || ""} onChange={(v) => setEditing({ ...editing, ownerId: v })} placeholder={tr("unassigned")} options={(users || []).map((u) => ({ value: u.id, label: u.name }))} /></Field></div>
             <div className="col-span-2"><Field label={tr("lead_campaign")}><Select value={editing.campaignId || ""} onChange={(v) => setEditing({ ...editing, campaignId: v })} placeholder={tr("lead_noCampaign")} options={(campaigns || []).map((c) => ({ value: c.id, label: c.name }))} /></Field></div>
             <div className="col-span-2"><Field label={tr("product")}><Select value={editing.productId || ""} onChange={(v) => setEditing({ ...editing, productId: v })} placeholder={tr("none")} options={(productsList || []).map((x) => ({ value: x.id, label: x.name }))} /></Field></div>
@@ -232,6 +236,19 @@ export default function Leads() {
             {editing.id && <div className="col-span-2"><LeadTimeline leadId={editing.id} /></div>}
           </div>
         )}
+      </Modal>
+
+      <Modal open={!!losing} onClose={() => setLosing(null)} title={tr("ld_lostWhy")}
+        footer={<>
+          <button onClick={() => setLosing(null)} className="btn-ghost">{tr("cancel")}</button>
+          <button onClick={async () => {
+            if (!losing) return;
+            try { await api.patch(`/leads/${losing.id}`, { stage: "LOST", lostReason: lostWhy }); setLosing(null); reload(); }
+            catch (e) { toast.push((e as Error).message, "error"); }
+          }} className="btn-amber">{tr("save")}</button>
+        </>}>
+        <p className="mb-2 text-xs text-ink-500">{tr("ld_lostHint")}</p>
+        <Select value={lostWhy} onChange={setLostWhy} options={LOST_REASONS.map((r) => ({ value: r, label: el(r) }))} />
       </Modal>
 
       <Modal open={imp !== null} onClose={() => setImp(null)} title={tr("im_title")}

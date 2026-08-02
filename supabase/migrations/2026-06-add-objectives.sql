@@ -1,5 +1,5 @@
 -- Run once in the Supabase SQL Editor to add the Planning & Strategy
--- (objectives / OKRs) table to an existing HELM database.
+-- (objectives / OKRs) table to an existing Pulse (formerly HELM) database.
 create table if not exists objectives (
   id             uuid primary key default gen_random_uuid(),
   label          text not null,

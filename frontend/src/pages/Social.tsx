@@ -14,7 +14,7 @@ interface PostRow {
 }
 
 interface Account {
-  id: string; platform: string; handle: string; displayName?: string;
+  id: string; platform: string; handle: string; displayName?: string; autoPublish?: boolean;
   status: string; latestFollowers?: number; metricCount?: number; connectedAt?: string;
 }
 interface Metric {
@@ -22,11 +22,11 @@ interface Metric {
   reach: number; engagement: number; clicks: number; spendUsd: number; source: string;
 }
 
-const PLATFORMS = ["INSTAGRAM", "FACEBOOK", "X", "LINKEDIN", "YOUTUBE", "TIKTOK"];
+const PLATFORMS = ["INSTAGRAM", "FACEBOOK", "X", "LINKEDIN", "YOUTUBE", "TIKTOK", "WA"];
 const METRIC_FIELDS: (keyof Metric)[] = ["followers", "posts", "impressions", "reach", "engagement", "clicks", "spendUsd"];
 
 function platformGlyph(p: string) {
-  const map: Record<string, string> = { INSTAGRAM: "IG", FACEBOOK: "f", X: "X", LINKEDIN: "in", YOUTUBE: "▶", TIKTOK: "♪" };
+  const map: Record<string, string> = { INSTAGRAM: "IG", FACEBOOK: "f", X: "X", LINKEDIN: "in", YOUTUBE: "▶", TIKTOK: "♪", WA: "WA" };
   return map[p] || p.slice(0, 2);
 }
 
@@ -68,6 +68,16 @@ export default function Social() {
       toast.push(tr("saved"), "success");
     } catch { toast.push(tr("saveError"), "error"); }
     finally { setBusy(false); }
+  };
+
+  const verify = async (id: string) => {
+    setBusy(true);
+    try {
+      const r = await api.post<{ ok: boolean; name?: string; error?: string }>(`/social/accounts/${id}/verify`, {});
+      toast.push(r.ok ? `${tr("cn_verified")}${r.name ? ` — ${r.name}` : ""}` : `${tr("cn_verifyFail")}: ${r.error}`,
+        r.ok ? "success" : "error");
+      reload();
+    } catch (e) { toast.push((e as Error).message, "error"); } finally { setBusy(false); }
   };
 
   const disconnect = async (id: string) => {
@@ -166,7 +176,12 @@ export default function Social() {
             <div className="flex flex-wrap items-center gap-2">
               <button onClick={() => setMetricModal({ date: new Date().toISOString().slice(0, 10) })} className="btn-ghost text-xs">+ {tr("soc_addMetric")}</button>
               <button onClick={() => setImportOpen(true)} className="btn-ghost text-xs">↥ {tr("soc_import")}</button>
-              <button onClick={sync} disabled={busy} className="btn-ghost text-xs">⟳ {tr("soc_sync")}</button>
+              <button onClick={() => verify(account.id)} disabled={busy} className="btn-ghost text-xs">✓ {tr("cn_verify")}</button>
+              <button onClick={async () => { await api.patch(`/social/accounts/${account.id}`, { autoPublish: !account.autoPublish }); reload(); }}
+                className={`text-xs ${account.autoPublish ? "text-amber-600" : "text-ink-400"} hover:underline`}>
+                ⚡ {account.autoPublish ? tr("cn_autoOn") : tr("cn_autoOff")}
+              </button>
+              {account.platform !== "WA" && <button onClick={sync} disabled={busy} className="btn-ghost text-xs">⟳ {tr("soc_sync")}</button>}
               <ExportButton resource="metrics" />
               <button onClick={() => disconnect(account.id)} className="text-xs text-clay-600 hover:underline">{tr("delete")}</button>
             </div>
@@ -220,7 +235,7 @@ export default function Social() {
                 options={PLATFORMS.map((p) => ({ value: p, label: el(p) }))} />
             </Field>
             <Field label={tr("soc_handle")}>
-              <input className="input" dir="ltr" placeholder="@saria.industrial" value={connect.handle || ""} onChange={(e) => setConnect({ ...connect, handle: e.target.value })} />
+              <input className="input" dir="ltr" placeholder="@your.brand" value={connect.handle || ""} onChange={(e) => setConnect({ ...connect, handle: e.target.value })} />
             </Field>
             <Field label={tr("soc_displayName")}>
               <input className="input" value={connect.displayName || ""} onChange={(e) => setConnect({ ...connect, displayName: e.target.value })} />

@@ -39,5 +39,5 @@ export function totpVerify(secretB32, code, window = 1, step = 30) {
   for (let w = -window; w <= window; w++) if (hotp(secretB32, t + w) === String(code)) return true;
   return false;
 }
-export const otpauthUrl = (secret, account, issuer = "HELM") =>
+export const otpauthUrl = (secret, account, issuer = "Pulse") =>
   `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(account)}?secret=${secret}&issuer=${encodeURIComponent(issuer)}&digits=6&period=30`;

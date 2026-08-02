@@ -33,7 +33,8 @@ export async function computeListening() {
                 COALESCE(s."publishedAt", s."fetchedAt") AS at,
                 s.source, t.id AS "topicId", t.label AS "topicLabel", t.category
          FROM osint_signals s JOIN osint_topics t ON t.id = s."topicId"
-         WHERE COALESCE(s."publishedAt", s."fetchedAt") >= now() - interval '90 days'`),
+         WHERE s.canonical = true AND s."reviewStatus" <> 'REJECTED'
+           AND COALESCE(s."publishedAt", s."fetchedAt") >= now() - interval '90 days'`),
     all(`SELECT id, platform, handle, "displayName", status FROM social_accounts ORDER BY platform, handle`),
     all(`SELECT "accountId", date, followers::float8, engagement::float8, reach::float8, impressions::float8
          FROM social_metrics ORDER BY date ASC`),

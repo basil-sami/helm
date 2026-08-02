@@ -1,6 +1,7 @@
 import { ReactNode, useEffect, useState, useCallback, useRef } from "react";
-import { api } from "../lib/api";
+import { api, uploadFile, type UploadedFile } from "../lib/api";
 import { useI18n } from "../context/I18nContext";
+import { useToast } from "./Toast";
 import { fmtMoney } from "../lib/format";
 
 // ── Data hook ────────────────────────────────────────────────────────
@@ -45,6 +46,14 @@ export function SectionTitle({ children, action }: { children: ReactNode; action
 
 // ── Status pill with semantic colour ─────────────────────────────────
 const TONE: Record<string, string> = {
+  SUBMITTED: "bg-amber-500/15 text-amber-700",
+  IN_REVIEW: "bg-amber-500/15 text-amber-700",
+  REVISION: "bg-clay-500/12 text-clay-600",
+  RECEIVED: "bg-steel-500/12 text-steel-600",
+  PAID: "bg-moss-500/12 text-moss-600",
+  TRIAGED: "bg-steel-500/12 text-steel-600",
+  BRIEFED: "bg-steel-500/12 text-steel-600",
+  PENDING: "bg-amber-500/15 text-amber-700",
   POS: "bg-moss-500/12 text-moss-600",
   NEG: "bg-clay-500/12 text-clay-600",
   NEU: "bg-ink-500/10 text-ink-500",
@@ -53,6 +62,7 @@ const TONE: Record<string, string> = {
   CONFIRMED: "bg-moss-500/12 text-moss-600",
   APPROVED: "bg-moss-500/12 text-moss-600",
   PUBLISHED: "bg-moss-500/12 text-moss-600",
+  ARCHIVED: "bg-ink-500/10 text-ink-500",
   WON: "bg-moss-500/15 text-moss-600",
   DONE: "bg-ink-500/10 text-ink-500",
   COMPLETED: "bg-ink-500/10 text-ink-500",
@@ -130,14 +140,12 @@ export function Modal({
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const restoreRef = useRef<HTMLElement | null>(null);
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!open) return;
     restoreRef.current = document.activeElement as HTMLElement;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCloseRef.current();
+      if (e.key === "Escape") onClose();
       if (e.key === "Tab" && panelRef.current) {
         const f = panelRef.current.querySelectorAll<HTMLElement>(
           'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
@@ -150,7 +158,7 @@ export function Modal({
     };
     document.addEventListener("keydown", onKey);
     const t = setTimeout(() => {
-      panelRef.current?.querySelector<HTMLElement>("input,select,textarea")?.focus();
+      panelRef.current?.querySelector<HTMLElement>("input,select,textarea,button")?.focus();
     }, 30);
     document.body.style.overflow = "hidden";
     return () => {
@@ -159,7 +167,7 @@ export function Modal({
       clearTimeout(t);
       restoreRef.current?.focus?.();
     };
-  }, [open]);
+  }, [open, onClose]);
 
   if (!open) return null;
   return (
@@ -231,5 +239,38 @@ export function Empty({ text }: { text: string }) {
       <div className="mx-auto mb-2 h-8 w-8 rounded-full border-2 border-dashed border-paper-300" />
       {text}
     </div>
+  );
+}
+
+// ── Wave 2·C · one upload control, used everywhere files are wanted ──
+export function UploadButton({
+  label, entity, entityId, isPublic = true, accept = "image/*", onDone,
+}: {
+  label?: string; entity?: string; entityId?: string; isPublic?: boolean;
+  accept?: string; onDone: (f: UploadedFile) => void;
+}) {
+  const { tr } = useI18n();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const ref = useRef<HTMLInputElement>(null);
+
+  const pick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBusy(true);
+    try {
+      onDone(await uploadFile(file, { entity, entityId, public: isPublic }));
+      toast.push(tr("up_done"), "success");
+    } catch (err) { toast.push((err as Error).message, "error"); }
+    finally { setBusy(false); if (ref.current) ref.current.value = ""; }
+  };
+
+  return (
+    <>
+      <input ref={ref} type="file" accept={accept} onChange={pick} className="hidden" />
+      <button type="button" onClick={() => ref.current?.click()} disabled={busy} className="btn-ghost text-xs">
+        {busy ? tr("up_busy") : `↥ ${label || tr("up_label")}`}
+      </button>
+    </>
   );
 }

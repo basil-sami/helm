@@ -7,7 +7,7 @@ import { rateLimit } from "./security.js";
 import { totpVerify } from "./totp.js";
 
 const JWT_SECRET = process.env.JWT_SECRET ||
-  (process.env.NODE_ENV === "production" ? "" : "helm-dev-secret-change-me");
+  (process.env.NODE_ENV === "production" ? "" : "pulse-dev-secret-change-me");
 if (!JWT_SECRET) {
   throw new Error("JWT_SECRET must be set in production. Add it to your environment variables.");
 }
@@ -17,7 +17,7 @@ const TOKEN_TTL = "7d";
 // permissions shape: { admin: bool, <module>: "none" | "read" | "write" }
 export const PERM_MODULES = [
   "campaigns", "content", "leads", "events", "budget", "tasks",
-  "social", "intel", "planning", "analytics", "brain",
+  "social", "intel", "planning", "analytics", "brain", "studio", "agency", "automate", "research", "publish",
 ];
 const LEVELS = ["none", "read", "write"];
 
@@ -25,13 +25,13 @@ const fullAccess = (admin) => ({
   admin,
   campaigns: "write", content: "write", leads: "write", events: "write",
   budget: "write", tasks: "write", social: "write", intel: "write",
-  planning: "write", analytics: "read", brain: "read",
+  planning: "write", analytics: "read", brain: "read", studio: "write", agency: "write", automate: "write", research: "write", publish: "write",
 });
 const memberAccess = () => ({
   admin: false,
   campaigns: "write", content: "write", leads: "write", events: "write",
   budget: "write", tasks: "write", social: "read", intel: "read",
-  planning: "read", analytics: "read", brain: "read",
+  planning: "read", analytics: "read", brain: "read", studio: "write", agency: "read", automate: "write", research: "write", publish: "write",
 });
 
 // Mirrors the seeded built-in roles — used as a fallback when the roles
@@ -117,11 +117,20 @@ export async function requireAuth(req, res, next) {
   if (!token) return res.status(401).json({ error: "Missing token" });
   try {
     const payload = jwt.verify(token, JWT_SECRET);
-    const user = await get(`SELECT id, name, email, role, active, "tokenVersion", "mustChangePassword" FROM users WHERE id = $1`, [payload.sub]);
+    const user = await get(`SELECT id, name, email, role, active, "tokenVersion", "mustChangePassword", "departmentId" FROM users WHERE id = $1`, [payload.sub]);
     if (!user || !user.active) return res.status(401).json({ error: "Invalid session" });
     if ((payload.v || 0) !== (user.tokenVersion || 0)) return res.status(401).json({ error: "Session revoked" });
     const permissions = await getPermissions(user.role);
-    req.user = { id: user.id, role: user.role, name: user.name, email: user.email, permissions, mustChangePassword: !!user.mustChangePassword };
+    req.user = {
+      id: user.id, role: user.role, name: user.name, email: user.email, permissions,
+      mustChangePassword: !!user.mustChangePassword,
+      // Wave 3·H — the department a user is scoped to, if any. Admins are
+      // never scoped: someone has to be able to see the whole instance.
+      // Admin-ness comes from the permissions object, not a role name —
+      // roles are instance-defined and "ADMIN" is not one of them.
+      departmentId: user.departmentId || null,
+      isAdmin: !!permissions?.admin,
+    };
     next();
   } catch {
     return res.status(401).json({ error: "Invalid token" });

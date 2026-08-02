@@ -1,7 +1,8 @@
 import { crudRouter } from "../crud.js";
+import { fireEvent, recomputeLeadScore } from "../automate-engine.js";
 import { notify } from "../notify.js";
 import { logActivity } from "../leadlog.js";
-import { get, run } from "../db.js";
+import { get } from "../db.js";
 
 const ENUMS = {
   campaignStatus: ["PLANNING", "ACTIVE", "PAUSED", "COMPLETED"],
@@ -26,7 +27,7 @@ export const campaignsRouter = crudRouter({
     }
     return null;
   },
-  fields: ["name", "nameAr", "objective", "status", "channel", "startDate", "endDate", "budgetUsd", "budgetSdg", "businessUnit", "ownerId"],
+  fields: ["name", "nameAr", "objective", "status", "channel", "startDate", "endDate", "budgetUsd", "budgetSdg", "businessUnit", "ownerId", "departmentId"],
   listSql: `SELECT c.*, u.name AS "ownerName", u.role AS "ownerRole",
               (SELECT COUNT(*)::int FROM leads l WHERE l."campaignId" = c.id) AS "leadCount"
             FROM campaigns c LEFT JOIN users u ON u.id = c."ownerId" ORDER BY c."createdAt" DESC`,
@@ -44,7 +45,7 @@ export const contentRouter = crudRouter({
     if (jump > 1) return `Invalid transition ${prev.status} → ${data.status} (one step forward at a time)`;
     return null;
   },
-  fields: ["title", "titleAr", "channel", "status", "scheduledAt", "notes", "campaignId", "authorId", "personaId", "productId", "pillar"],
+  fields: ["title", "titleAr", "channel", "status", "scheduledAt", "notes", "campaignId", "authorId", "personaId", "productId", "pillar", "departmentId"],
   listSql: `SELECT ci.*, c.name AS "campaignName", u.name AS "authorName"
             FROM content_items ci LEFT JOIN campaigns c ON c.id = ci."campaignId"
             LEFT JOIN users u ON u.id = ci."authorId" ORDER BY ci."scheduledAt" ASC NULLS LAST`,
@@ -58,51 +59,32 @@ export const leadsRouter = crudRouter({
   table: "leads",
   module: "leads",
   validateCreate: async (data) => { if (data.rateAtEntry === undefined) data.rateAtEntry = await currentRate(); return null; },
+  validateUpdate: async (data, prev) => {
+    if (data.lostReason !== undefined && data.lostReason !== null &&
+        !["PRICE", "TIMING", "COMPETITOR", "NO_BUDGET", "NO_RESPONSE", "NOT_FIT", "OTHER"].includes(data.lostReason)) {
+      return "lostReason must be one of PRICE, TIMING, COMPETITOR, NO_BUDGET, NO_RESPONSE, NOT_FIT, OTHER";
+    }
+    if (data.stage === "LOST" && !data.lostReason && !prev?.lostReason) {
+      return "lostReason is required when marking a lead LOST";
+    }
+    return null;
+  },
   afterWrite: async (req, action, id, data, prev) => {
     if (action === "create") {
-      logActivity(req, id, "CREATED", null, { stage: data.stage || "NEW" });
-      if (data.stage === "WON") {
-        const s = await get(`SELECT "customerReviewDays" FROM settings WHERE id = 1`);
-        const days = s?.customerReviewDays || 90;
-        await run(`INSERT INTO customers ("leadId", company, "businessUnit", "totalValueUsd", status, "accountOwnerId", "firstWonAt", "nextReviewAt")
-          VALUES ($1,$2,$3,$4,'ACTIVE',$5,now(),now() + $6::int * interval '1 day')
-          ON CONFLICT DO NOTHING`, [id, data.company, data.businessUnit, data.valueUsd || 0, data.ownerId, days]);
-      }
+      await logActivity(req, id, "CREATED", null, { stage: data.stage || "NEW" });
+      await recomputeLeadScore(id).catch(() => {});
+      await fireEvent("lead.created",
+        { leadId: id, company: data.company, source: data.source || "", stage: data.stage || "NEW" }, { leadId: id });
       return;
     }
-    if (action === "update") {
-      if (data.stage !== undefined && prev && data.stage !== prev.stage) {
-        logActivity(req, id, "STAGE", null, { from: prev.stage, to: data.stage });
-        if (data.stage === "WON" && prev.stage !== "WON") {
-          const s = await get(`SELECT "customerReviewDays" FROM settings WHERE id = 1`);
-          const days = s?.customerReviewDays || 90;
-          await run(`INSERT INTO customers ("leadId", company, "businessUnit", "totalValueUsd", status, "accountOwnerId", "firstWonAt", "nextReviewAt")
-            VALUES ($1,$2,$3,$4,'ACTIVE',$5,now(),now() + $6::int * interval '1 day')
-            ON CONFLICT DO NOTHING`, [id, prev.company, prev.businessUnit, prev.valueUsd || 0, prev.ownerId, days]);
-        }
-      }
-      const customer = await get(`SELECT id FROM customers WHERE "leadId" = $1`, [id]);
-      if (customer) {
-        const sync = {};
-        if (data.company !== undefined) sync.company = data.company;
-        if (data.businessUnit !== undefined) sync.businessUnit = data.businessUnit;
-        if (data.valueUsd !== undefined) sync.totalValueUsd = data.valueUsd;
-        if (data.ownerId !== undefined) sync.accountOwnerId = data.ownerId;
-        const keys = Object.keys(sync);
-        if (keys.length) {
-          const sets = keys.map((k, i) => `"${k}" = $${i + 1}`).join(", ");
-          await run(`UPDATE customers SET ${sets} WHERE id = $${keys.length + 1}`, [...keys.map((k) => sync[k]), customer.id]).catch(() => {});
-        }
-      }
+    if (data.stage !== undefined && prev && data.stage !== prev.stage) {
+      await logActivity(req, id, "STAGE", null, { from: prev.stage, to: data.stage });
+      await fireEvent("lead.stage_changed",
+        { leadId: id, from: prev.stage, to: data.stage, company: prev.company, source: prev.source || "" }, { leadId: id });
     }
+    if (action === "update") await recomputeLeadScore(id).catch(() => {});
   },
-  beforeDelete: async (req, id) => {
-    const customer = await get(`SELECT id FROM customers WHERE "leadId" = $1`, [id]);
-    if (customer) {
-      await run(`UPDATE customers SET status = 'CHURNED' WHERE id = $1`, [customer.id]).catch(() => {});
-    }
-  },
-  fields: ["company", "contactName", "phone", "email", "source", "businessUnit", "stage", "valueUsd", "valueSdg", "notes", "campaignId", "ownerId", "productId", "rateAtEntry"],
+  fields: ["company", "contactName", "phone", "email", "source", "businessUnit", "stage", "valueUsd", "valueSdg", "notes", "campaignId", "ownerId", "productId", "rateAtEntry", "lostReason", "departmentId"],
   touchUpdatedAt: true,
   listSql: `SELECT l.*, u.name AS "ownerName", c.name AS "campaignName" FROM leads l LEFT JOIN users u ON u.id = l."ownerId" LEFT JOIN campaigns c ON c.id = l."campaignId" ORDER BY l."updatedAt" DESC`,
   getSql: `SELECT l.*, u.name AS "ownerName", c.name AS "campaignName" FROM leads l LEFT JOIN users u ON u.id = l."ownerId" LEFT JOIN campaigns c ON c.id = l."campaignId" WHERE l.id = $1`,
@@ -122,7 +104,7 @@ export const budgetRouter = crudRouter({
   table: "budget_entries",
   module: "budget",
   validateCreate: async (data) => { if (data.rateAtEntry === undefined) data.rateAtEntry = await currentRate(); return null; },
-  fields: ["label", "kind", "channel", "amountUsd", "amountSdg", "date", "campaignId", "rateAtEntry"],
+  fields: ["label", "kind", "channel", "amountUsd", "amountSdg", "date", "campaignId", "rateAtEntry", "departmentId"],
   orderBy: '"date" DESC',
   listSql: `SELECT b.*, c.name AS "campaignName" FROM budget_entries b LEFT JOIN campaigns c ON c.id = b."campaignId" ORDER BY b.date DESC`,
   getSql: `SELECT b.*, c.name AS "campaignName" FROM budget_entries b LEFT JOIN campaigns c ON c.id = b."campaignId" WHERE b.id = $1`,
@@ -139,7 +121,7 @@ export const tasksRouter = crudRouter({
       notify([assignee], "TASK_ASSIGNED", { title: data.title || prev?.title || "" }, "/tasks");
     }
   },
-  fields: ["title", "status", "priority", "dueDate", "assigneeId", "campaignId", "leadId"],
+  fields: ["title", "status", "priority", "dueDate", "assigneeId", "campaignId", "leadId", "departmentId"],
   listSql: `SELECT t.*, u.name AS "assigneeName", c.name AS "campaignName"
             FROM tasks t LEFT JOIN users u ON u.id = t."assigneeId"
             LEFT JOIN campaigns c ON c.id = t."campaignId" ORDER BY t."createdAt" DESC`,

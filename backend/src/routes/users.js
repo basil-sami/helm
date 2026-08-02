@@ -20,7 +20,7 @@ usersRouter.use(requireAuth);
 usersRouter.get("/", async (req, res, next) => {
   try {
     if (req.user?.permissions?.admin) {
-      return res.json(await all(`SELECT id, name, email, role, "titleAr", active, "createdAt" FROM users ORDER BY "createdAt" ASC`));
+      return res.json(await all(`SELECT id, name, email, role, "titleAr", active, "morningEmail", "departmentId", "createdAt" FROM users ORDER BY "createdAt" ASC`));
     }
     // Non-admins get a minimal directory (enough for assignee/owner pickers) — no emails.
     res.json(await all(`SELECT id, name, role, "titleAr", active FROM users WHERE active = true ORDER BY name ASC`));
@@ -33,6 +33,7 @@ const createSchema = z.object({
   password: z.string().min(8),
   role: z.string().min(2).max(30),
   titleAr: z.string().optional().nullable(),
+  departmentId: z.string().uuid().optional().nullable(),
 });
 
 // Create user — Head of Marketing only.
@@ -44,9 +45,11 @@ usersRouter.post("/", requireAdmin, async (req, res, next) => {
     const exists = await get("SELECT id FROM users WHERE email = $1", [parsed.data.email]);
     if (exists) return res.status(409).json({ error: "Email already in use" });
     const row = await get(
-      `INSERT INTO users (name, email, "passwordHash", role, "titleAr")
-       VALUES ($1,$2,$3,$4,$5) RETURNING id, name, email, role, "titleAr", active, "createdAt"`,
-      [parsed.data.name, parsed.data.email, hashPassword(parsed.data.password), parsed.data.role, parsed.data.titleAr || null]
+      `INSERT INTO users (name, email, "passwordHash", role, "titleAr", "departmentId")
+       VALUES ($1,$2,$3,$4,$5,$6)
+       RETURNING id, name, email, role, "titleAr", active, "departmentId", "createdAt"`,
+      [parsed.data.name, parsed.data.email, hashPassword(parsed.data.password), parsed.data.role,
+       parsed.data.titleAr || null, parsed.data.departmentId || null]
     );
     logAudit(req, "users.create", "users", row.id, { role: parsed.data.role });
     res.status(201).json(row);
@@ -64,6 +67,8 @@ usersRouter.patch("/:id", requireAdmin, async (req, res, next) => {
   }
   if (req.body.titleAr !== undefined) push("titleAr", req.body.titleAr || null);
   if (req.body.active !== undefined) push("active", !!req.body.active);
+  if (req.body.morningEmail !== undefined) push("morningEmail", !!req.body.morningEmail);
+  if (req.body.departmentId !== undefined) push("departmentId", req.body.departmentId || null);
   if (req.body.password) {
     if (typeof req.body.password !== "string" || req.body.password.length < 8) {
       return res.status(400).json({ error: "Password must be at least 8 characters" });
@@ -77,7 +82,7 @@ usersRouter.patch("/:id", requireAdmin, async (req, res, next) => {
     params.push(req.params.id);
     await run(`UPDATE users SET ${sets.join(", ")} WHERE id = $${params.length}`, params);
     logAudit(req, "users.update", "users", req.params.id);
-    res.json(await get(`SELECT id, name, email, role, "titleAr", active, "createdAt" FROM users WHERE id = $1`, [req.params.id]));
+    res.json(await get(`SELECT id, name, email, role, "titleAr", active, "morningEmail", "createdAt" FROM users WHERE id = $1`, [req.params.id]));
   } catch (e) { next(e); }
 });
 

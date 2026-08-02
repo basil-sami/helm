@@ -6,7 +6,16 @@ export default {
       colors: {
         ink: { 950: "#090C12", 900: "#0E1117", 800: "#161B22", 700: "#1F2630", 600: "#2B3441", 500: "#3A4654", 400: "#5C6878", 300: "#8A94A3" },
         paper: { DEFAULT: "#F7F5F0", 100: "#FBF9F5", 200: "#EFECE3", 300: "#E2DED2" },
-        amber: { DEFAULT: "#E8A33D", 50: "#FCF3E1", 300: "#F3C275", 400: "#EDB05A", 500: "#E8A33D", 600: "#CC8526", 700: "#A5681B" },
+        // Nabd accent: reads per-client CSS variables (theme.ts) — Pulse amber is the default.
+        amber: {
+          DEFAULT: "rgb(var(--accent-500) / <alpha-value>)",
+          50: "rgb(var(--accent-50) / <alpha-value>)",
+          300: "rgb(var(--accent-300) / <alpha-value>)",
+          400: "rgb(var(--accent-400) / <alpha-value>)",
+          500: "rgb(var(--accent-500) / <alpha-value>)",
+          600: "rgb(var(--accent-600) / <alpha-value>)",
+          700: "rgb(var(--accent-700) / <alpha-value>)",
+        },
         steel: { 400: "#5B8AA6", 500: "#3F7191", 600: "#2F5871" },
         moss: { 500: "#5E8B5A", 600: "#477043" },
         clay: { 500: "#C2603E", 600: "#A24A2C" },
@@ -28,7 +37,7 @@ export default {
         card: "0 1px 2px rgba(16,17,23,0.04), 0 4px 16px rgba(16,17,23,0.06)",
         raised: "0 2px 4px rgba(16,17,23,0.06), 0 8px 24px rgba(16,17,23,0.10)",
         overlay: "0 12px 48px rgba(11,14,19,0.28)",
-        rail: "inset -1px 0 0 rgba(255,255,255,0.05), inset 0 -40px 60px -40px rgba(232,163,61,0.06)",
+        rail: "inset -1px 0 0 rgba(255,255,255,0.05), inset 0 -40px 60px -40px rgb(var(--accent-500) / 0.06)",
       },
       borderRadius: { xl2: "1.1rem" },
       transitionTimingFunction: {
