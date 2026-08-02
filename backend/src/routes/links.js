@@ -18,7 +18,9 @@ linksRouter.get("/", requirePerm("campaigns", "read"), async (_req, res, next) =
 });
 
 linksRouter.post("/", requirePerm("campaigns"), async (req, res, next) => {
-  const { url, campaignId = null, channel = null } = req.body || {};
+  let url = (req.body?.url || "").trim();
+  if (!/^https?:\/\//i.test(url)) url = "https://" + url;
+  const { campaignId = null, channel = null } = req.body || {};
   let code = (req.body?.code || "").toLowerCase().trim();
   if (!/^https?:\/\/.+/.test(url || "")) return res.status(400).json({ error: "A valid destination URL is required" });
   if (code && !CODE_RE.test(code)) return res.status(400).json({ error: "Code: 3–30 chars, a–z 0–9 -" });

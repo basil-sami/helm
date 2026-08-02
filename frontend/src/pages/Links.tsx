@@ -3,7 +3,7 @@ import { useFetch, Card, Field, Select, Empty } from "../components/ui";
 import { useI18n } from "../context/I18nContext";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../components/Toast";
-import { api } from "../lib/api";
+import { api, ApiError } from "../lib/api";
 import { fmtDate } from "../lib/format";
 
 interface Link { id: string; code: string; url: string; campaignId?: string; campaignName?: string; channel?: string; clicks: number; lastClickAt?: string; createdAt: string }
@@ -19,13 +19,15 @@ export default function Links() {
   const [saving, setSaving] = useState(false);
 
   const create = async () => {
-    if (!/^https?:\/\/.+/.test(form.url)) return toast.push(tr("saveError"), "error");
+    let url = form.url.trim();
+    if (!/^https?:\/\//i.test(url)) url = "https://" + url;
+    if (!/^https?:\/\/.+/.test(url)) return toast.push(tr("saveError"), "error");
     setSaving(true);
     try {
-      await api.post("/links", { ...form, campaignId: form.campaignId || null, code: form.code || undefined });
+      await api.post("/links", { ...form, url, campaignId: form.campaignId || null, code: form.code || undefined });
       setForm({ url: "", code: "", campaignId: "", channel: "" });
       reload();
-    } catch { toast.push(tr("saveError"), "error"); }
+    } catch (e) { toast.push(e instanceof ApiError ? e.message : tr("saveError"), "error"); console.error(e); }
     finally { setSaving(false); }
   };
   const copy = (code: string) => {

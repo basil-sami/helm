@@ -29,7 +29,7 @@ export default function Budget() {
   const totals = useMemo(() => {
     const spent = entries.filter((e) => e.kind === "SPENT");
     const planned = entries.filter((e) => e.kind === "PLANNED");
-    const sum = (rows: Entry[], k: "amountUsd" | "amountSdg") => rows.reduce((a, r) => a + (r[k] || 0), 0);
+    const sum = (rows: Entry[], k: "amountUsd" | "amountSdg") => rows.reduce((a, r) => a + Number(r[k] || 0), 0);
     const byChannel: Record<string, number> = {};
     for (const e of spent) byChannel[e.channel] = (byChannel[e.channel] || 0) + (e.amountUsd || 0);
     return {
