@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef, Fragment, ReactNode } from "react";
+import { useState, useEffect, useRef, useCallback, Fragment, ReactNode } from "react";
 import { Card } from "../components/ui";
 import { useI18n } from "../context/I18nContext";
-import { api, postSSE } from "../lib/api";
+import { api, tokenStore } from "../lib/api";
+import { listConvos, createConvo, getConvo, deleteConvo, truncateTitle, Conversation, StoredMsg } from "../lib/convo";
 
-interface Msg { id: number; role: "user" | "cmo"; text: string; label?: string }
+interface Msg { role: "user" | "cmo"; text: string; label?: string }
 
 // Minimal rich-text renderer (bold, bullets, headings) — no dependency.
 function Rich({ text }: { text: string }) {
@@ -42,57 +43,298 @@ export default function Brain() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [configured, setConfigured] = useState<boolean | null>(null);
+  const [convos, setConvos] = useState<Conversation[]>([]);
+  const [activeConvoId, setActiveConvoId] = useState<string | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [expectingResponse, setExpectingResponse] = useState(false);
+  const [editingIdx, setEditingIdx] = useState<number | null>(null);
+  const [editText, setEditText] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
-  const idSeq = useRef(0);
+  const activeRef = useRef(activeConvoId);
+  activeRef.current = activeConvoId;
   const abortRef = useRef<AbortController | null>(null);
+  const runIdRef = useRef(0);
 
-  useEffect(() => {
-    api.get<{ configured: boolean }>("/brain/status").then((s) => setConfigured(s.configured)).catch(() => setConfigured(false));
-  }, []);
+  useEffect(() => { api.get<{ configured: boolean }>("/brain/status").then((s) => setConfigured(s.configured)).catch(() => setConfigured(false)); }, []);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, busy]);
 
-  const lastCmo = (m: Msg[]) => [...m].reverse().find((x) => x.role === "cmo");
-  const streamStarted = busy && !!lastCmo(msgs)?.text;
+  const refreshConvos = useCallback(async () => {
+    try { setConvos(await listConvos()); } catch { /* keep existing */ }
+  }, []);
 
-  const stop = () => {
-    abortRef.current?.abort();
+  useEffect(() => { refreshConvos(); }, [refreshConvos]);
+
+  // Poll the conversation while expecting a response. Detects both new
+  // messages AND incremental text growth in the same row — this is what
+  // makes a stream "visually resume" after the user clicked away and back.
+  useEffect(() => {
+    if (!activeConvoId || !expectingResponse) return;
+    let cancelled = false;
+    const check = async () => {
+      const c = await getConvo(activeConvoId);
+      if (cancelled || !c?.messages) return;
+      const incoming = c.messages;
+      setMsgs((prev) => {
+        if (incoming.length > prev.length) {
+          return incoming.map((m: StoredMsg) => ({ role: m.role, text: m.text, label: m.label }));
+        }
+        if (incoming.length > 0 && incoming.length === prev.length) {
+          const li = incoming[incoming.length - 1];
+          const lp = prev[prev.length - 1];
+          if (li.text.length > lp.text.length) {
+            return incoming.map((m: StoredMsg) => ({ role: m.role, text: m.text, label: m.label }));
+          }
+        }
+        return prev;
+      });
+    };
+    const interval = setInterval(check, 2000);
+    // Auto-stop polling after 30s without growth (stream finished or failed).
+    const timeout = setTimeout(() => { cancelled = true; clearInterval(interval); }, 30000);
+    return () => { cancelled = true; clearInterval(interval); clearTimeout(timeout); };
+  }, [activeConvoId, expectingResponse]);
+
+  const cancelStream = useCallback(() => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+  }, []);
+
+  const startEdit = useCallback((idx: number, text: string) => {
+    setEditingIdx(idx);
+    setEditText(text);
+  }, []);
+
+  const loadConvo = useCallback(async (id: string) => {
+    runIdRef.current++;
     setBusy(false);
-  };
+    const c = await getConvo(id);
+    if (!c) return;
+    setActiveConvoId(c.id);
+    const loaded: Msg[] = (c.messages || []).map((m: StoredMsg) => ({
+      role: m.role,
+      text: m.text,
+      label: m.label,
+    }));
+    setMsgs(loaded);
+    // Last message is from the user → the AI may still be generating on the
+    // server side (user clicked away mid-stream) — resume polling.
+    if (loaded.length > 0 && loaded[loaded.length - 1].role === "user") {
+      setExpectingResponse(true);
+    } else {
+      setExpectingResponse(false);
+    }
+  }, []);
 
-  const patch = (id: number, text: string) =>
-    setMsgs((m) => m.map((x) => (x.id === id ? { ...x, text } : x)));
+  const handleNew = useCallback(async () => {
+    runIdRef.current++;
+    setBusy(false);
+    setExpectingResponse(false);
+    setActiveConvoId(null);
+    setMsgs([]);
+  }, []);
+
+  const handleDelete = useCallback(async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    await deleteConvo(id);
+    if (activeRef.current === id) {
+      setExpectingResponse(false);
+      setActiveConvoId(null);
+      setMsgs([]);
+    }
+    refreshConvos();
+  }, [refreshConvos]);
 
   const run = async (path: string, body: object, userText?: string, label?: string) => {
-    if (busy) return;
-    const aid = ++idSeq.current;
-    if (userText) setMsgs((m) => [...m, { id: ++idSeq.current, role: "user", text: userText }]);
-    setMsgs((m) => [...m, { id: aid, role: "cmo", text: "", label }]);
+    cancelStream();
+    const thisRun = ++runIdRef.current;
+    if (userText) setMsgs((m) => [...m, { role: "user", text: userText }]);
     setBusy(true);
+
+    const msgIdx = msgs.length + (userText ? 1 : 0);
+    setMsgs((m) => [...m, { role: "cmo", text: "", label }]);
+
+    let conversationId = activeRef.current;
+    if (!conversationId) {
+      const created = await createConvo();
+      if (created) {
+        conversationId = created.id;
+        setActiveConvoId(created.id);
+        refreshConvos();
+      }
+    }
+    setExpectingResponse(true);
+
     const controller = new AbortController();
     abortRef.current = controller;
+
     try {
-      const r = await postSSE(path, { ...body, lang, stream: true }, {
+      const token = tokenStore.get();
+      const res = await fetch(`/api${path}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+        },
         signal: controller.signal,
-        onDelta: (t) => setMsgs((m) => m.map((x) => (x.id === aid ? { ...x, text: x.text + t } : x))),
+        body: JSON.stringify({ ...body, lang, stream: true, conversationId }),
       });
-      if (r.configured === false) {
-        setConfigured(false);
-        patch(aid, tr("brain_notConfiguredHint"));
-      } else if (r.error) {
-        patch(aid, "⚠️ " + r.error);
-      } else if (r.answer !== undefined) {
-        patch(aid, r.answer);
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        if (activeRef.current === conversationId) {
+          setMsgs((m) => {
+            const u = [...m];
+            if (u[msgIdx]) u[msgIdx] = { ...u[msgIdx], text: "⚠️ " + (err.error || "Request failed") };
+            return u;
+          });
+        }
+        setBusy(false);
+        return; // still fall through to finally
+      }
+
+      const ct = res.headers.get("content-type") || "";
+      if (!ct.includes("text/event-stream")) {
+        const json = await res.json();
+        if (json.configured === false) {
+          setConfigured(false);
+          if (activeRef.current === conversationId || !conversationId) {
+            setMsgs((m) => {
+              const u = [...m];
+              if (u[msgIdx]) u[msgIdx] = { ...u[msgIdx], text: tr("brain_notConfiguredHint") };
+              return u;
+            });
+          }
+        } else if (json.error) {
+          if (activeRef.current === conversationId || !conversationId) {
+            setMsgs((m) => {
+              const u = [...m];
+              if (u[msgIdx]) u[msgIdx] = { ...u[msgIdx], text: "⚠️ " + json.error };
+              return u;
+            });
+          }
+        } else {
+          if (activeRef.current === conversationId || !conversationId) {
+            setMsgs((m) => {
+              const u = [...m];
+              if (u[msgIdx]) u[msgIdx] = { ...u[msgIdx], text: json.answer || "" };
+              return u;
+            });
+          }
+        }
+        setBusy(false);
+        return false;
+      }
+
+      if (!res.body) throw new Error("Streaming not supported");
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let content = "";
+      let done = false;
+
+      while (!done) {
+        const { done: streamDone, value } = await reader.read();
+        done = streamDone;
+        const chunk = decoder.decode(value, { stream: !done });
+
+        // If the user switched to a different conversation, drain the stream
+        // silently — the backend is still persisting every delta to the DB.
+        if (activeRef.current !== conversationId) continue;
+
+        buffer += chunk;
+        let idx;
+        while ((idx = buffer.indexOf("\n\n")) !== -1) {
+          const frame = buffer.slice(0, idx);
+          buffer = buffer.slice(idx + 2);
+          const dataLine = frame.split("\n").find((l) => l.startsWith("data:"));
+          if (!dataLine) continue;
+          const payload = dataLine.slice(5).trim();
+          if (!payload) continue;
+          let d: Record<string, unknown>;
+          try { d = JSON.parse(payload); } catch { continue; }
+          if (typeof d.text === "string") {
+            content += d.text;
+            setMsgs((m) => {
+              const u = [...m];
+              if (u[msgIdx]) u[msgIdx] = { ...u[msgIdx], text: content };
+              return u;
+            });
+          } else if (d.done === true) {
+            done = true;
+            if (typeof d.text === "string") content = d.text;
+          } else if (typeof d.error === "string") {
+            done = true;
+            if (activeRef.current === conversationId) {
+              setMsgs((m) => {
+                const u = [...m];
+                if (u[msgIdx]) u[msgIdx] = { ...u[msgIdx], text: "⚠️ " + d.error };
+                return u;
+              });
+            }
+          } else if (d.configured === false) {
+            done = true;
+            setConfigured(false);
+          }
+        }
+      }
+
+      // Still on this convo → final sync from the DB for ground truth.
+      if (activeRef.current === conversationId && conversationId) {
+        const c = await getConvo(conversationId);
+        if (c?.messages) {
+          const loaded: Msg[] = c.messages.map((m: StoredMsg) => ({
+            role: m.role,
+            text: m.text,
+            label: m.label,
+          }));
+          setMsgs(loaded);
+        }
       }
     } catch (e) {
-      if (!controller.signal.aborted) {
-        patch(aid, (e as { message?: string })?.message || tr("saveError"));
+      // AbortError = user pressed stop — the backend already saved partials.
+      if ((e as Error)?.name !== "AbortError" && activeRef.current === conversationId) {
+        setMsgs((m) => {
+          const u = [...m];
+          if (u[msgIdx]) u[msgIdx] = { ...u[msgIdx], text: (e as { message?: string })?.message || tr("saveError") };
+          return u;
+        });
       }
     } finally {
-      if (abortRef.current === controller) abortRef.current = null;
-      setBusy(false);
+      if (runIdRef.current === thisRun) setBusy(false);
+      setExpectingResponse(false);
+      refreshConvos();
     }
   };
 
+  const resendEdit = useCallback(async (idx: number) => {
+    const text = editText.trim();
+    if (!text) return;
+    setEditingIdx(null);
+    setEditText("");
+    const msg = msgs[idx];
+    if (!msg || msg.role !== "user") return;
+    setMsgs((prev) => {
+      const u = [...prev];
+      if (u[idx]) u[idx] = { ...u[idx], text };
+      return u;
+    });
+    const convId = activeRef.current;
+    if (!convId) { await run("/brain/ask", { question: text }, text); return; }
+    try {
+      const c = await getConvo(convId);
+      const dbMsg = c?.messages?.[idx];
+      if (dbMsg?.id) {
+        // Update the stored prompt, drop what came after it, re-answer.
+        await api.patch(`/brain/conversations/${convId}/messages/${dbMsg.id}`, { text });
+        await api.post(`/brain/conversations/${convId}/rewind`, { afterId: dbMsg.id }).catch(() => undefined);
+      }
+    } catch { /* fall back to a plain ask */ }
+    await run("/brain/ask", { question: text }, text);
+  }, [editText, msgs]);
+
+  const stop = () => { cancelStream(); setBusy(false); };
   const ask = (q: string) => run("/brain/ask", { question: q }, q);
   const brief = () => run("/brain/brief", {}, undefined, tr("brain_briefLabel"));
   const send = () => { const q = input.trim(); if (!q) return; setInput(""); ask(q); };
@@ -103,92 +345,150 @@ export default function Brain() {
   ];
 
   return (
-    <div className="mx-auto flex h-[calc(100vh-7rem)] max-w-3xl flex-col">
-      <div className="mb-3 flex items-center gap-3">
-        <div className="grid h-10 w-10 place-items-center rounded-xl2 bg-ink-900 text-amber-500">
-          <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M12 3a4 4 0 00-4 4 3 3 0 00-1 5.8V15a3 3 0 003 3h.5"/><path d="M12 3a4 4 0 014 4 3 3 0 011 5.8V15a3 3 0 01-3 3h-.5"/><path d="M12 8v13"/></svg>
+    <div className="mx-auto flex h-[calc(100vh-7rem)] max-w-5xl gap-3">
+      {/* Sidebar */}
+      <div className={`${sidebarOpen ? "w-56" : "w-0"} shrink-0 overflow-hidden transition-all duration-200`}>
+        <div className="flex h-full flex-col rounded-xl2 bg-paper-200/60 p-2">
+          <button onClick={handleNew}
+            className="mb-2 flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-white transition hover:bg-amber-600">
+            <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="currentColor"><path d="M8 2a.75.75 0 01.75.75v4.5h4.5a.75.75 0 010 1.5h-4.5v4.5a.75.75 0 01-1.5 0v-4.5h-4.5a.75.75 0 010-1.5h4.5v-4.5A.75.75 0 018 2z"/></svg>
+            {tr("brain_new")}
+          </button>
+          <div className="flex-1 space-y-1 overflow-y-auto">
+            {convos.map((c) => (
+              <div key={c.id}
+                onClick={() => loadConvo(c.id)}
+                className={`group flex cursor-pointer items-center gap-1 rounded-lg px-2.5 py-2 text-xs transition ${
+                  activeConvoId === c.id ? "bg-amber-500/15 text-ink-900" : "text-ink-600 hover:bg-paper-200"
+                }`}>
+                <span className="flex-1 truncate">{truncateTitle(c.title)}</span>
+                <button onClick={(e) => handleDelete(c.id, e)}
+                  className="hidden rounded p-0.5 text-ink-400 hover:text-red-500 group-hover:block"
+                  title={tr("brain_delete")}>
+                  <svg className="h-3 w-3" viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 5.5a.5.5 0 01.5.5v5a.5.5 0 01-1 0V6a.5.5 0 01.5-.5zm2.5 0a.5.5 0 01.5.5v5a.5.5 0 01-1 0V6a.5.5 0 01.5-.5zm3 .5a.5.5 0 00-1 0v5a.5.5 0 001 0V6z"/><path fillRule="evenodd" d="M14.5 3a1 1 0 01-1 1H13v9a2 2 0 01-2 2H5a2 2 0 01-2-2V4h-.5a1 1 0 01-1.5-1V1.5A1.5 1.5 0 013 0h8.5A1.5 1.5 0 0113 1.5V3h.5a1 1 0 011 1zM11 4H4v9a1 1 0 001 1h5a1 1 0 001-1V4z"/></svg>
+                </button>
+              </div>
+            ))}
+            {convos.length === 0 && (
+              <p className="px-2.5 py-4 text-center text-[11px] text-ink-400">{tr("brain_noConvos")}</p>
+            )}
+          </div>
+          <button onClick={() => setSidebarOpen(false)}
+            className="self-end rounded p-1 text-ink-400 hover:text-ink-600">
+            <svg className="h-4 w-4" viewBox="0 0 16 16" fill="currentColor"><path fillRule="evenodd" d="M4.646 1.646a.5.5 0 01.708 0l6 6a.5.5 0 010 .708l-6 6a.5.5 0 01-.708-.708L10.293 8 4.646 2.354a.5.5 0 010-.708z"/></svg>
+          </button>
         </div>
-        <div>
-          <h1 className="text-lg font-bold text-ink-900">{tr("brain_title")}</h1>
-          <p className="text-xs text-ink-500">{tr("brain_subtitle")}</p>
-        </div>
-        <button onClick={brief} disabled={busy} className="btn-amber ms-auto">✦ {tr("brain_brief")}</button>
       </div>
 
-      {configured === false && (
-        <div className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">{tr("brain_notConfigured")}</div>
-      )}
+      {/* Chat */}
+      <div className="flex flex-1 flex-col">
+        <div className="mb-3 flex items-center gap-3">
+          {!sidebarOpen && (
+            <button onClick={() => setSidebarOpen(true)} className="rounded p-1 text-ink-400 hover:text-ink-600">
+              <svg className="h-4 w-4" viewBox="0 0 16 16" fill="currentColor"><path fillRule="evenodd" d="M11.354 1.646a.5.5 0 010 .708L5.707 8l5.647 5.646a.5.5 0 01-.708.708l-6-6a.5.5 0 010-.708l6-6a.5.5 0 01.708 0z"/></svg>
+            </button>
+          )}
+          <div className="grid h-10 w-10 place-items-center rounded-xl2 bg-ink-900 text-amber-500">
+            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M12 3a4 4 0 00-4 4 3 3 0 00-1 5.8V15a3 3 0 003 3h.5"/><path d="M12 3a4 4 0 014 4 3 3 0 011 5.8V15a3 3 0 01-3 3h-.5"/><path d="M12 8v13"/></svg>
+          </div>
+          <div>
+            <h1 className="text-lg font-bold text-ink-900">{tr("brain_title")}</h1>
+            <p className="text-xs text-ink-500">{tr("brain_subtitle")}</p>
+          </div>
+          <button onClick={brief} disabled={busy} className="btn-amber ms-auto">✦ {tr("brain_brief")}</button>
+        </div>
 
-      {/* Conversation */}
-      <div className="flex-1 space-y-3 overflow-y-auto rounded-xl2 bg-paper-200/30 p-4">
-        {msgs.length === 0 && (
-          <div className="grid h-full place-items-center text-center">
-            <div>
-              <p className="text-sm text-ink-500">{tr("brain_empty")}</p>
-              <div className="mt-4 flex flex-wrap justify-center gap-2">
-                {suggestions.map((s) => (
-                  <button key={s} onClick={() => ask(s)} disabled={busy}
-                    className="rounded-full border border-paper-300 bg-white px-3 py-1.5 text-xs text-ink-600 transition hover:border-amber-500/40 hover:bg-amber-50/40">
-                    {s}
-                  </button>
-                ))}
+        {configured === false && (
+          <div className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">{tr("brain_notConfigured")}</div>
+        )}
+
+        {/* Conversation */}
+        <div className="flex-1 space-y-3 overflow-y-auto rounded-xl2 bg-paper-200/30 p-4">
+          {msgs.length === 0 && (
+            <div className="grid h-full place-items-center text-center">
+              <div>
+                <p className="text-sm text-ink-500">{tr("brain_empty")}</p>
+                <div className="mt-4 flex flex-wrap justify-center gap-2">
+                  {suggestions.map((s) => (
+                    <button key={s} onClick={() => ask(s)} disabled={busy}
+                      className="rounded-full border border-paper-300 bg-white px-3 py-1.5 text-xs text-ink-600 transition hover:border-amber-500/40 hover:bg-amber-50/40">
+                      {s}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
-        )}
-        {msgs.map((m, i) =>
-          m.role === "user" ? (
-            <div key={i} className="flex justify-end">
-              <div className="max-w-[85%] rounded-xl2 rounded-se-sm bg-amber-500/15 px-3.5 py-2 text-sm text-ink-800">{m.text}</div>
-            </div>
-          ) : (
-            <div key={i} className="flex justify-start">
-              <Card className="max-w-[90%] p-3.5">
-                <div className="mb-1 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-amber-700">
-                  <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />{m.label || tr("brain_cmo")}
+          )}
+          {msgs.map((m, i) =>
+            m.role === "user" ? (
+              <div key={i} className="flex justify-end">
+                {editingIdx === i ? (
+                  <div className="max-w-[85%]">
+                    <textarea value={editText} onChange={(e) => setEditText(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); resendEdit(i); } }}
+                      className="input w-full resize-none text-sm" rows={2} autoFocus />
+                    <div className="mt-1 flex justify-end gap-2">
+                      <button onClick={() => setEditingIdx(null)} className="text-xs text-ink-500 hover:text-ink-700">{tr("cancel")}</button>
+                      <button onClick={() => resendEdit(i)} className="text-xs font-semibold text-amber-600 hover:text-amber-700">{tr("brain_resend")}</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="group relative max-w-[85%]">
+                    <div className="rounded-xl rounded-se-sm bg-amber-500/15 px-3.5 py-2 text-sm text-ink-800">{m.text}</div>
+                    <button onClick={() => startEdit(i, m.text)}
+                      className="absolute -top-1.5 -end-1.5 hidden rounded-full border border-paper-300 bg-white p-0.5 text-ink-400 transition hover:text-amber-600 group-hover:block">
+                      <svg className="h-3 w-3" viewBox="0 0 16 16" fill="currentColor"><path d="M12.854.146a.5.5 0 00-.707 0L10.5 1.793 14.207 5.5l1.647-1.646a.5.5 0 000-.708l-3-3zm.646 6.061L9.793 2.5 3.293 9H3.5a.5.5 0 01.5.5v.5h.5a.5.5 0 01.5.5v.5h.5a.5.5 0 01.5.5v.207l6.5-6.5z"/></svg>
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div key={i} className="flex justify-start">
+                <Card className="max-w-[90%] p-3.5">
+                  <div className="mb-1 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-amber-700">
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />{m.label || tr("brain_cmo")}
+                  </div>
+                  <Rich text={m.text} />
+                </Card>
+              </div>
+            )
+          )}
+          {busy && (
+            <div className="flex justify-start">
+              <Card className="p-3.5">
+                <div className="flex items-center gap-2 text-sm text-ink-500">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" style={{ animationDelay: "150ms" }} />
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" style={{ animationDelay: "300ms" }} />
+                  <span className="ms-1">{tr("brain_thinking")}</span>
+                  <button onClick={cancelStream}
+                    className="ms-2 rounded-md border border-red-200 bg-red-50 px-2 py-0.5 text-xs font-medium text-red-600 transition hover:bg-red-100">
+                    {tr("brain_stop")}
+                  </button>
                 </div>
-                <Rich text={m.text} />
               </Card>
             </div>
-          )
-        )}
-        {busy && !streamStarted && (
-          <div className="flex justify-start">
-            <Card className="p-3.5">
-              <div className="flex items-center gap-1.5 text-sm text-ink-500">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" style={{ animationDelay: "150ms" }} />
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" style={{ animationDelay: "300ms" }} />
-                <span className="ms-1">{tr("brain_thinking")}</span>
-              </div>
-            </Card>
-          </div>
-        )}
-        {streamStarted && (
-          <div className="flex justify-start ps-4">
-            <span className="me-1 inline-block h-3.5 w-1.5 animate-pulse rounded-sm bg-amber-500" />
-          </div>
-        )}
-        <div ref={endRef} />
-      </div>
+          )}
+          <div ref={endRef} />
+        </div>
 
-      {/* Input */}
-      <div className="mt-3 flex items-end gap-2">
-        <textarea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-          rows={1}
-          placeholder={tr("brain_ask_ph")}
-          className="input flex-1 resize-none"
-        />
-        <button
-          onClick={busy ? stop : send}
-          disabled={!busy && !input.trim()}
-          className={`${busy ? "border border-clay-300 bg-clay-50 text-clay-700 hover:bg-clay-100" : "btn-amber"} shrink-0 rounded-xl2 px-4 py-2 text-sm font-semibold`}
-        >{busy ? tr("brain_stop") : tr("brain_send")}</button>
+        {/* Input */}
+        <div className="mt-3 flex items-end gap-2">
+          <textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+            rows={1}
+            placeholder={tr("brain_ask_ph")}
+            className="input flex-1 resize-none"
+          />
+          <button onClick={busy ? stop : send}
+            disabled={!busy && !input.trim()}
+            className={`${busy ? "border border-clay-300 bg-clay-50 text-clay-700 hover:bg-clay-100" : "btn-amber"} shrink-0 rounded-xl px-4 py-2 text-sm font-semibold`}
+          >{busy ? tr("brain_stop") : tr("brain_send")}</button>
+        </div>
+        <p className="mt-1.5 text-center text-[11px] text-ink-400">{tr("brain_disclaimer")}</p>
       </div>
-      <p className="mt-1.5 text-center text-[11px] text-ink-400">{tr("brain_disclaimer")}</p>
     </div>
   );
 }

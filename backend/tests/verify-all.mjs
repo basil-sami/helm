@@ -2516,6 +2516,40 @@ reply = "The drop is consistent with reduced paid spend [2] and a publishing gap
   ok("the brain drops in the context snapshot for grounding",
     seenAi.some((r) => String(r.body?.messages?.[0]?.content).includes("Marketing data snapshot")));
 
+  // ── brain conversations: the stream survives navigation away ──
+  const beforeKey = process.env.ANTHROPIC_API_KEY;
+  process.env.ANTHROPIC_API_KEY = "sk-mock-good";
+  reply = "Leads are recovering. Meta spend resumes this week, so expect 60 leads.";
+  const conv = await j("POST", "/brain/conversations", { title: "persist test" }, H);
+  ok("a conversation can be created", conv.status === 201 && !!conv.data.id);
+  const convId = conv.data.id;
+  const convStream = await raw("POST", "/brain/ask",
+    { question: "what happens next?", stream: true, conversationId: convId }, H);
+  process.env.ANTHROPIC_API_KEY = before || "";
+  if (before === undefined) delete process.env.ANTHROPIC_API_KEY;
+  await convStream.text();
+  ok("a streamed /ask persists both the prompt and the answer", await (async () => {
+    const rows = (await db.query(
+      `SELECT role, text FROM ai_messages WHERE "conversationId" = $1 ORDER BY "createdAt"`,
+      [convId])).rows;
+    return rows.length === 2 && rows[0].role === "user" && rows[0].text === "what happens next?"
+      && rows[1].role === "cmo" && rows[1].text.includes("Meta spend");
+  })());
+  ok("polling the conversation returns the persisted thread (click-away resume)", await (async () => {
+    const c = await j("GET", `/brain/conversations/${convId}`, null, H);
+    return c.status === 200 && c.data.messages.length === 2
+      && c.data.messages.at(-1).text.includes("Meta spend");
+  })());
+  ok("conversations are listed and scoped per user", await (async () => {
+    const list = await j("GET", "/brain/conversations", null, H);
+    return list.status === 200 && list.data.some((c) => c.id === convId);
+  })());
+  ok("conversations can be deleted (cascade removes its messages)", await (async () => {
+    const d = await j("DELETE", `/brain/conversations/${convId}`, null, H);
+    const cnt = (await db.query(`SELECT COUNT(*)::int AS c FROM ai_messages WHERE "conversationId" = $1`, [convId])).rows[0].c;
+    return d.status === 200 && cnt === 0;
+  })());
+
   // ── caching: the same evidence asked twice is free ──
   ok("an identical question is answered from cache without spending", await (async () => {
     const key = "test:cache-key-1";

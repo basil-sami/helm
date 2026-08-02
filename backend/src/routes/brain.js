@@ -1,11 +1,123 @@
 import { Router } from "express";
-import { all, get } from "../db.js";
+import { all, get, run } from "../db.js";
 import { requireAuth, requirePerm } from "../auth.js";
 import { computeOverview } from "./analytics.js";
 import { objectivesWithProgress } from "./planning.js";
 
 export const brainRouter = Router();
 brainRouter.use(requireAuth, requirePerm("brain", "read"));
+
+// ── Conversation persistence ────────────────────────────────────────────
+// A thread lives in the DB so the stream survives navigation: the server
+// keeps writing partial tokens to ai_messages even after the user clicks
+// away, and the poll on return resurfaced the growing text.
+
+brainRouter.get("/conversations", async (req, res, next) => {
+  try {
+    const rows = await all(
+      `SELECT id, "userId", title, "createdAt", "updatedAt"
+       FROM ai_conversations WHERE "userId" = $1
+       ORDER BY "updatedAt" DESC LIMIT 50`,
+      [req.user.id]
+    );
+    res.json(rows);
+  } catch (e) { next(e); }
+});
+
+brainRouter.post("/conversations", async (req, res, next) => {
+  try {
+    const title = (req.body?.title || "").trim().slice(0, 100) || "New conversation";
+    const row = await get(
+      `INSERT INTO ai_conversations ("userId", title) VALUES ($1, $2)
+       RETURNING id, "userId", title, "createdAt", "updatedAt"`,
+      [req.user.id, title]
+    );
+    res.status(201).json(row);
+  } catch (e) { next(e); }
+});
+
+brainRouter.get("/conversations/:id", async (req, res, next) => {
+  try {
+    const convo = await get(
+      `SELECT id, "userId", title, "createdAt", "updatedAt"
+       FROM ai_conversations WHERE id = $1 AND "userId" = $2`,
+      [req.params.id, req.user.id]
+    );
+    if (!convo) return res.status(404).json({ error: "Conversation not found" });
+    const messages = await all(
+      `SELECT id, role, text, label, "createdAt"
+       FROM ai_messages WHERE "conversationId" = $1
+       ORDER BY "createdAt"`,
+      [req.params.id]
+    );
+    res.json({ ...convo, messages });
+  } catch (e) { next(e); }
+});
+
+brainRouter.patch("/conversations/:id", async (req, res, next) => {
+  try {
+    const title = (req.body?.title || "").trim().slice(0, 100);
+    if (!title) return res.status(400).json({ error: "title is required" });
+    const row = await get(
+      `UPDATE ai_conversations SET title = $1, "updatedAt" = now()
+       WHERE id = $2 AND "userId" = $3
+       RETURNING id, "userId", title, "createdAt", "updatedAt"`,
+      [title, req.params.id, req.user.id]
+    );
+    if (!row) return res.status(404).json({ error: "Conversation not found" });
+    res.json(row);
+  } catch (e) { next(e); }
+});
+
+brainRouter.delete("/conversations/:id", async (req, res, next) => {
+  try {
+    const row = await get(
+      `DELETE FROM ai_conversations WHERE id = $1 AND "userId" = $2
+       RETURNING id`,
+      [req.params.id, req.user.id]
+    );
+    if (!row) return res.status(404).json({ error: "Conversation not found" });
+    res.json({ deleted: true });
+  } catch (e) { next(e); }
+});
+
+// Update a message's text — used when the user edits and resends a prompt.
+brainRouter.patch("/conversations/:id/messages/:msgId", async (req, res, next) => {
+  try {
+    const text = (req.body?.text || "").trim();
+    if (!text) return res.status(400).json({ error: "text is required" });
+    const row = await get(
+      `UPDATE ai_messages SET text = $1
+       WHERE id = $2 AND "conversationId" IN (
+         SELECT id FROM ai_conversations WHERE id = $3 AND "userId" = $4
+       )
+       RETURNING id, role, text, label, "createdAt"`,
+      [text, req.params.msgId, req.params.id, req.user.id]
+    );
+    if (!row) return res.status(404).json({ error: "Message not found" });
+    res.json(row);
+  } catch (e) { next(e); }
+});
+
+// Rewind: drop every message that came after `afterId` (edit + resend).
+brainRouter.post("/conversations/:id/rewind", async (req, res, next) => {
+  try {
+    const afterId = req.body?.afterId;
+    if (!afterId) return res.status(400).json({ error: "afterId is required" });
+    await run(
+      `DELETE FROM ai_messages
+       WHERE "conversationId" = $1 AND "createdAt" >= (
+         SELECT "createdAt" FROM ai_messages WHERE id = $2
+       )
+       AND "conversationId" IN (
+         SELECT id FROM ai_conversations WHERE id = $1 AND "userId" = $3
+       )`,
+      [req.params.id, afterId, req.user.id]
+    );
+    await run(`UPDATE ai_conversations SET "updatedAt" = now() WHERE id = $1`, [req.params.id]);
+    res.json({ rewound: true });
+  } catch (e) { next(e); }
+});
 
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
 const API = process.env.ANTHROPIC_API_URL || "https://api.anthropic.com/v1/messages";
@@ -104,13 +216,32 @@ async function callClaude({ system, prompt, maxTokens = 1100 }) {
 }
 
 // Streaming variant — Anthropic `stream: true`, forwarded to the client as SSE.
-// Keeps the upstream fetch alive until the stream finishes (or the client
-// disconnects) so mid-stream Vercel timeouts surface as a visible error instead
-// of a silently truncated message.
-async function callClaudeStream({ system, prompt, maxTokens = 1100 }, req, res) {
+// If a conversationId is given, the response is persisted to ai_messages as it
+// arrives (roughly every 2s, plus a final save). The client may navigate away
+// mid-stream: the fetch keeps running on the server side and the next time the
+// user opens the conversation the poll picks up exactly where it stopped.
+async function callClaudeStream({
+  system, prompt, maxTokens = 1100, conversationId, userText,
+}, req, res) {
   if (!process.env.ANTHROPIC_API_KEY) {
     res.json({ configured: false });
     return;
+  }
+
+  // Persist this ask as a 'user' message and a placeholder 'cmo' message, so
+  // the poll has a row to watch grow. Both are skipped when there is no
+  // conversation (plain stateless /ask, e.g. from the test harness).
+  let aiMsgId = null;
+  if (conversationId) {
+    if (userText) {
+      await run(`INSERT INTO ai_messages ("conversationId", role, text) VALUES ($1, 'user', $2)`,
+        [conversationId, userText]);
+    }
+    const row = await get(
+      `INSERT INTO ai_messages ("conversationId", role, text) VALUES ($1, 'cmo', '') RETURNING id`,
+      [conversationId]
+    );
+    aiMsgId = row?.id;
   }
 
   let upstream;
@@ -150,7 +281,23 @@ async function callClaudeStream({ system, prompt, maxTokens = 1100 }, req, res) 
   const started = Date.now();
   let full = "";
   let aborted = false;
+  let lastDbSave = 0;
   req.on("close", () => { aborted = true; });
+
+  // Writes are the only part we skip after a client disconnect: the upstream
+  // keeps streaming below so the DB still lands the full answer. The next
+  // time the user opens this conversation, the poll shows it complete.
+  const send = (frame) => {
+    if (aborted) return;
+    try { res.write(frame); } catch { aborted = true; }
+  };
+
+  const persist = async (final) => {
+    if (!aiMsgId || !full) return;
+    if (!final && Date.now() - lastDbSave < 2000) return;
+    lastDbSave = Date.now();
+    await run(`UPDATE ai_messages SET text = $1 WHERE id = $2`, [full, aiMsgId]);
+  };
 
   try {
     const reader = upstream.body.getReader();
@@ -175,25 +322,38 @@ async function callClaudeStream({ system, prompt, maxTokens = 1100 }, req, res) 
         try { evt = JSON.parse(payload); } catch { continue; }
         if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta" && evt.delta.text) {
           full += evt.delta.text;
-          if (aborted) return;
-          res.write(`data: ${JSON.stringify({ text: evt.delta.text })}\n\n`);
+          // Throttled DB write so the poll sees progress even mid-stream.
+          if (aiMsgId && Date.now() - lastDbSave >= 2000) await persist(false);
+          send(`data: ${JSON.stringify({ text: evt.delta.text })}\n\n`);
         }
-        if (evt.type === "message_stop" || evt.type === "error") {
-          if (aborted) return;
-          break;
-        }
+        if (evt.type === "message_stop" || evt.type === "error") break;
       }
     }
   } catch {
-    if (aborted) return;
+    // socket or upstream hiccup — the final save below still runs
   }
 
-  if (aborted) return;
+  // Final save: complete content + bump the thread's title on first answer.
+  if (aiMsgId) {
+    try {
+      await persist(true);
+      if (conversationId) {
+        const title = full.replace(/["""«»]/g, "").trim().slice(0, 60) || "New conversation";
+        await run(
+          `UPDATE ai_conversations SET title = $1, "updatedAt" = now() WHERE id = $2`,
+          [title, conversationId]
+        );
+      }
+    } catch { /* swallow save errors */ }
+  }
+
   const elapsed = ((Date.now() - started) / 1000).toFixed(1);
-  if (full) {
-    res.write(`data: ${JSON.stringify({ done: true, text: full, elapsed })}\n\n`);
-  } else {
-    res.write(`data: ${JSON.stringify({ error: "Stream ended without any content" })}\n\n`);
+  if (!aborted) {
+    if (full) {
+      send(`data: ${JSON.stringify({ done: true, text: full, elapsed })}\n\n`);
+    } else {
+      send(`data: ${JSON.stringify({ error: "Stream ended without any content" })}\n\n`);
+    }
   }
   res.end();
 }
@@ -206,7 +366,11 @@ brainRouter.post("/brief", async (req, res, next) => {
     const prompt = `Here is the current marketing data snapshot (JSON):\n\n${JSON.stringify(ctx, null, 1)}\n\n` +
       `Write the executive marketing brief for the Head of Marketing. Cover, briefly: (1) the headline state of pipeline & revenue vs objectives, (2) what's working, (3) what's at risk or needs attention, (4) the top 3 actions to take this week. Cite the numbers. Keep it tight.`;
     if (req.body?.stream) {
-      return await callClaudeStream({ system: systemPrompt(lang, ctx.organization), prompt, maxTokens: 1300 }, req, res);
+      const conversationId = req.body?.conversationId || null;
+      return await callClaudeStream(
+        { system: systemPrompt(lang, ctx.organization), prompt, maxTokens: 1300, conversationId, userText: "" },
+        req, res
+      );
     }
     const out = await callClaude({ system: systemPrompt(lang, ctx.organization), prompt, maxTokens: 1300 });
     res.json(out);
@@ -223,7 +387,11 @@ brainRouter.post("/ask", async (req, res, next) => {
     const prompt = `Marketing data snapshot (JSON):\n\n${JSON.stringify(ctx, null, 1)}\n\n` +
       `The marketing lead asks:\n"""${question}"""\n\nAnswer using the data above. Cite the relevant figures.`;
     if (req.body?.stream) {
-      return await callClaudeStream({ system: systemPrompt(lang, ctx.organization), prompt }, req, res);
+      const conversationId = req.body?.conversationId || null;
+      return await callClaudeStream(
+        { system: systemPrompt(lang, ctx.organization), prompt, conversationId, userText: question },
+        req, res
+      );
     }
     const out = await callClaude({ system: systemPrompt(lang, ctx.organization), prompt });
     res.json(out);
