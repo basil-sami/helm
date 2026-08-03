@@ -19,6 +19,50 @@ export const SOURCE_TYPES = ["GOOGLE_NEWS", "BING_NEWS", "GDELT", "REDDIT", "RSS
 const UA = "Pulse-OSINT/2.0 (market intelligence)";
 const TIMEOUT_MS = 12000;
 
+// ── Feed URL hardening (SSRF guard) ──────────────────────────────────
+// Custom RSS/Atom feeds are fetched server-side, so a topic's feed URL
+// must never point at internal infrastructure. We accept only public
+// http(s) URLs whose host resolves to a public IP — no private ranges,
+// no loopback, no link-local, no literals like 127.0.0.1 or [::1].
+import net from "node:net";
+import dns from "node:dns/promises";
+
+const LOOPBACK_IP_RE = /^127\./;
+const PRIVATE_IP_RE = /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/;
+const LINK_LOCAL_RE = /^(169\.254\.|100\.(6[4-9]|[7-9]\d|1[0-2]\d|12[0-7])\.)/;
+const METADATA_HOSTS = /(^|\.)(metadata\.google\.internal|metadata\.compute\.googleapis\.com|169\.254\.169\.254|localhost|0\.0\.0\.0)$/i;
+
+/** Is this URL safe for the server to fetch? Throws a user-facing error otherwise. */
+export async function assertSafeFeedUrl(raw) {
+  const s = String(raw || "").trim();
+  let u;
+  try { u = new URL(s); } catch { throw Object.assign(new Error(`Feed URL "${s}" is not a valid URL`), { userFacing: true }); }
+  if (u.protocol !== "http:" && u.protocol !== "https:") {
+    throw Object.assign(new Error("Feed URLs must be http(s)"), { userFacing: true });
+  }
+  if (u.username || u.password) {
+    throw Object.assign(new Error("Feed URLs must not contain credentials"), { userFacing: true });
+  }
+  const host = u.hostname.replace(/^\[|\]$/g, "");
+  if (METADATA_HOSTS.test(host)) {
+    throw Object.assign(new Error("Feed URL host is not allowed"), { userFacing: true });
+  }
+  // If it's already a dotted literal, check the ranges directly; otherwise
+  // resolve every A/AAAA record and reject if any is private.
+  let addresses = [];
+  if (net.isIP(host)) addresses = [host];
+  else {
+    try { addresses = (await dns.lookup(host, { all: true, verbatim: true })).map((a) => a.address); } catch {
+      throw Object.assign(new Error(`Feed URL host "${host}" does not resolve`), { userFacing: true });
+    }
+  }
+  const bad = addresses.some((ip) =>
+    net.isIPv4(ip) ? LOOPBACK_IP_RE.test(ip) || PRIVATE_IP_RE.test(ip) || LINK_LOCAL_RE.test(ip) : ip === "::1" || ip.startsWith("fc") || ip.startsWith("fd") || ip.startsWith("fe80:")
+  );
+  if (bad) throw Object.assign(new Error("Feed URL host must be publicly reachable"), { userFacing: true });
+  return s;
+}
+
 async function fetchText(url, headers = {}) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
@@ -202,13 +246,17 @@ async function fetchRss(feedUrl) {
 export async function gatherTopic(topic) {
   const sources = Array.isArray(topic.sources) ? topic.sources : JSON.parse(topic.sources || "[]");
   const feeds = Array.isArray(topic.feeds) ? topic.feeds : JSON.parse(topic.feeds || "[]");
+  const safeFeeds = [];
+  for (const f of feeds) {
+    try { safeFeeds.push(await assertSafeFeedUrl(f)); } catch { /* unsafe feed is skipped, never fetched */ }
+  }
 
   const jobs = [];
   if (sources.includes("GOOGLE_NEWS")) jobs.push(["GOOGLE_NEWS", fetchGoogleNews(topic)]);
   if (sources.includes("BING_NEWS")) jobs.push(["BING_NEWS", fetchBingNews(topic)]);
   if (sources.includes("GDELT")) jobs.push(["GDELT", fetchGdelt(topic)]);
   if (sources.includes("REDDIT")) jobs.push(["REDDIT", fetchReddit(topic)]);
-  for (const f of feeds) jobs.push([`RSS:${f}`, fetchRss(f)]);
+  for (const f of safeFeeds) jobs.push([`RSS:${f}`, fetchRss(f)]);
 
   const settled = await Promise.allSettled(jobs.map(([, p]) => p));
   const signals = [], errors = [];

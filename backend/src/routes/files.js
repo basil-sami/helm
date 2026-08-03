@@ -27,6 +27,9 @@ filesRouter.get("/:id", async (req, res, next) => {
     res.set("Content-Type", f.mime);
     res.set("Content-Disposition", `inline; filename="${encodeURIComponent(f.name)}"`);
     res.set("Cache-Control", f.public ? "public, max-age=86400" : "private, max-age=300");
+    // Sandboxed even when served inline: kills script/plugin execution in
+    // any file that slips past the MIME checks.
+    res.set("Content-Security-Policy", "sandbox");
     res.send(buf);
   } catch (e) { next(e); }
 });
@@ -113,14 +116,22 @@ filesRouter.patch("/:id", express.json({ limit: "64kb" }), async (req, res, next
 });
 
 // Raw body: the client posts the file itself with its Content-Type.
+// MIME types that can execute in a browser (SVG, HTML, JS, XML) are
+// rejected outright — they'd be served `inline` later and are the classic
+// stored-XSS vehicle.
+const BANNED_MIME_RE = /(svg|html|xml|javascript|xhtml)/i;
 filesRouter.post("/", express.raw({ type: "*/*", limit: MAX_BYTES }), async (req, res, next) => {
   try {
     const buffer = Buffer.isBuffer(req.body) ? req.body : null;
     if (!buffer?.length) return res.status(400).json({ error: "Send the file as the request body" });
+    const mime = String(req.headers["content-type"] || "application/octet-stream").split(";")[0].trim();
+    if (BANNED_MIME_RE.test(mime)) {
+      return res.status(400).json({ error: `File type "${mime}" is not allowed` });
+    }
     const f = await putFile({
       buffer,
       name: req.query.name || "upload",
-      mime: req.headers["content-type"] || "application/octet-stream",
+      mime,
       entity: req.query.entity || null,
       entityId: req.query.entityId || null,
       userId: req.user.id,

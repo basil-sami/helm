@@ -4,7 +4,7 @@ import { requireAuth, requirePerm } from "../auth.js";
 import { logAudit } from "../audit.js";
 import { computeListening } from "./listening.js";
 import { notify } from "../notify.js";
-import { gatherTopic, trendingTerms, scoreSentiment } from "../integrations/osint.js";
+import { gatherTopic, assertSafeFeedUrl, trendingTerms, scoreSentiment } from "../integrations/osint.js";
 import { simhash, contentHash, scoreRelevance, credibilityFor, domainOf, isNearDuplicate } from "../osint/validate.js";
 import { linkSignalEntities } from "../osint/entities.js";
 
@@ -30,13 +30,15 @@ osintRouter.post("/topics", requirePerm("intel"), async (req, res, next) => {
           mustInclude, mustExclude, contextTerms, reviewThreshold } = req.body;
   if (!label || !query) return res.status(400).json({ error: "label and query are required" });
   if (category && !CATS.includes(category)) return res.status(400).json({ error: "Invalid category" });
+  const safeFeeds = [];
+  for (const f of feeds || []) { try { safeFeeds.push(await assertSafeFeedUrl(f)); } catch (e) { return res.status(400).json({ error: e.userFacing ? e.message : "Invalid feed URL" }); } }
   try {
     const row = await get(
       `INSERT INTO osint_topics (label, query, lang, region, category, sources, feeds,
          "mustInclude", "mustExclude", "contextTerms", "reviewThreshold")
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
       [label, query, lang || "en", region || "SD", category || "MARKET",
-       JSON.stringify(sources || ["GOOGLE_NEWS", "GDELT"]), JSON.stringify(feeds || []),
+       JSON.stringify(sources || ["GOOGLE_NEWS", "GDELT"]), JSON.stringify(safeFeeds),
        JSON.stringify(mustInclude || []), JSON.stringify(mustExclude || []),
        JSON.stringify(contextTerms || []), Number(reviewThreshold ?? 0.55)]
     );
@@ -51,7 +53,11 @@ osintRouter.patch("/topics/:id", requirePerm("intel"), async (req, res, next) =>
     if (req.body[f] !== undefined) push(f, req.body[f]);
   }
   if (req.body.sources !== undefined) push("sources", JSON.stringify(req.body.sources));
-  if (req.body.feeds !== undefined) push("feeds", JSON.stringify(req.body.feeds));
+  if (req.body.feeds !== undefined) {
+    const safeFeeds = [];
+    for (const f of req.body.feeds) { try { safeFeeds.push(await assertSafeFeedUrl(f)); } catch (e) { return res.status(400).json({ error: e.userFacing ? e.message : "Invalid feed URL" }); } }
+    push("feeds", JSON.stringify(safeFeeds));
+  }
   if (!sets.length) return res.status(400).json({ error: "No valid fields" });
   try {
     params.push(req.params.id);

@@ -10,6 +10,18 @@ linksRouter.use(requireAuth);
 const CODE_RE = /^[a-z0-9-]{3,30}$/;
 const genCode = () => crypto.randomBytes(4).toString("base64url").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 6) || "l" + Date.now().toString(36);
 
+/** Normalize + validate a tracked-link destination. Returns null if unsafe. */
+function cleanUrl(raw) {
+  let url = String(raw || "").trim();
+  if (!/^https?:\/\//i.test(url)) url = "https://" + url;
+  if (!/^https?:\/\/.+/i.test(url)) return null;
+  let u;
+  try { u = new URL(url); } catch { return null; }
+  if (u.username || u.password) return null;
+  if (/localhost|^127\.|^10\.|^192\.168\.|^172\.(1[6-9]|2\d|3[01])\.|^0\.0\.0\.0$/.test(u.hostname)) return null;
+  return url;
+}
+
 linksRouter.get("/", requirePerm("campaigns", "read"), async (_req, res, next) => {
   try {
     res.json(await all(`SELECT l.*, c.name AS "campaignName" FROM tracked_links l
@@ -18,11 +30,10 @@ linksRouter.get("/", requirePerm("campaigns", "read"), async (_req, res, next) =
 });
 
 linksRouter.post("/", requirePerm("campaigns"), async (req, res, next) => {
-  let url = (req.body?.url || "").trim();
-  if (!/^https?:\/\//i.test(url)) url = "https://" + url;
+  const url = cleanUrl(req.body?.url);
+  if (!url) return res.status(400).json({ error: "A valid destination URL is required" });
   const { campaignId = null, channel = null } = req.body || {};
   let code = (req.body?.code || "").toLowerCase().trim();
-  if (!/^https?:\/\/.+/.test(url || "")) return res.status(400).json({ error: "A valid destination URL is required" });
   if (code && !CODE_RE.test(code)) return res.status(400).json({ error: "Code: 3–30 chars, a–z 0–9 -" });
   try {
     if (!code) { do { code = genCode(); } while (await get(`SELECT 1 FROM tracked_links WHERE code = $1`, [code])); }
@@ -45,11 +56,22 @@ linksRouter.delete("/:id", requirePerm("campaigns"), async (req, res, next) => {
 });
 
 // PUBLIC redirect — counts the click, then 302s. Mounted at /r/:code.
+// The destination is re-checked at redirect time: a hostile URL can never
+// escape to a non-http(s) scheme or to an internal address.
 export async function redirectHandler(req, res) {
   try {
     const link = await get(`SELECT url FROM tracked_links WHERE code = $1`, [String(req.params.code || "").toLowerCase()]);
     if (!link) return res.status(404).send("Link not found");
+    let dest = String(link.url || "");
+    if (!/^https?:\/\//i.test(dest)) dest = "https://" + dest;
+    if (!/^https?:\/\/.+/i.test(dest)) return res.status(400).send("Invalid link destination");
+    try {
+      const u = new URL(dest);
+      if (u.username || u.password || /localhost|^127\.|^10\.|^192\.168\.|^172\.(1[6-9]|2\d|3[01])\.|^0\.0\.0\.0$/.test(u.hostname)) {
+        return res.status(400).send("Invalid link destination");
+      }
+    } catch { return res.status(400).send("Invalid link destination"); }
     run(`UPDATE tracked_links SET clicks = clicks + 1, "lastClickAt" = now() WHERE code = $1`, [req.params.code.toLowerCase()]).catch(() => {});
-    res.redirect(302, link.url);
+    res.redirect(302, dest);
   } catch { res.status(404).send("Link not found"); }
 }

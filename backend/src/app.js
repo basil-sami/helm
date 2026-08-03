@@ -67,6 +67,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export function createApp() {
   const app = express();
+  app.disable("x-powered-by");
   app.use(securityHeaders);
   const allowed = (process.env.ALLOWED_ORIGINS || "").split(",").map((o) => o.trim()).filter(Boolean);
   app.use(cors({ origin: allowed.length ? allowed : false })); // same-origin unless explicitly allowed
@@ -229,6 +230,12 @@ export function createApp() {
     });
   }
 
+  // JSON 404 for API routes (the SPA fallback above handles everything
+  // else). Default Express 404 pages leak framework structure.
+  app.use("/api", (_req, res) => {
+    res.status(404).json({ error: "Not found" });
+  });
+
   // JSON error handler. Records the fault, then answers with a reference the
   // user can quote — "it broke this morning" becomes an id we can look up.
   app.use((err, req, res, _next) => {
@@ -246,7 +253,12 @@ export function createApp() {
       userAgent: req.headers["user-agent"],
       payloadDigest: digestOf(req.body),
     });
-    res.status(status).json({ error: "Server error", detail: err.message, requestId: req.requestId });
+    const isAdmin = req.user?.permissions?.admin === true;
+    // The raw message is logged server-side; only admins see the detail.
+    // Everyone else gets the request id to quote when reporting the fault.
+    const body = { error: "Server error", requestId: req.requestId };
+    if (isAdmin && err.message) body.detail = err.message;
+    res.status(status).json(body);
   });
 
   return app;

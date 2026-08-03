@@ -77,8 +77,12 @@ placementsRouter.patch("/placements/:id", requirePerm("media"), async (req, res,
     const m = await get(`SELECT * FROM media_placements WHERE id = $1`, [req.params.id]);
     if (!m) return res.status(404).json({ error: "Not found" });
     const F = ["label", "location", "startDate", "endDate", "costUsd"];
-    for (const f of F) if (req.body[f] !== undefined) {
-      await run(`UPDATE media_placements SET "${f}" = $2, "updatedAt" = now() WHERE id = $1`, [m.id, req.body[f]]);
+    const sets = [];
+    const params = [m.id];
+    for (const f of F) if (req.body[f] !== undefined) { params.push(req.body[f]); sets.push(`"${f}" = $${params.length}`); }
+    if (sets.length) {
+      sets.push(`"updatedAt" = now()`);
+      await run(`UPDATE media_placements SET ${sets.join(", ")} WHERE id = $1`, params);
     }
     res.json(await get(`SELECT * FROM media_placements WHERE id = $1`, [m.id]));
   } catch (e) { next(e); }

@@ -62,7 +62,7 @@ export function maskMail(row) {
   const m = typeof row.mail === "string" ? JSON.parse(row.mail || "{}") : (row.mail || {});
   const { pass, apiKey, ...rest } = m;
   const ints = typeof row.integrations === "string" ? JSON.parse(row.integrations || "{}") : (row.integrations || {});
-  const SECRETS = ["appSecret", "verifyToken", "developerToken", "refreshToken", "clientSecret", "token", "apiKey"];
+  const SECRETS = ["appSecret", "verifyToken", "developerToken", "refreshToken", "clientSecret", "token", "apiKey", "youtubeApiKey"];
   const safeInts = {};
   for (const [k, v] of Object.entries(ints)) {
     const cleaned = { ...(v || {}) };
@@ -70,12 +70,30 @@ export function maskMail(row) {
       cleaned[`has${sec[0].toUpperCase()}${sec.slice(1)}`] = !!cleaned[sec];
       delete cleaned[sec];
     }
+    // any key that smells like a credential (…Key, …Secret, …Token) is masked too
+    for (const key of Object.keys(cleaned)) {
+      if (/(key|secret|token|pass)/i.test(key)) {
+        cleaned[`has${key[0].toUpperCase()}${key.slice(1)}`] = !!cleaned[key];
+        delete cleaned[key];
+      }
+    }
     safeInts[k] = cleaned;
   }
   return { ...row, mail: { ...rest, hasPass: !!pass, hasKey: !!apiKey }, integrations: safeInts };
 }
-settingsRouter.get("/", async (_req, res, next) => {
-  try { res.json(maskMail(await get("SELECT * FROM settings WHERE id = 1"))); } catch (e) { next(e); }
+settingsRouter.get("/", async (req, res, next) => {
+  try {
+    const row = await get("SELECT * FROM settings WHERE id = 1");
+    const masked = maskMail(row);
+    if (!req.user?.permissions?.admin) {
+      // Non-admins get branding + flags only — never connection details
+      // (SMTP endpoints, provider URLs, or any integration config).
+      const { mail, integrations, ...safe } = masked;
+      res.json(safe);
+      return;
+    }
+    res.json(masked);
+  } catch (e) { next(e); }
 });
 settingsRouter.patch("/", requireAdmin, async (req, res, next) => {
   const sets = [], params = [];
