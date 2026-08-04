@@ -110,7 +110,7 @@ export default function Campaigns() {
       if (editing.id) await api.patch(`/campaigns/${editing.id}`, payload);
       else {
         const created = await api.post<Campaign>("/campaigns", payload);
-        setEditing({ ...editing, id: created.id, ...created });
+        setEditing({ ...editing, ...created });
         reload();
         toast.push(tr("saved"), "success");
         toast.push(tr("bf_now"), "success");

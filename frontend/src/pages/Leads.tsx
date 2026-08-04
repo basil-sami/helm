@@ -150,7 +150,7 @@ export default function Leads() {
   };
 
   const convert = async (l: Lead) => {
-    try { await api.post(`/customers/convert/${l.id}`); toast.push(tr("lead_converted"), "success"); }
+    try { await api.post(`/customers/convert/${l.id}`, {}); toast.push(tr("lead_converted"), "success"); }
     catch (e) { toast.push((e as Error).message, "error"); }
   };
 
