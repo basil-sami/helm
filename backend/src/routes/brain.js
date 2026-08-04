@@ -64,8 +64,17 @@ STYLE:
 - ${langLine}`;
 }
 
+async function brainKey() {
+  const env = process.env.ANTHROPIC_API_KEY || process.env.OPENROUTER_API_KEY;
+  if (env) return env;
+  const s = await get(`SELECT integrations FROM settings WHERE id = 1`);
+  const ints = typeof s?.integrations === "string" ? JSON.parse(s.integrations || "{}") : (s?.integrations || {});
+  return ints?.ai?.apiKey || null;
+}
+
 async function callClaude({ system, prompt, maxTokens = 1100 }) {
-  if (!process.env.ANTHROPIC_API_KEY) {
+  const key = await brainKey();
+  if (!key) {
     return { configured: false };
   }
   let res;
@@ -74,7 +83,7 @@ async function callClaude({ system, prompt, maxTokens = 1100 }) {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-api-key": process.env.ANTHROPIC_API_KEY,
+        "x-api-key": key,
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
@@ -126,6 +135,7 @@ brainRouter.post("/ask", async (req, res, next) => {
 });
 
 // Lets the UI show "configured / not configured" without making a model call.
-brainRouter.get("/status", (_req, res) => {
-  res.json({ configured: !!process.env.ANTHROPIC_API_KEY, model: process.env.ANTHROPIC_API_KEY ? MODEL : null });
+brainRouter.get("/status", async (_req, res) => {
+  const key = await brainKey();
+  res.json({ configured: !!key, model: key ? MODEL : null });
 });
