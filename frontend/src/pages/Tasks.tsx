@@ -114,7 +114,7 @@ export default function Tasks() {
             return (
               <>
                 <div className="flex items-start justify-between gap-2">
-                  <button onClick={() => setEditing({ ...t, dueDate: toDateInput(t.dueDate) })} className="text-start text-sm font-medium text-ink-800 hover:text-amber-700">{t.title}</button>
+                  <button onClick={() => setEditing({ ...t, dueDate: toDateInput(t.dueDate) })} title={tr("edit")} className="group flex items-start gap-1 text-start text-sm font-medium text-ink-800 hover:text-amber-700"><span aria-hidden="true" className="mt-0.5 text-[10px] opacity-40 group-hover:opacity-100">✎</span>{t.title}</button>
                   <StatusPill value={t.priority} />
                 </div>
                 <div className="mt-1.5 text-xs text-ink-500">{t.assigneeName || tr("unassigned")}{t.campaignName ? ` · ${t.campaignName}` : ""}</div>
