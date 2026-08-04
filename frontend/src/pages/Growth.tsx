@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useFetch, Card, Modal, SkeletonCards } from "../components/ui";
+import { useFetch, Card, Modal, Field, SkeletonCards } from "../components/ui";
 import { api } from "../lib/api";
 import { useI18n } from "../context/I18nContext";
 import { useAuth } from "../context/AuthContext";
@@ -20,7 +20,7 @@ const PLATFORMS = ["META", "TIKTOK", "GOOGLE", "OTHER"];
 
 export default function Growth() {
   const { tr, lang } = useI18n();
-  const { can } = useAuth();
+  const { can, isAdmin } = useAuth();
   const toast = useToast();
   const w = can("planning");
   const [tab, setTab] = useState<"promos" | "refs" | "partners" | "spend">("promos");
@@ -104,10 +104,14 @@ export default function Growth() {
                   {w && (
                     <div className="mt-3 flex gap-2 text-xs">
                       <button onClick={async () => { try { await api.post(`/promotions/${p.id}/redeem`, {}); promos.reload(); } catch (e) { toast.push((e as Error).message, "error"); } }}
-                        className="rounded-lg bg-amber-500/15 px-2.5 py-1 font-medium text-amber-700 hover:bg-amber-500/25" disabled={!p.active}>✓ {tr("gr_redeem")}</button>
+                        className="rounded-lg bg-amber-500/15 px-2.5 py-1 font-medium text-amber-700 hover:bg-amber-500/25" disabled={!p.active}>{p.active ? `✓ ${tr("gr_redeem")}` : tr("gr_inactive")}</button>
+                      <button onClick={async () => { try { await api.post(`/promotions/${p.id}/undo`, {}); promos.reload(); } catch (e) { toast.push((e as Error).message, "error"); } }}
+                        className="rounded-lg bg-paper-200 px-2.5 py-1 text-ink-600 hover:bg-paper-300" disabled={!p.redemptions}>↩ {tr("gr_undo")}</button>
                       <button onClick={() => setPromoM(p)} className="rounded-lg bg-paper-200 px-2.5 py-1 text-ink-600 hover:bg-paper-300">{tr("edit")}</button>
-                      <button onClick={async () => { await api.patch(`/promotions/${p.id}`, { active: !p.active }); promos.reload(); }}
-                        className="rounded-lg bg-paper-200 px-2.5 py-1 text-ink-600 hover:bg-paper-300">{p.active ? tr("gr_deactivate") : tr("gr_activate")}</button>
+                      {isAdmin && (
+                        <button title={tr("gr_toggleTip")} onClick={async () => { try { await api.post(`/promotions/${p.id}/toggle`, {}); promos.reload(); } catch (e) { toast.push((e as Error).message, "error"); } }}
+                          className="rounded-lg bg-paper-200 px-2.5 py-1 text-ink-600 hover:bg-paper-300">{p.active ? tr("gr_deactivate") : tr("gr_activate")}</button>
+                      )}
                     </div>
                   )}
                 </Card>
@@ -270,7 +274,7 @@ export default function Growth() {
               </select>
               <input className="input" placeholder={tr("gr_region")} value={partnerM.region || ""} onChange={(e) => setPartnerM({ ...partnerM, region: e.target.value })} />
             </div>
-            <input className="input kpi-num" type="number" placeholder={tr("gr_coop")} value={partnerM.coopBudgetUsd ?? ""} onChange={(e) => setPartnerM({ ...partnerM, coopBudgetUsd: Number(e.target.value) })} dir="ltr" />
+            <Field label={`${tr("gr_coop")} (USD)`}><input className="input kpi-num" type="number" placeholder={tr("gr_coop")} value={partnerM.coopBudgetUsd ?? ""} onChange={(e) => setPartnerM({ ...partnerM, coopBudgetUsd: Number(e.target.value) })} dir="ltr" /></Field>
             <button className="btn-amber w-full" disabled={!partnerM.name}
               onClick={async () => {
                 try {
@@ -305,18 +309,22 @@ export default function Growth() {
         <Modal open title={tr("gr_addSpend")} onClose={() => setSpendM(false)}>
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
-              <select className="input" value={spendForm.platform} onChange={(e) => setSpendForm({ ...spendForm, platform: e.target.value })}>
-                {PLATFORMS.map((p) => <option key={p}>{p}</option>)}
-              </select>
-              <select className="input" value={spendForm.campaignId} onChange={(e) => setSpendForm({ ...spendForm, campaignId: e.target.value })}>
-                <option value="">{tr("gr_noCampaign")}</option>
-                {(campaigns.data || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+              <Field label={tr("platform")}>
+                <select className="input" value={spendForm.platform} onChange={(e) => setSpendForm({ ...spendForm, platform: e.target.value })}>
+                  {PLATFORMS.map((p) => <option key={p}>{p}</option>)}
+                </select>
+              </Field>
+              <Field label={tr("gr_campaign")}>
+                <select className="input" value={spendForm.campaignId} onChange={(e) => setSpendForm({ ...spendForm, campaignId: e.target.value })}>
+                  <option value="">{tr("gr_noCampaign")}</option>
+                  {(campaigns.data || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </Field>
             </div>
-            <input className="input kpi-num" type="number" placeholder={tr("gr_amount")} value={spendForm.amountUsd} onChange={(e) => setSpendForm({ ...spendForm, amountUsd: e.target.value })} dir="ltr" />
+            <Field label={tr("gr_amount")}><input className="input kpi-num" type="number" placeholder={tr("gr_amount")} value={spendForm.amountUsd} onChange={(e) => setSpendForm({ ...spendForm, amountUsd: e.target.value })} dir="ltr" /></Field>
             <div className="grid grid-cols-2 gap-3">
-              <input className="input kpi-num" type="number" placeholder={tr("gr_impressions")} value={spendForm.impressions} onChange={(e) => setSpendForm({ ...spendForm, impressions: e.target.value })} dir="ltr" />
-              <input className="input kpi-num" type="number" placeholder={tr("gr_clicks")} value={spendForm.clicks} onChange={(e) => setSpendForm({ ...spendForm, clicks: e.target.value })} dir="ltr" />
+              <Field label={tr("gr_impressions")}><input className="input kpi-num" type="number" placeholder={tr("gr_impressions")} value={spendForm.impressions} onChange={(e) => setSpendForm({ ...spendForm, impressions: e.target.value })} dir="ltr" /></Field>
+              <Field label={tr("gr_clicks")}><input className="input kpi-num" type="number" placeholder={tr("gr_clicks")} value={spendForm.clicks} onChange={(e) => setSpendForm({ ...spendForm, clicks: e.target.value })} dir="ltr" /></Field>
             </div>
             <button className="btn-amber w-full" disabled={!spendForm.amountUsd}
               onClick={async () => {
