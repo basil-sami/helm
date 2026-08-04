@@ -3,7 +3,7 @@ import crypto from "crypto";
 import QRCode from "qrcode";
 import { crudRouter } from "../crud.js";
 import { all, get, run } from "../db.js";
-import { requireAuth, requirePerm } from "../auth.js";
+import { requireAuth, requirePerm, requireAdmin } from "../auth.js";
 import { notify } from "../notify.js";
 import { logAudit } from "../audit.js";
 
@@ -127,6 +127,30 @@ promotionsExtraRouter.post("/:id/redeem", requirePerm("planning"), async (req, r
     const row = await get(
       `UPDATE promotions SET redemptions = redemptions + 1, "updatedAt" = now() WHERE id = $1 RETURNING *`, [p.id]);
     logAudit(req, "promo.redeem", "promotions", p.id, { code: p.code });
+    res.json(row);
+  } catch (e) { next(e); }
+});
+
+// Undo a mistaken redemption: decrement (never below 0).
+promotionsExtraRouter.post("/:id/undo", requirePerm("planning"), async (req, res, next) => {
+  try {
+    const p = await get(`SELECT * FROM promotions WHERE id = $1`, [req.params.id]);
+    if (!p) return res.status(404).json({ error: "Not found" });
+    const row = await get(
+      `UPDATE promotions SET redemptions = GREATEST(redemptions - 1, 0), "updatedAt" = now() WHERE id = $1 RETURNING *`, [p.id]);
+    logAudit(req, "promo.undo", "promotions", p.id, { code: p.code });
+    res.json(row);
+  } catch (e) { next(e); }
+});
+
+// Activate/deactivate: admin-only, since it gates whether a promo can be redeemed.
+promotionsExtraRouter.post("/:id/toggle", requireAdmin, async (req, res, next) => {
+  try {
+    const p = await get(`SELECT * FROM promotions WHERE id = $1`, [req.params.id]);
+    if (!p) return res.status(404).json({ error: "Not found" });
+    const row = await get(
+      `UPDATE promotions SET active = NOT active, "updatedAt" = now() WHERE id = $1 RETURNING *`, [p.id]);
+    logAudit(req, "promo.toggle", "promotions", p.id, { code: p.code, active: row.active });
     res.json(row);
   } catch (e) { next(e); }
 });
