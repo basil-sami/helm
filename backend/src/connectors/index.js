@@ -68,9 +68,15 @@ export async function syncConnectors() {
     `SELECT * FROM social_accounts WHERE status = 'CONNECTED' AND "accessToken" IS NOT NULL`);
   let metrics = 0, spend = 0;
 
-  for (const acc of accounts) {
-    const adapter = adapterFor(acc.platform);
+  const { withToken } = await import("../secrets.js");
+  for (const stored of accounts) {
+    const adapter = adapterFor(stored.platform);
     if (!adapter) continue;
+    // SEC·A: decrypted here, at the point of use. An unreadable credential
+    // is a misconfiguration, not a reason to skip quietly.
+    let acc;
+    try { acc = withToken(stored); }
+    catch (e) { await logRun(stored.platform, "SYNC", "FAILED", e.message, stored.id); continue; }
 
     if (adapter.caps.metrics) {
       const r = await callAdapter(acc, "METRICS", (a, cfg) => a.pullMetrics(acc, cfg));

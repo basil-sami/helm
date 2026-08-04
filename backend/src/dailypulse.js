@@ -8,6 +8,9 @@ import { emailMorningDigest } from "./mail.js";
 import { connectorSweep, syncConnectors } from "./connectors/index.js";
 import { runPublishTick } from "./publishtick.js";
 import { outreachDueSweep, coldMediaSweep } from "./routes/reach.js";
+import { followUpSweep } from "./routes/conversions.js";
+import { approvalEscalationSweep } from "./calendar.js";
+import { evaluateListeningAlerts, reviewQueueSweep } from "./listening-control.js";
 
 // ═══ THE DAILY PULSE ═════════════════════════════════════════════════
 // One nightly heartbeat for the whole platform:
@@ -29,6 +32,10 @@ export async function runDailyPulse() {
   try { out.referralsEarned = await referralSweep(); } catch (e) { out.referralsEarned = 0; out.refError = e.message; }
   try { out.outreachDue = await outreachDueSweep(); } catch (e) { out.outreachDue = 0; out.outreachError = e.message; }
   try { out.coldContacts = await coldMediaSweep(); } catch (e) { out.coldContacts = 0; out.coldError = e.message; }
+  try { out.listeningAlerts = await evaluateListeningAlerts(); } catch (e) { out.listeningAlerts = null; out.listeningAlertError = e.message; }
+  try { out.reviewQueue = await reviewQueueSweep(); } catch (e) { out.reviewQueue = null; out.reviewQueueError = e.message; }
+  try { out.approvalsStale = await approvalEscalationSweep(); } catch (e) { out.approvalsStale = null; out.approvalError = e.message; }
+  try { out.followUp = await followUpSweep(); } catch (e) { out.followUp = null; out.followUpError = e.message; }
   try { out.sweepPushed = await hygieneSweep(); } catch (e) { out.sweepPushed = 0; out.sweepError = e.message; }
   try { out.intel = await runOsintDaily(); } catch (e) { out.intel = { error: e.message }; }
   try { out.digest = await writeMorningDigest(); } catch (e) { out.digest = 0; out.digestError = e.message; }

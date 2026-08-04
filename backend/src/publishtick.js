@@ -25,6 +25,11 @@ export async function runPublishTick() {
          AND "autoPublish" = true AND "accessToken" IS NOT NULL LIMIT 1`, [p.platform]);
     // no connected auto-publish account → the manual NOTIFIED flow still owns it
     if (!acc || !adapterFor(acc.platform)?.caps?.publish) { skipped++; continue; }
+    // SEC·A: decrypt at the point of use. An unreadable credential must not
+    // silently fall back to manual — it is a misconfiguration, not a skip.
+    let account;
+    try { account = (await import("./secrets.js")).withToken(acc); }
+    catch (e) { failed++; continue; }
 
     const tags = (() => {
       try { const t = typeof p.hashtags === "string" ? JSON.parse(p.hashtags) : p.hashtags; return Array.isArray(t) ? t : []; }
@@ -44,8 +49,8 @@ export async function runPublishTick() {
       continue;
     }
 
-    const r = await callAdapter(acc, "PUBLISH", (adapter, cfg) =>
-      adapter.publish(acc, cfg, { text, link, mediaUrls: media }));
+    const r = await callAdapter(account, "PUBLISH", (adapter, cfg) =>
+      adapter.publish(account, cfg, { text, link, mediaUrls: media }));
 
     if (r.ok) {
       await run(`UPDATE scheduled_posts SET status = 'PUBLISHED', "externalUrl" = $2,

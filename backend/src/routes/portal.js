@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { all, get, run } from "../db.js";
+import { hashToken } from "../crypto.js";
 import { rateLimit } from "../security.js";
 import { requestApproval } from "../approvals.js";
 import { notify } from "../notify.js";
@@ -22,7 +23,7 @@ async function loadVendor(req, res, next) {
       `SELECT t.id AS "tokenId", t."vendorId", v.name AS "vendorName"
        FROM portal_tokens t JOIN vendors v ON v.id = t."vendorId"
        WHERE t.token = $1 AND t.revoked = false AND t."expiresAt" > now() AND v.active = true`,
-      [req.params.token]
+      [hashToken(req.params.token)]
     );
     if (!row) return res.status(404).json({ error: "Invalid or expired link" });
     run(`UPDATE portal_tokens SET "lastUsedAt" = now() WHERE id = $1`, [row.tokenId]).catch(() => {});

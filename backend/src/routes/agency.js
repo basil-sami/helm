@@ -172,7 +172,8 @@ portalTokensRouter.get("/", async (req, res, next) => {
   try {
     const vid = req.query.vendorId || null;
     const rows = await all(
-      `SELECT t.*, v.name AS "vendorName" FROM portal_tokens t JOIN vendors v ON v.id = t."vendorId"
+      `SELECT t.id, t."vendorId", t."expiresAt", t.revoked, t."lastUsedAt", t."createdAt", t."createdById",
+              v.name AS "vendorName" FROM portal_tokens t JOIN vendors v ON v.id = t."vendorId"
        WHERE ($1::uuid IS NULL OR t."vendorId" = $1) ORDER BY t."createdAt" DESC`, [vid]
     );
     res.json(rows);
@@ -187,13 +188,19 @@ portalTokensRouter.post("/", async (req, res, next) => {
     if (!vendor) return res.status(404).json({ error: "Vendor not found" });
     const days = Math.min(365, Math.max(1, parseInt(req.body.days, 10) || 30));
     const token = crypto.randomBytes(24).toString("base64url"); // 192 bits
+    // SEC·A: only the HASH is stored. The guest keeps the original in
+    // their link; a database dump yields no working portal access.
+    const { hashToken } = await import("../crypto.js");
     const r = await get(
       `INSERT INTO portal_tokens ("vendorId", token, "expiresAt", "createdById")
        VALUES ($1, $2, now() + ($3 || ' days')::interval, $4) RETURNING *`,
-      [vendorId, token, String(days), req.user.id]
+      [vendorId, hashToken(token), String(days), req.user.id]
     );
     logAudit(req, "portal_tokens.create", "vendors", vendorId, { days });
-    res.status(201).json({ ...r, link: `/p/${token}` });
+    // The plaintext is returned exactly once, here — the link beside it
+    // contains the same string, so withholding the field would break the
+    // API for no gain. Every later read sees only the hash.
+    res.status(201).json({ ...r, token, link: `/p/${token}` });
   } catch (e) { next(e); }
 });
 

@@ -148,8 +148,12 @@ export async function syncAccount(account) {
   const adapter = ADAPTERS[account.platform];
   if (!adapter) throw notConfigured(account.platform);
   if (!account.accessToken) throw notConfigured(account.platform);
+  // SEC·A: the credential is decrypted here, at the single boundary where
+  // it is used, and never written back in the clear.
+  const { withToken } = await import("../secrets.js");
+  const live = withToken(account);
   try {
-    return await adapter(account);
+    return await adapter(live);
   } catch (e) {
     if (e.code === "NOT_CONFIGURED") throw e;
     const err = new Error(`${account.platform} sync failed: ${e.message}`);

@@ -24,7 +24,13 @@ export const COMPUTE = {
   // ── DEMAND ──
   leads_new_30d: async () => ({
     value: await num(`SELECT COUNT(*)::float8 v FROM leads WHERE "createdAt" >= now() - interval '30 days'`),
-    slices: await dim(`SELECT source d, COUNT(*)::float8 v FROM leads WHERE "createdAt" >= now() - interval '30 days' GROUP BY source`, "source"),
+    // W4·A: campaign joins source as a slice dimension. Per-campaign series
+    // therefore ride the existing snapshot engine — no parallel rollup.
+    slices: [
+      ...await dim(`SELECT source d, COUNT(*)::float8 v FROM leads WHERE "createdAt" >= now() - interval '30 days' GROUP BY source`, "source"),
+      ...await dim(`SELECT c.name d, COUNT(*)::float8 v FROM leads l JOIN campaigns c ON c.id = l."campaignId"
+                    WHERE l."createdAt" >= now() - interval '30 days' GROUP BY c.name`, "campaign"),
+    ],
   }),
   pipeline_value: async () => ({
     value: await num(`SELECT COALESCE(SUM("valueUsd"),0)::float8 v FROM leads WHERE stage NOT IN ('WON','LOST')`),
@@ -57,6 +63,34 @@ export const COMPUTE = {
     value: round1(await num(`SELECT CASE WHEN n=0 THEN 0 ELSE s/n END v FROM (
       SELECT (SELECT COALESCE(SUM("amountUsd"),0) FROM budget_entries WHERE kind='SPENT' AND "createdAt" >= now() - interval '30 days') s,
              (SELECT COUNT(*)::float8 FROM leads WHERE "createdAt" >= now() - interval '30 days') n) t`)),
+  }),
+  // ── W4·C · value & the lead loop ──
+  conversions_value_30d: async () => ({
+    value: await num(`SELECT COALESCE(SUM("valueUsd"),0)::float8 v FROM conversions WHERE "occurredOn" >= CURRENT_DATE - 30`),
+    slices: await dim(`SELECT c.name d, COALESCE(SUM(cv."valueUsd"),0)::float8 v FROM conversions cv
+                       JOIN campaigns c ON c.id = cv."campaignId"
+                       WHERE cv."occurredOn" >= CURRENT_DATE - 30 GROUP BY c.name`, "campaign"),
+  }),
+  marketing_roi_90d: async () => ({
+    // Realised value against spend. Returns 0 rather than infinity when
+    // nothing was spent — a ratio with a zero denominator is not a result.
+    value: round1(await num(`SELECT CASE WHEN s = 0 THEN 0 ELSE ((v - s) / s) * 100 END x FROM (
+      SELECT (SELECT COALESCE(SUM("amountUsd"),0)::float8 FROM budget_entries
+                WHERE kind='SPENT' AND "createdAt" >= now() - interval '90 days') s,
+             (SELECT COALESCE(SUM("valueUsd"),0)::float8 FROM conversions
+                WHERE "occurredOn" >= CURRENT_DATE - 90) v) t`)),
+  }),
+  lead_followup_sla_pct_30d: async () => ({
+    // Of leads assigned a follow-up deadline in the window, how many were
+    // contacted before it passed.
+    value: round1(await num(`SELECT CASE WHEN n = 0 THEN 100 ELSE met * 100.0 / n END x FROM (
+      SELECT COUNT(*)::float8 n,
+             COUNT(*) FILTER (WHERE "slaBreached" = false)::float8 met
+        FROM leads WHERE "createdAt" >= now() - interval '30 days'
+          AND ("followUpDueAt" IS NOT NULL OR "firstContactedAt" IS NOT NULL)) t`)),
+  }),
+  campaigns_active: async () => ({
+    value: await num(`SELECT COUNT(*)::float8 v FROM campaigns WHERE status = 'ACTIVE'`),
   }),
   leads_lost_30d: async () => ({
     value: await num(`SELECT COUNT(*)::float8 v FROM leads l WHERE l.stage='LOST' AND EXISTS (
@@ -379,7 +413,7 @@ const C = (key, name, nameAr, components, description, descriptionAr) =>
 
 export const CATALOG = [
   M("leads_new_30d", "New leads (30d)", "عملاء محتملون جدد (٣٠ يومًا)", "DEMAND", "count", "HIGHER",
-    "Leads created in the last 30 days.", "العملاء المحتملون المنشأون خلال آخر ٣٠ يومًا.", { dimensions: ["source"] }),
+    "Leads created in the last 30 days.", "العملاء المحتملون المنشأون خلال آخر ٣٠ يومًا.", { dimensions: ["source", "campaign"] }),
   M("pipeline_value", "Open pipeline (USD)", "قيمة خط المبيعات المفتوح", "DEMAND", "usd", "HIGHER",
     "Total USD value of leads not yet won or lost.", "القيمة الدولارية للعملاء المحتملين غير المحسومين."),
   M("won_value_30d", "Won value (30d)", "قيمة الصفقات المكسوبة (٣٠ يومًا)", "DEMAND", "usd", "HIGHER",
@@ -396,6 +430,14 @@ export const CATALOG = [
     "Open leads untouched for 14+ days.", "عملاء مفتوحون بلا تحديث منذ ١٤ يومًا أو أكثر."),
   M("cpl_usd_30d", "Cost per lead (30d)", "تكلفة العميل المحتمل (٣٠ يومًا)", "DEMAND", "usd", "LOWER",
     "Spend ÷ new leads over 30 days.", "الإنفاق ÷ العملاء الجدد خلال ٣٠ يومًا."),
+  M("conversions_value_30d", "Realised value (30d)", "القيمة المحققة (٣٠ يومًا)", "DEMAND", "usd", "HIGHER",
+    "Money actually recorded as converted in the last 30 days.", "الأموال المسجلة فعليًا كتحويلات خلال آخر ٣٠ يومًا.", { dimensions: ["campaign"] }),
+  M("marketing_roi_90d", "Marketing ROI % (90d)", "عائد التسويق ٪ (٩٠ يومًا)", "DEMAND", "pct", "HIGHER",
+    "Realised value minus spend, over spend, across 90 days.", "القيمة المحققة ناقص الإنفاق، مقسومة على الإنفاق، خلال ٩٠ يومًا."),
+  M("lead_followup_sla_pct_30d", "Follow-up on time % (30d)", "الالتزام بموعد المتابعة ٪ (٣٠ يومًا)", "DEMAND", "pct", "HIGHER",
+    "Assigned leads contacted before their follow-up deadline.", "العملاء المسندون الذين جرى التواصل معهم قبل الموعد المحدد."),
+  M("campaigns_active", "Active campaigns", "حملات نشطة", "DEMAND", "count", "HIGHER",
+    "Campaigns currently in the ACTIVE state.", "الحملات في حالة نشطة حاليًا."),
   M("leads_lost_30d", "Leads lost (30d)", "عملاء مفقودون (٣٠ يومًا)", "DEMAND", "count", "LOWER",
     "Deals moved to LOST in 30 days, sliced by reason.", "الصفقات المفقودة خلال ٣٠ يومًا حسب السبب.", { dimensions: ["lostReason"] }),
   M("romi_pct_90d", "ROMI % (90d)", "عائد الاستثمار التسويقي ٪ (٩٠ يومًا)", "DEMAND", "pct", "HIGHER",

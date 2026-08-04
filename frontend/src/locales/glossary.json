@@ -1,0 +1,69 @@
+{
+  "_": "بيان (Bayan) — the Pulse glossary. One Arabic term per concept, decided once. Rationale lives in BAYAN.md. Enforced by `npm run lint:ar`.",
+  "version": 1,
+  "concepts": [
+    { "en": "lead", "ar": "عميل محتمل", "note": "Genitive/accusative inflection (العملاء المحتملين) is correct Arabic after a مضاف — the linter checks vocabulary, never case." },
+    { "en": "campaign", "ar": "حملة" },
+    { "en": "segment", "ar": "شريحة" },
+    { "en": "persona", "ar": "شخصية العميل" },
+    { "en": "audience", "ar": "الجمهور" },
+    { "en": "conversion", "ar": "تحويل" },
+    { "en": "listening", "ar": "الرصد", "note": "Never المراقبة — that is surveillance, the exact connotation our ORG-only guardrail exists to reject." },
+    { "en": "insight", "ar": "رؤية" },
+    { "en": "dashboard", "ar": "لوحة" },
+    { "en": "report", "ar": "تقرير" },
+    { "en": "approval", "ar": "اعتماد" },
+    { "en": "workflow", "ar": "مسار عمل" },
+    { "en": "queue", "ar": "قائمة" },
+    { "en": "schedule", "ar": "جدولة" },
+    { "en": "social media", "ar": "وسائل التواصل" },
+    { "en": "post", "ar": "منشور" },
+    { "en": "content", "ar": "المحتوى" },
+    { "en": "survey", "ar": "استبيان" },
+    { "en": "outreach", "ar": "التواصل" },
+    { "en": "vendor/agency", "ar": "وكالة" },
+    { "en": "brief", "ar": "موجز" },
+    { "en": "target", "ar": "هدف" },
+    { "en": "spend", "ar": "الإنفاق" },
+    { "en": "link page (bio)", "ar": "صفحة الروابط" },
+    { "en": "template", "ar": "قالب" },
+    { "en": "import", "ar": "استيراد" },
+    { "en": "department", "ar": "قسم" }
+  ],
+  "banned": [
+    { "bad": "السوشيال ميديا", "use": "وسائل التواصل", "why": "Transliterated English. A product that writes Arabic this way reads as translated, not authored." },
+    { "bad": "سوشيال", "use": "وسائل التواصل", "why": "Same transliteration, shorter form." },
+    { "bad": "بايو", "use": "صفحة الروابط", "why": "Transliteration of a platform nickname; the Arabic names the function." },
+    { "bad": "طابور", "use": "قائمة", "why": "A physical line of people. A publishing queue is قائمة." },
+    { "bad": "المراقبة", "use": "الرصد", "why": "Surveillance. Wrong register and wrong ethics for market listening." },
+    { "bad": "داشبورد", "use": "لوحة", "why": "Transliteration." },
+    { "bad": "كامبين", "use": "حملة", "why": "Transliteration." },
+    { "bad": "ليدز", "use": "عملاء محتملون", "why": "Transliteration." },
+    { "bad": "بوست", "use": "منشور", "why": "Transliteration." },
+    { "bad": "تارجت", "use": "هدف", "why": "Transliteration." },
+    { "bad": "ريبورت", "use": "تقرير", "why": "Transliteration." },
+    { "bad": "اونلاين", "use": "عبر الإنترنت", "why": "Transliteration." },
+    { "bad": "يتم ", "use": "an active verb", "why": "Bureaucratic passive. Marketing register addresses the reader directly: «تُرسل الحملة» or «أرسِل الحملة», not «يتم إرسال الحملة»." },
+    { "bad": "قم بـ", "use": "the bare imperative", "why": "Padding calqued from English 'perform/do'. «أنشئ حملة», not «قم بإنشاء حملة»." },
+    { "bad": "الرجاء", "use": "the bare imperative", "why": "Petitionary register. Software instructs politely by being direct." }
+  ],
+  "structural": {
+    "requireArabicScript": true,
+    "bannedPunctuation": [
+      { "bad": "(s)", "why": "English plural hack. Arabic has six plural categories — use the plural helper." },
+      { "bad": " ?", "why": "Use the Arabic question mark ؟" }
+    ],
+    "allowLatinNote": "Latin is allowed in three cases only: (1) industry acronyms Arabic marketers say in Latin, (2) proper nouns, (3) literal strings the user must type or match exactly — CSV headers, template variables, env vars, URL fragments. Anything else is untranslated text and fails. Single Latin letters are allowed as path/grade/version markers (/f/, grade A, v2, Q1).",
+    "allowLatin": [
+      "NPS", "CSAT", "QR", "URL", "API", "SMS", "RSS", "CSV", "JSON", "PDF", "PNG", "SEO", "ROI",
+      "ROMI", "CPL", "CPM", "CTR", "SLA", "AI", "SMTP", "SSL", "TLS", "OAuth", "OIDC", "SSO",
+      "UTM", "MMM", "OKR", "B2B", "SOV", "FA", "EN", "AR",
+      "Pulse", "WhatsApp", "Facebook", "Instagram", "TikTok", "LinkedIn", "YouTube", "Google",
+      "Meta", "X", "Reddit", "GDELT", "Vercel", "Supabase", "Storage", "Resend", "Anthropic",
+      "ANTHROPIC", "KEY", "Admiralty", "pulse.js",
+      "contactName", "contactname", "company", "phone", "source", "email", "valueusd", "spendUsd",
+      "date", "followers", "posts", "impressions", "reach", "engagement", "clicks", "body", "src",
+      "key", "token", "Token", "Access", "secret", "App", "Verify", "Host", "PUBLIC", "Q"
+    ]
+  }
+}

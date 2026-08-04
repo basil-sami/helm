@@ -739,3 +739,85 @@ Provision a new client < 1 hour · upgrade = one migration run · zero hardcoded
 every claim in sales material covered by an automated check · every page passes Nabd gates.
 
 **الحلم صار نبضاً. Let's build.**
+
+
+---
+
+## Wave 4 — The Operating Spine (in progress)
+
+Source: `CMO-BRIEF.md` practitioner red-team; architecture in `WAVE-4-BRIEF.md`; security gate in `SECURITY-BRIEF.md` (SEC·A/B/C, not yet built). All CMO-brief recommendations adopted except WhatsApp broadcasts (→ W4·X, deferred and recorded, consent-gated).
+
+**LAW OF WAVE 4 — audit before build.** Every cluster opens with a grep and census of its prior art. HELM-era survivors are promoted and unified, never duplicated. This law has already changed two designs and caught six defects in this wave alone.
+
+### Shipped
+
+**W4·H — Architecture, documented** · `ARCHITECTURE.md` at repo root: rails and their laws, engines, state-machine appendix, 16-entry decision log, conventions. `backend/scripts/census.js` generates the table census from `schema.sql`; `npm run docs:check` fails the build when docs and schema diverge or a new table declares no territory. All 102 tables classified into 14 territories.
+
+**W4·G — Bayan (بيان), the language system** · Sibling to Nabd: Nabd is how Pulse looks, Bayan is how Pulse speaks. `BAYAN.md` charter (marketing register, direct imperative, calque blacklist, numeral/date/orthography policy) + `frontend/src/locales/glossary.json` (27 canonical terms, banned variants each with a replacement and a reason) + `npm run lint:ar` in CI. The lint found 82 real issues across 1566 entries and now passes clean. Fixed: transliterations («السوشيال ميديا», «بايو»), colloquialism («طابور»), and «المراقبة» → «الرصد» — surveillance was the wrong word for a product whose guardrail exists to reject it. `frontend/src/lib/bayan.ts` adds a six-category Arabic plural engine, bidi isolation, and hijri dual dates on native `Intl`. The charter also exposed a live defect: `ar-EG` was rendering all dashboard data in Arabic-Indic numerals against §3, now `ar-EG-u-nu-latn`.
+**Rule:** the lint checks vocabulary, never grammar — case inflection is correct Arabic, and a linter that fails valid Arabic teaches contributors to disable it.
+
+**W4·A — The campaign spine** · Lifecycle transition matrix (`PLANNING → ACTIVE → PAUSED/COMPLETED → ARCHIVED`, PLANNING kept over DRAFT because existing rows use it and the word is better), with the pre-existing brief-required activation gate preserved. **The matrix is the single door**: plain CRUD status writes walk the same rules, or the matrix would be advisory. `CAMPAIGN_LINKS` registry over the FKs that already existed — the polymorphic join table was rejected mid-build as a second truth. War room endpoint with items, spend pacing, results, CPL and ROI. Campaign registered as a metrics **dimension**, so per-campaign series ride existing snapshots. Grounded retro draft that declines when evidence is thin. Five missing attribution FKs added. **Zero new tables.**
+
+Side effects worth recording: `/metrics/:key/slices` gained `?dim=` filtering — campaign is the first second-dimension on a metric, which exposed that the endpoint returned all dimensions mixed.
+
+**W4·B — Data foundation** · `import_jobs` wizard: quote-aware CSV parser (the legacy split(",") mangled quoted company names), auto-mapping, per-row validation with line numbers, dedupe against file *and* database, skip/update/merge strategies, consent captured at commit into the existing `contacts.consent` ledger. **Declared self-loops:** re-mapping legal, re-committing refused — a double-click cannot double-import. The HELM-era `POST /leads/import` still works; promotion, not replacement. **Segments promoted** from label to audience: `definition` evaluated by the workflow engine's `evalCond` — one evaluator, ever — with a per-source field whitelist as the injection gate and live count preview before saving. +1 table.
+
+**W4·C — Value & the lead loop** · `conversions`: one row per realised amount, campaign attribution inherited from the lead, USD-normalised. A value-capture point, not a CRM — and MMM's missing y-variable. Lead loop: assign starts a `followUpDueAt` clock, contact stops it, a Daily Pulse step breaches overdue leads **once** (`slaBreached` latch) and escalates to the department head. **KPIs registered: `conversions_value_30d` (campaign-sliced), `marketing_roi_90d`, `lead_followup_sla_pct_30d`, `campaigns_active`** — catalog 78 → 82. +1 table.
+
+**W4·D — Calendar, approval SLA, link builder** · Audit found more prior art than the brief expected: the content calendar page, QR generation, and inbox→lead conversion all already shipped. Built what was actually missing: unified `calendarFeed` adding the **publishing queue and the seasonal layer**; `seasonal_packs`/`seasonal_events` as seeded data with **hijri month/day resolved per year via native Intl Umm al-Qura** (Ramadan moves correctly; each occurrence carries its `prepFrom` lead time); `approval_delegations` with overlap refusal and window-scoped authority; `decideOne()` extracted so **bulk approval is N single decisions** through the same permission checks, side-effects and audit trail; approval escalation as a Daily Pulse step with an `escalatedAt` latch; UTM composition and QR for **any** tracked link, not just media placements. +3 tables.
+
+**W4·E — Experience & productization** · `process_templates` **promoted** to the general library (`kind` + `definition`; existing PROCESS rows untouched) with seeded bilingual campaign and workflow starting points — campaign templates carry their brief so a new user is not blocked by the activation gate, workflow templates instantiate inactive for review. Role homes (`/api/home`) scoped by permission, each queue carrying the age that makes it urgent. Setup checklist **computed from live data, never stored**. Morning Pulse extended with an action block (approvals + stale, leads due + overdue, review depth + oldest age, campaigns ending this week). **Zero new tables.**
+
+Recorded: the demo seed truncates and re-seeds `process_templates`, so library rows had to be added to **both** seeds — the demo instance must showcase the library too.
+
+**W4·F — Listening Control Room** · Audit found `osint_topics` already carried query/mustInclude/mustExclude/contextTerms/reviewThreshold — **topics ARE the watches**, so promoted (campaign attach → SOV in the war room, assignee, shrink-only pause) rather than a new `watches` table. Built: **replay preview** re-scoring the trailing window with the pipeline's own `scoreRelevance` and writing nothing; `listening_changes` versioning every tuning edit with its replay and rendering as **chart markers**; block-vs-mute as distinct levers (**mute enforced at `entitySov`**, pause enforced **at ingest** — levers that bite where they matter, not settings rows); admin-only regrading with a mandatory written reason; queue assignment, bulk rulings and an SLA with oldest-item age; `listening_alert_rules` with spike baselines, corroborated-only, quiet hours and firing dedupe; budget meters **reusing the search rail's `budgets()`** rather than a second meter that could disagree. +2 tables.
+
+**Guardrail correction recorded:** the control room initially excluded `PUBLIC_FIGURE`, making it *stricter* than the recorded guardrail and breaking legitimate spokesperson PR monitoring. `CONTROLLABLE_ENTITY_KINDS` now mirrors the `osint_entities` check constraint exactly, and a test asserts the two cannot drift apart in either direction.
+
+### Wave 4 complete
+**109 tables · 1134/1134 checks · 82-metric catalog · 9 production dependencies · zero new dependencies across the entire wave.**
+
+### Remaining
+W4·X WhatsApp broadcast campaigns (deferred, recorded, consent-gated) · SEC·A/B/C security gate (architected, not built) — SEC·A first, before any enterprise security review.
+
+**Wave-wide DoD:** audit log first · N/N green · KPIs registered or ops-exception with reason · **Bayan compliance (`lint:ar` green)** · **ARCHITECTURE.md section current (`docs:check` green)** · ADMIN-GUIDE section · masterplan amended.
+
+
+---
+
+## Security Gate — SHIPPED (SEC·A / SEC·B / SEC·C)
+
+Source: `SECURITY-BRIEF.md`, answering RED-TEAM-BRIEF items 3, 2 and 5. **Zero new production dependencies across all three.**
+
+**SEC·A — Secrets at rest.** `crypto.js` rail: AES-256-GCM on native node:crypto, `enc:v{n}:{iv}:{ct}:{tag}`, **AAD-bound to `table:row:column`** so a ciphertext cannot move between rows, per-instance key in the environment only, versioned rotation, fail-closed. **Encrypt what we use** (`social_accounts.accessToken`, `users.totpSecret`, `sso_connections.clientSecret`); **hash what we verify** (bcrypt passwords, SHA-256 `portal_tokens.token` and `erasure_requests.verifyToken` — existing magic links keep working, a dump yields none). `SECRET_SCAN` in CI. Migration/rotation/audit CLI. Crypto posture on `/api/health`. *The scanner proved itself the same session: it caught `sso_connections.clientSecret` the moment SEC·B added it.*
+
+**SEC·B — SSO.** OIDC-first; **SAML refused at the schema level**, not half-implemented — same IdPs, no XML-DSig attack class, no new dependencies. Discovery + PKCE S256 + state + nonce in an HMAC-signed httpOnly cookie (no state table), ID token verified for signature/iss/aud/exp/nonce with JWKS refetch on unknown `kid`, domain allow-list, JIT provisioning with claim→role mapping, **the same session token the password flow issues**. `ssoRequired` closes password login except for one designated **break-glass** administrator — mandatory before the mode can be enabled, irremovable while it is on, every use audited. `auth_events` records every attempt. Tested against a **self-signed IdP stub with zero network**.
+
+**SEC·C — Erasure & export.** `PII_MAP` + `PII_SCAN` (three buckets, because a column name cannot say whose data it is). **Anonymise, never delete** — the board pack is not rewritten. Per-request email sentinel; NOT NULL columns get `[erased]`; failures reported, never swallowed. Identity verified by the subject's own link (token hashed) or by an admin with written evidence — and which is recorded. **Confirm by rediscovery**: the request closes only when the discovery engine finds nothing. Hashed `erasure_log` enabling **replay after a backup restore**. Export rides the same map.
+
+### State
+**113 tables · 1264/1264 checks · 82-metric catalog · 9 production dependencies.**
+
+### Remaining
+W4·X WhatsApp broadcast campaigns (deferred, recorded, consent-gated) · SOC 2 (process, not code — SEC·A/B/C are the controls an auditor samples).
+
+
+---
+
+## Demo instance — complete (2026-08-03)
+
+`seed-demo.sql` now covers **all 113 tables · 4,462 rows**, up from 68 tables. Every screen has something true to show, and all dates are relative to installation.
+
+Highlights: 90 days × 34 metrics of snapshot history with weekly seasonality and a seeded anomaly (3,960 rows) · campaign spine with briefs and one closed campaign with its retro · conversions and a lead loop with deliberate SLA breaches · an import job with realistic dedupe stats · Admiralty-graded listening sources with one muted and one blocked, alert rules and tuning-change markers · an MMM run **refusing** at 34 weeks against a floor of 80 · an AI run that **abstained** · SSO configured-but-off, auth events, and a completed erasure with certificate.
+
+**Bugs this work surfaced (all real, all pre-existing or newly introduced by the seed):**
+- `TRUNCATE departments CASCADE` silently wiped the demo's own **user accounts** — users reference departments.
+- `TRUNCATE assets CASCADE` reached `content_variants` → `scheduled_posts`, emptying the Publish territory seeded moments earlier.
+- **`RESTORE_ORDER` listed `departments` last**, after `campaigns` which references it; restore aborts on the first failing table, so everything after campaigns was left empty. `osint_sources` was also listed **twice**, violating its own primary key on the second insert. Both fixed in `export.js`.
+- The demo seed was **truncating and replacing the metrics catalog**, destroying composite component weights. It now fills gaps only and never overwrites code-registered truth.
+- A staleness test aged **all** snapshots by ten days, which collides with the `(metricKey, dims, date)` unique key once real history exists; rewritten to delete-and-restore the recent window.
+- Three W4·C assertions used absolute totals; scoped to their own fixtures.
+- Non-deterministic `ORDER BY "createdAt"` with tied timestamps handed the same lead to two event registrations.
+
+### State
+**113 tables · 1264/1264 checks · 82-metric catalog · 9 production dependencies · demo covers 113/113 tables.**

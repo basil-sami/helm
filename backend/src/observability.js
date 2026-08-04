@@ -70,6 +70,29 @@ export async function healthReport() {
     return out;                                    // nothing else is knowable without the DB
   }
 
+  // SEC·A: an instance holding encrypted secrets without its key is
+  // misdeployed and must say so loudly rather than run with silently
+  // dead integrations.
+  try {
+    const { cryptoStatus } = await import("./crypto.js");
+    const { plaintextAudit } = await import("./secrets.js");
+    const cs = cryptoStatus();
+    const audit = await plaintextAudit();
+    const unprotected = audit.reduce((n, r) => n + r.plaintext, 0);
+    const holdsSecrets = audit.reduce((n, r) => n + r.total, 0) > 0;
+    out.checks.crypto = {
+      ok: cs.configured || !holdsSecrets,
+      configured: cs.configured, keyVersion: cs.currentVersion,
+      unprotectedValues: unprotected,
+      note: cs.configured ? null : (holdsSecrets ? "PULSE_SECRET_KEY_V1 is not set but secrets exist" : "no secrets stored yet"),
+    };
+    if (!out.checks.crypto.ok) out.ok = false;
+    if (unprotected > 0) out.checks.crypto.migrationPending = true;
+  } catch (e) {
+    out.checks.crypto = { ok: false, error: String(e.message).slice(0, 200) };
+    out.ok = false;
+  }
+
   const hoursSince = (ts) => (ts ? Math.round((Date.now() - new Date(ts).getTime()) / 36e5) : null);
 
   const pulse = await get(`SELECT MAX(date) AS d FROM metric_snapshots`).catch(() => null);

@@ -54,3 +54,31 @@ Pull the release → run `supabase/migrations/APPLY-LATEST.sql` once per instanc
 - **500s with "DATABASE_URL is not set"** → env var missing/typo'd; use the *pooled* 6543 URI.
 - **Installer doesn't appear** → the DB already has users (it's not a fresh instance).
 - **Wizard reappears** → `settings.onboarded` is false; finishing (or Skip) sets it.
+
+---
+
+## Step: generate the instance encryption key (SEC·A)
+
+Every Pulse instance encrypts its stored credentials with **its own key**. The key lives only in the instance's environment — never in the database, never in the repository, never in a backup.
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+```
+
+Set the result as `PULSE_SECRET_KEY_V1` in the instance environment (Vercel project settings, or the Docker env file).
+
+Then, on an existing instance that already holds credentials:
+
+```bash
+npm run secrets:audit      # what is still unprotected?
+npm run secrets:migrate    # encrypt tokens, hash magic-link tokens
+npm run secrets:audit      # must report zero
+```
+
+The migration is idempotent and round-trips every value before writing it, so a re-run is safe and a partial run resumes.
+
+**Losing this key means losing every stored integration credential** — they would have to be reconnected. Store it wherever the client keeps their other production secrets.
+
+**Rotation.** Add `PULSE_SECRET_KEY_V2`, run `npm run secrets:rotate`, then remove `V1` once the audit shows no `enc:v1:` values remain. Old ciphertexts stay readable throughout.
+
+Check `GET /api/health` after deploying: the `crypto` block reports the active key version and how many values remain unprotected.

@@ -49,12 +49,21 @@ metricsRouter.get("/:key/series", requirePerm("analytics", "read"), async (req, 
 
 metricsRouter.get("/:key/slices", requirePerm("analytics", "read"), async (req, res, next) => {
   try {
+    // W4·A: a metric may now carry more than one dimension (leads slice by
+    // source AND by campaign), so callers filter with ?dim=. Without it the
+    // endpoint returns every slice, which is what it always did.
+    const dimName = typeof req.query.dim === "string" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(req.query.dim)
+      ? req.query.dim : null;
+    const where = dimName ? `AND dims ? $3` : "";
     const latest = await get(
-      `SELECT MAX(date) AS d FROM metric_snapshots WHERE "metricKey" = $1 AND dims <> '{}'::jsonb`, [req.params.key]);
+      `SELECT MAX(date) AS d FROM metric_snapshots WHERE "metricKey" = $1 AND dims <> '{}'::jsonb
+        ${dimName ? "AND dims ? $2" : ""}`,
+      dimName ? [req.params.key, dimName] : [req.params.key]);
     if (!latest?.d) return res.json([]);
     res.json(await all(
       `SELECT dims, value FROM metric_snapshots WHERE "metricKey" = $1 AND dims <> '{}'::jsonb AND date = $2
-       ORDER BY value DESC`, [req.params.key, latest.d]));
+       ${where} ORDER BY value DESC`,
+      dimName ? [req.params.key, latest.d, dimName] : [req.params.key, latest.d]));
   } catch (e) { next(e); }
 });
 

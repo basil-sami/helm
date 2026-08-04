@@ -37,7 +37,10 @@ authxRouter.post("/logout-all", async (req, res, next) => {
 authxRouter.post("/totp/setup", async (req, res, next) => {
   try {
     const secret = newSecret();
-    await run(`UPDATE users SET "totpSecret" = $1, "totpEnabled" = false WHERE id = $2`, [secret, req.user.id]);
+    // SEC·A: the seed is encrypted at rest and decrypted only to verify.
+    const { encryptSecret } = await import("../crypto.js");
+    await run(`UPDATE users SET "totpSecret" = $1, "totpEnabled" = false WHERE id = $2`,
+      [encryptSecret(secret, { table: "users", id: req.user.id, column: "totpSecret" }), req.user.id]);
     res.json({ secret, otpauth: otpauthUrl(secret, req.user.email, "Pulse نبض") });
   } catch (e) { next(e); }
 });
@@ -46,7 +49,9 @@ authxRouter.post("/totp/enable", async (req, res, next) => {
   try {
     const u = await get(`SELECT "totpSecret" FROM users WHERE id = $1`, [req.user.id]);
     if (!u?.totpSecret) return res.status(400).json({ error: "Run setup first" });
-    if (!totpVerify(u.totpSecret, req.body?.otp)) return res.status(400).json({ error: "Invalid code" });
+    const { decryptSecret } = await import("../crypto.js");
+    const seed = decryptSecret(u.totpSecret, { table: "users", id: req.user.id, column: "totpSecret", allowLegacyPlaintext: true });
+    if (!totpVerify(seed, req.body?.otp)) return res.status(400).json({ error: "Invalid code" });
     await run(`UPDATE users SET "totpEnabled" = true WHERE id = $1`, [req.user.id]);
     logAudit(req, "auth.totp_enabled", "users", req.user.id);
     res.json({ ok: true });

@@ -90,3 +90,59 @@ insert into search_budget (provider, "monthlyCapUsd", "costPerUnit", active) val
 on conflict (provider) do nothing;
 
 commit;
+
+-- ── W4·D · seasonal packs ────────────────────────────────────────────
+-- Seeded DATA, not a hardcoded assumption: a client in another market
+-- deactivates this pack and installs their own, and no code changes.
+-- Hijri events carry a hijri month/day and are resolved per year at read
+-- time via Intl's Umm al-Qura calendar, so Ramadan moves correctly.
+insert into seasonal_packs (key, name, "nameAr", region) values
+  ('islamic', 'Islamic calendar', 'التقويم الهجري', 'GLOBAL'),
+  ('sd',      'Sudan',            'السودان',        'SD')
+on conflict (key) do nothing;
+
+insert into seasonal_events ("packId", key, name, "nameAr", kind, calendar, month, day, "durationDays", "leadTimeDays")
+select p.id, v.key, v.name, v.name_ar, v.kind, v.cal, v.mon, v.day, v.dur, v.lead
+from seasonal_packs p
+join (values
+  ('islamic','ramadan_start','Ramadan begins','بداية رمضان','RELIGIOUS','HIJRI',9,1,30,30),
+  ('islamic','eid_fitr','Eid al-Fitr','عيد الفطر','RELIGIOUS','HIJRI',10,1,3,21),
+  ('islamic','eid_adha','Eid al-Adha','عيد الأضحى','RELIGIOUS','HIJRI',12,10,4,21),
+  ('islamic','hijri_new_year','Hijri New Year','رأس السنة الهجرية','RELIGIOUS','HIJRI',1,1,1,10),
+  ('sd','independence_day','Independence Day','عيد الاستقلال','NATIONAL','GREGORIAN',1,1,1,14),
+  ('sd','back_to_school','Back to school','العودة إلى المدارس','SEASON','GREGORIAN',9,1,14,30)
+) as v(pack,key,name,name_ar,kind,cal,mon,day,dur,lead) on v.pack = p.key
+on conflict do nothing;
+
+-- ── W4·E · template library ──────────────────────────────────────────
+-- Kills the blank canvas. Seeded bilingual starting points, written under
+-- the Bayan charter; each campaign template carries its brief so a new
+-- user can reach ACTIVE without hitting the activation gate as a wall.
+insert into process_templates (key, kind, name, "nameAr", description, "descriptionAr", builtin, tasks, definition) values
+  ('tpl_product_launch', 'CAMPAIGN', 'Product launch', 'إطلاق منتج',
+   'A six-week launch: brief, creative, scheduled posts, a landing page and a follow-up loop.',
+   'إطلاق على ستة أسابيع: الموجز والتصاميم والمنشورات المجدولة وصفحة الهبوط ومتابعة العملاء.',
+   true, '[]'::jsonb,
+   '{"channel":"SOCIAL","objective":"Introduce a new range to existing distributors and capture qualified interest",
+     "brief":{"objective":"Qualified distributor leads for the new range","keyMessage":"A range built for local conditions",
+              "kpiMetric":"leads_new_30d","kpiTarget":40}}'::jsonb),
+  ('tpl_seasonal_push', 'CAMPAIGN', 'Seasonal push', 'حملة موسمية',
+   'A short campaign timed to a season, with an offer and offline attribution.',
+   'حملة قصيرة مرتبطة بموسم، مع عرض وقياس للأثر خارج الإنترنت.',
+   true, '[]'::jsonb,
+   '{"channel":"PAID","objective":"Convert seasonal demand with a time-boxed offer",
+     "brief":{"objective":"Orders during the season window","keyMessage":"A limited offer for the season",
+              "kpiMetric":"conversions_value_30d","kpiTarget":50000}}'::jsonb),
+  ('tpl_reengage_dormant', 'CAMPAIGN', 'Re-engage dormant distributors', 'إعادة تفعيل الموزعين الخاملين',
+   'Bring back distributors who have not ordered recently.',
+   'استعادة الموزعين الذين لم يطلبوا مؤخرًا.',
+   true, '[]'::jsonb,
+   '{"channel":"BTL","objective":"Reopen conversations with dormant accounts",
+     "brief":{"objective":"Reactivated distributor conversations","keyMessage":"We kept your terms",
+              "kpiMetric":"leads_new_30d","kpiTarget":25}}'::jsonb),
+  ('tpl_wf_new_lead', 'WORKFLOW', 'Welcome a new lead', 'الترحيب بعميل محتمل جديد',
+   'On a new lead, notify the owner and open a follow-up task.',
+   'عند وصول عميل محتمل جديد، أبلِغ المسؤول وافتح مهمة متابعة.',
+   true, '[]'::jsonb,
+   '{"trigger":{"event":"LEAD_CREATED","filters":{}},"actions":[{"type":"NOTIFY","message":"New lead received"}]}'::jsonb)
+on conflict (key) do nothing;

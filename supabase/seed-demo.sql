@@ -573,3 +573,591 @@ on conflict (provider) do update set
   active          = excluded.active;
 
 commit;
+
+-- ── W4·E · template library ──────────────────────────────────────────
+-- Kills the blank canvas. Seeded bilingual starting points, written under
+-- the Bayan charter; each campaign template carries its brief so a new
+-- user can reach ACTIVE without hitting the activation gate as a wall.
+insert into process_templates (key, kind, name, "nameAr", description, "descriptionAr", builtin, tasks, definition) values
+  ('tpl_product_launch', 'CAMPAIGN', 'Product launch', 'إطلاق منتج',
+   'A six-week launch: brief, creative, scheduled posts, a landing page and a follow-up loop.',
+   'إطلاق على ستة أسابيع: الموجز والتصاميم والمنشورات المجدولة وصفحة الهبوط ومتابعة العملاء.',
+   true, '[]'::jsonb,
+   '{"channel":"SOCIAL","objective":"Introduce a new range to existing distributors and capture qualified interest",
+     "brief":{"objective":"Qualified distributor leads for the new range","keyMessage":"A range built for local conditions",
+              "kpiMetric":"leads_new_30d","kpiTarget":40}}'::jsonb),
+  ('tpl_seasonal_push', 'CAMPAIGN', 'Seasonal push', 'حملة موسمية',
+   'A short campaign timed to a season, with an offer and offline attribution.',
+   'حملة قصيرة مرتبطة بموسم، مع عرض وقياس للأثر خارج الإنترنت.',
+   true, '[]'::jsonb,
+   '{"channel":"PAID","objective":"Convert seasonal demand with a time-boxed offer",
+     "brief":{"objective":"Orders during the season window","keyMessage":"A limited offer for the season",
+              "kpiMetric":"conversions_value_30d","kpiTarget":50000}}'::jsonb),
+  ('tpl_reengage_dormant', 'CAMPAIGN', 'Re-engage dormant distributors', 'إعادة تفعيل الموزعين الخاملين',
+   'Bring back distributors who have not ordered recently.',
+   'استعادة الموزعين الذين لم يطلبوا مؤخرًا.',
+   true, '[]'::jsonb,
+   '{"channel":"BTL","objective":"Reopen conversations with dormant accounts",
+     "brief":{"objective":"Reactivated distributor conversations","keyMessage":"We kept your terms",
+              "kpiMetric":"leads_new_30d","kpiTarget":25}}'::jsonb),
+  ('tpl_wf_new_lead', 'WORKFLOW', 'Welcome a new lead', 'الترحيب بعميل محتمل جديد',
+   'On a new lead, notify the owner and open a follow-up task.',
+   'عند وصول عميل محتمل جديد، أبلِغ المسؤول وافتح مهمة متابعة.',
+   true, '[]'::jsonb,
+   '{"trigger":{"event":"LEAD_CREATED","filters":{}},"actions":[{"type":"NOTIFY","message":"New lead received"}]}'::jsonb)
+on conflict (key) do nothing;
+
+-- ═══════════════════════════════════════════════════════════════════════
+--  DEMO SEED · PART 2 — the features Waves 2–4 and the security gate added
+--  ---------------------------------------------------------------------
+--  Part 1 above populates the marketing territories. This part fills the
+--  45 tables that had no demo data, so every screen in the product has
+--  something true to show: the analytics history behind the Pulse Index,
+--  the campaign spine and its money, the listening control room, the AI
+--  and modelling rails, and the security posture.
+--
+--  Everything here is generated relative to now(), so a demo instance is
+--  never stale regardless of when it was installed.
+-- ═══════════════════════════════════════════════════════════════════════
+
+-- NOTE: `departments` is cleared with DELETE, not TRUNCATE ... CASCADE.
+-- users.departmentId references it, so a cascading truncate would take the
+-- demo's own user accounts with it — which is exactly the kind of thing
+-- that only shows up when you actually run the file.
+update users set "departmentId" = null;
+update campaigns set "departmentId" = null;
+delete from departments;
+
+truncate conversions, import_jobs, approval_delegations, approvals, campaign_briefs,
+         metric_targets, metric_alerts, metric_snapshots,
+         report_runs, mmm_runs, mmm_weeks, ai_runs, ai_cache, search_runs, integration_runs,
+         workflow_runs, lead_activities, notifications, event_registrations, feedback,
+         influencer_collabs, osint_sources, osint_signal_entities,
+         osint_themes, osint_theme_signals, osint_case_items, osint_handle_candidates,
+         listening_alert_rules, listening_changes, seasonal_events, seasonal_packs,
+         sso_connections, auth_events, erasure_log, erasure_requests,
+         audit_log, mail_log, digest_log, error_log
+  restart identity cascade;
+
+-- ── Departments (W3·H) — the dimension, not cloned tables ─────────────
+insert into departments (id, name, "nameAr", code, "headId") values
+  ('d0000001-0000-0000-0000-000000000001','Batteries','البطاريات','BAT','22222222-2222-2222-2222-222222222222'),
+  ('d0000002-0000-0000-0000-000000000002','Solar & Energy','الطاقة الشمسية','SES','33333333-3333-3333-3333-333333333333'),
+  ('d0000003-0000-0000-0000-000000000003','Plastics','البلاستيك','PLA','44444444-4444-4444-4444-444444444444');
+
+update users set "departmentId" = 'd0000001-0000-0000-0000-000000000001' where email = 'digital@saria.sd';
+update users set "departmentId" = 'd0000002-0000-0000-0000-000000000002' where email = 'paid@saria.sd';
+update users set "departmentId" = 'd0000003-0000-0000-0000-000000000003' where email = 'events@saria.sd';
+update campaigns set "departmentId" = 'd0000001-0000-0000-0000-000000000001' where "businessUnit" = 'Batteries';
+update campaigns set "departmentId" = 'd0000002-0000-0000-0000-000000000002' where "businessUnit" = 'SES';
+update campaigns set "departmentId" = 'd0000003-0000-0000-0000-000000000003' where "businessUnit" = 'Plastics';
+
+-- ── The campaign spine (W4·A) ─────────────────────────────────────────
+-- Every ACTIVE campaign has a brief, because activation requires one —
+-- a demo that cannot re-activate a campaign teaches the wrong lesson.
+insert into campaign_briefs ("campaignId", objective, "keyMessage", "keyMessageAr", offer, "kpiMetric", "kpiTarget", channels) values
+  ('c0000001-0000-0000-0000-000000000001','Retail sell-through during Ramadan peak','Batteries that last the whole night','بطاريات تدوم الليل كله','15% off cases of 12','leads_new_30d',60,'["SOCIAL","WA","BTL"]'),
+  ('c0000002-0000-0000-0000-000000000002','Qualified solar EPC enquiries from businesses','Power that pays for itself','طاقة تسدد تكلفتها','Free site assessment','form_leads_30d',40,'["PAID","WEB","EMAIL"]'),
+  ('c0000004-0000-0000-0000-000000000004','Shift brand preference toward local manufacturing','Made here, for here','صُنع هنا، لأجل هنا',null,'mentions_30d',120,'["PR","SOCIAL"]'),
+  ('c0000005-0000-0000-0000-000000000005','ERP implementation leads from mid-size firms','Run the whole business in one system','أدر أعمالك كلها في نظام واحد','Free process review','leads_new_30d',25,'["EMAIL","WEB"]');
+
+-- A closed campaign with its learnings, so the retrospective ritual has
+-- something to display.
+update campaign_briefs set learnings =
+  'WhatsApp broadcasts outperformed paid social three to one on cost per lead. Distributor webinars drew registrations but few qualified leads — drop them next cycle. The offer landed; the creative did not need a third revision round.',
+  "closedAt" = now() - interval '5 day'
+  where "campaignId" = 'c0000005-0000-0000-0000-000000000005';
+update campaigns set status = 'COMPLETED', "closedAt" = now() - interval '5 day',
+  retro = 'Ramadan-adjacent ERP messaging underperformed against a distracted audience. The channel mix, not the message, was the problem.'
+  where id = 'c0000005-0000-0000-0000-000000000005';
+
+-- ── Value capture (W4·C) — money on the far side of the funnel ────────
+insert into conversions ("leadId", "campaignId", "valueAmount", currency, "valueUsd", "occurredOn", kind, source, notes, "createdById")
+select l.id, l."campaignId", v.amt, 'USD', v.amt, (CURRENT_DATE - v.days), v.kind, 'MANUAL', v.note,
+       '11111111-1111-1111-1111-111111111111'
+from (values
+  (1, 8500::numeric,  12, 'SALE',   'First container order'),
+  (2, 3200::numeric,  26, 'SALE',   'Retail pack trial'),
+  (3, 21000::numeric, 41, 'SALE',   '30kW rooftop install'),
+  (4, 4750::numeric,   8, 'UPSELL', 'Added monitoring package'),
+  (5, 6400::numeric,  55, 'SALE',   'Distributor starter order'),
+  (6, 12250::numeric, 33, 'SALE',   'Second site'),
+  (7, 2900::numeric,  19, 'RENEWAL','Annual service renewal')
+) as v(n, amt, days, kind, note)
+join lateral (
+  select id, "campaignId" from leads where stage = 'WON' order by id limit 1 offset (v.n - 1)
+) l on true;
+
+-- ── Lead loop (W4·C) — owners, clocks, and one deliberate breach ──────
+update leads set "ownerId" = '22222222-2222-2222-2222-222222222222',
+  "followUpDueAt" = now() + interval '18 hour'
+  where stage in ('NEW','CONTACTED') and "ownerId" is null;
+update leads set "followUpDueAt" = now() - interval '9 hour', "slaBreached" = true
+  where id in (select id from leads where stage = 'NEW' order by "createdAt" limit 2);
+update leads set "firstContactedAt" = "createdAt" + interval '4 hour'
+  where stage not in ('NEW');
+
+insert into lead_activities ("leadId", "actorId", "actorName", kind, body, meta)
+select l.id, '22222222-2222-2222-2222-222222222222', 'Mazin Tarig', a.kind, a.body, '{}'::jsonb
+from (values
+  ('NOTE','Called; asked for a quote on cases of 12.'),
+  ('STAGE','Moved to QUALIFIED after budget confirmed.'),
+  ('NOTE','Sent the Ramadan price list on WhatsApp.')
+) as a(kind, body)
+join lateral (select id from leads order by "createdAt" limit 3) l on true;
+
+-- ── Data foundation (W4·B) — a committed import in the history ────────
+insert into import_jobs (entity, status, filename, header, mapping, "dedupeOn", "mergeStrategy",
+                         "consentBasis", "consentSource", stats, errors, "createdById", "committedAt") values
+  ('leads','COMMITTED','distributors-kassala.csv',
+   '["company","contactName","email","phone","valueUsd"]',
+   '{"company":"company","contactName":"contactName","email":"email","phone":"phone","valueUsd":"valueUsd"}',
+   'email','skip','LEGITIMATE_INTEREST','Distributor register 2026',
+   '{"rows":142,"valid":138,"invalid":4,"duplicates":11,"duplicatesInFile":2,"willCreate":125,"willUpdate":0,"willSkip":13,"created":125,"updated":0,"skipped":13}',
+   '[{"row":19,"reason":"missing required: company"},{"row":63,"reason":"missing required: company"}]',
+   '11111111-1111-1111-1111-111111111111', now() - interval '9 day'),
+  ('contacts','PREVIEWED','trade-fair-signups.csv',
+   '["name","email","phone","company"]','{"name":"name","email":"email","phone":"phone","company":"company"}',
+   'phone','merge','CONSENT','Khartoum Trade Fair booth',
+   '{"rows":61,"valid":61,"invalid":0,"duplicates":7,"willCreate":54,"willUpdate":7,"willSkip":0}',
+   '[]','44444444-4444-4444-4444-444444444444', null);
+
+-- Give a segment a live definition so it targets rather than describes.
+update segments set definition =
+  '{"source":"leads","all":[{"field":"source","op":"eq","value":"WHATSAPP"},{"field":"valueUsd","op":"gte","value":2000}]}'::jsonb,
+  "lastCount" = 0, "lastCountedAt" = now() - interval '1 day'
+  where id = (select id from segments order by "createdAt" limit 1);
+
+-- ── Approvals (W4·D) — a queue, a stalled item, and a delegation ──────
+insert into approvals (entity, "entityId", stage, "requesterId", "approverId", status, note, "createdAt") values
+  ('content_items', (select id from content_items order by "createdAt" limit 1), 'REVIEW',
+   '55555555-5555-5555-5555-555555555555','11111111-1111-1111-1111-111111111111','PENDING', null, now() - interval '6 hour'),
+  ('creative_requests', (select id from creative_requests order by "createdAt" limit 1), 'APPROVAL',
+   '55555555-5555-5555-5555-555555555555','11111111-1111-1111-1111-111111111111','PENDING', null, now() - interval '4 day'),
+  ('invoices', (select id from invoices order by "createdAt" limit 1), 'APPROVAL',
+   '11111111-1111-1111-1111-111111111111','11111111-1111-1111-1111-111111111111','APPROVED','Within the agreed rate card.', now() - interval '8 day');
+update approvals set "escalatedAt" = now() - interval '2 day', "decidedById" = null
+  where entity = 'creative_requests' and status = 'PENDING';
+update approvals set "decidedAt" = now() - interval '7 day', "decidedById" = '11111111-1111-1111-1111-111111111111'
+  where status = 'APPROVED';
+
+insert into approval_delegations ("approverId","delegateId","fromDate","toDate",reason) values
+  ('11111111-1111-1111-1111-111111111111','55555555-5555-5555-5555-555555555555',
+   CURRENT_DATE - 1, CURRENT_DATE + 6, 'Travelling to the Port Sudan trade fair');
+
+-- ── Seasonal layer (W4·D) — the calendar a marketer plans against ─────
+insert into seasonal_packs (id, key, name, "nameAr", region) values
+  ('50000001-0000-0000-0000-000000000001','islamic','Islamic calendar','التقويم الهجري','GLOBAL'),
+  ('50000002-0000-0000-0000-000000000002','sd','Sudan','السودان','SD');
+
+insert into seasonal_events ("packId", key, name, "nameAr", kind, calendar, month, day, "durationDays", "leadTimeDays") values
+  ('50000001-0000-0000-0000-000000000001','ramadan_start','Ramadan begins','بداية رمضان','RELIGIOUS','HIJRI',9,1,30,30),
+  ('50000001-0000-0000-0000-000000000001','eid_fitr','Eid al-Fitr','عيد الفطر','RELIGIOUS','HIJRI',10,1,3,21),
+  ('50000001-0000-0000-0000-000000000001','eid_adha','Eid al-Adha','عيد الأضحى','RELIGIOUS','HIJRI',12,10,4,21),
+  ('50000001-0000-0000-0000-000000000001','hijri_new_year','Hijri New Year','رأس السنة الهجرية','RELIGIOUS','HIJRI',1,1,1,10),
+  ('50000002-0000-0000-0000-000000000002','independence_day','Independence Day','عيد الاستقلال','NATIONAL','GREGORIAN',1,1,1,14),
+  ('50000002-0000-0000-0000-000000000002','back_to_school','Back to school','العودة إلى المدارس','SEASON','GREGORIAN',9,1,14,30);
+
+-- ── Analytics (W1·C) — 90 days of history, so the flagship is not blank ──
+-- The catalog itself is code-registered; these rows are the per-instance
+-- overrides the Settings screen edits.
+-- `metric_snapshots.metricKey` is a real foreign key into the catalog, so
+-- the catalog rows are written first — from the same list that drives the
+-- history, which keeps the two from ever disagreeing.
+create temporary table demo_metric_seed (key text primary key, name text, name_ar text,
+  category text, unit text, direction text, base numeric, growth numeric);
+
+insert into demo_metric_seed values
+  ('leads_new_30d','New leads (30d)','عملاء محتملون جدد (٣٠ يومًا)','DEMAND','count','HIGHER',42.0,0.35),
+  ('pipeline_value','Pipeline value','قيمة خط الفرص','DEMAND','usd','HIGHER',186000.0,0.28),
+  ('won_value_30d','Won value (30d)','قيمة الصفقات المكسوبة (٣٠ يومًا)','DEMAND','usd','HIGHER',54000.0,0.40),
+  ('won_count_30d','Deals won (30d)','صفقات مكسوبة (٣٠ يومًا)','DEMAND','count','HIGHER',9.0,0.30),
+  ('win_rate_90d','Win rate % (90d)','معدل الكسب ٪ (٩٠ يومًا)','DEMAND','pct','HIGHER',31.0,0.12),
+  ('cpl_usd_30d','Cost per lead (30d)','تكلفة العميل المحتمل (٣٠ يومًا)','DEMAND','usd','LOWER',118.0,-0.18),
+  ('form_submissions_30d','Form submissions (30d)','النماذج المرسلة (٣٠ يومًا)','ACQUISITION','count','HIGHER',96.0,0.22),
+  ('form_cvr_pct_30d','Form conversion % (30d)','معدل تحويل النموذج ٪','ACQUISITION','pct','HIGHER',18.5,0.10),
+  ('link_clicks_total','Tracked link clicks','نقرات الروابط المتتبعة','ACQUISITION','count','HIGHER',4200.0,0.55),
+  ('posts_published_30d','Posts published (30d)','منشورات منشورة (٣٠ يومًا)','CONTENT','count','HIGHER',24.0,0.15),
+  ('reach_30d','Reach (30d)','الوصول (٣٠ يومًا)','CONTENT','count','HIGHER',128000.0,0.45),
+  ('er_pct_30d','Engagement rate % (30d)','معدل التفاعل ٪','CONTENT','pct','HIGHER',4.2,0.08),
+  ('mentions_30d','Mentions (30d)','الإشارات (٣٠ يومًا)','BRAND','count','HIGHER',88.0,0.30),
+  ('sentiment_avg_30d','Average sentiment (30d)','متوسط الانطباع','BRAND','score','HIGHER',0.34,0.15),
+  ('negative_share_pct_30d','Negative share % (30d)','نسبة السلبي ٪','BRAND','pct','LOWER',11.0,-0.25),
+  ('nps_90d','NPS (90d)','مؤشر NPS (٩٠ يومًا)','CUSTOMER','score','HIGHER',46.0,0.14),
+  ('csat_avg_90d','CSAT average (90d)','متوسط رضا العملاء','CUSTOMER','score','HIGHER',4.3,0.05),
+  ('ad_spend_30d','Ad spend (30d)','الإنفاق الإعلاني (٣٠ يومًا)','CONNECT','usd','LOWER',7400.0,0.20),
+  ('web_pageviews_7d','Page views (7d)','مشاهدات الصفحات (٧ أيام)','CONNECT','count','HIGHER',9600.0,0.38),
+  ('posts_scheduled_7d','Posts scheduled (7d)','منشورات مجدولة (٧ أيام)','PUBLISH','count','HIGHER',11.0,0.10),
+  ('publish_ontime_pct_30d','Published on time % (30d)','النشر في موعده ٪','PUBLISH','pct','HIGHER',87.0,0.09),
+  ('outreach_sent_30d','Outreach sent (30d)','رسائل التواصل المرسلة','REACH','count','HIGHER',64.0,0.18),
+  ('signal_precision_30d','Signal precision % (30d)','دقة الإشارات ٪','INTEL','pct','HIGHER',79.0,0.13),
+  ('corroborated_share_30d','Corroborated share % (30d)','نسبة المؤكد بمصدرين ٪','INTEL','pct','HIGHER',61.0,0.16),
+  ('conversions_value_30d','Realised value (30d)','القيمة المحققة (٣٠ يومًا)','DEMAND','usd','HIGHER',48000.0,0.42),
+  ('marketing_roi_90d','Marketing ROI % (90d)','عائد التسويق ٪ (٩٠ يومًا)','DEMAND','pct','HIGHER',215.0,0.30),
+  ('lead_followup_sla_pct_30d','Follow-up on time % (30d)','الالتزام بموعد المتابعة ٪','DEMAND','pct','HIGHER',84.0,0.11),
+  ('campaigns_active','Active campaigns','حملات نشطة','DEMAND','count','HIGHER',4.0,0.05),
+  ('pulse_demand','Pulse — demand','النبض — الطلب','PULSE','score','HIGHER',62.0,0.20),
+  ('pulse_engagement','Pulse — engagement','النبض — التفاعل','PULSE','score','HIGHER',58.0,0.24),
+  ('pulse_brand','Pulse — brand','النبض — العلامة','PULSE','score','HIGHER',66.0,0.16),
+  ('pulse_customer','Pulse — customer','النبض — العملاء','PULSE','score','HIGHER',71.0,0.10),
+  ('pulse_ops','Pulse — operations','النبض — التشغيل','PULSE','score','HIGHER',69.0,0.12),
+  ('pulse_index','Pulse Index','مؤشر النبض','PULSE','score','HIGHER',64.0,0.18);
+
+-- Fills gaps only. On any instance whose app has booted, the code-registered
+-- catalog is already present and wins — the demo must never overwrite the
+-- real metric definitions (composites carry their component weights here).
+insert into metrics (key, name, "nameAr", category, source, unit, direction, dimensions, active)
+select key, name, name_ar, category,
+       (case when left(key, 6) = 'pulse_' then '{"kind":"composite"}' else '{"kind":"builtin"}' end)::jsonb,
+       unit, direction,
+       (case when key = 'leads_new_30d' then '["source","campaign"]' else '[]' end)::jsonb, true
+from demo_metric_seed
+on conflict (key) do nothing;
+
+-- A believable series: a rising trend, weekly seasonality, a little noise,
+-- and one dip a fortnight ago that the anomaly card can point at.
+insert into metric_snapshots ("metricKey", dims, date, value)
+select m.key, '{}'::jsonb, d::date,
+       greatest(0, round((m.base
+         * (1 + m.growth * (90 - (CURRENT_DATE - d::date)) / 90.0)
+         * (case when extract(dow from d) in (5,6) then 0.82 else 1.05 end)
+         * (case when (CURRENT_DATE - d::date) between 12 and 15 then 0.68 else 1 end)
+         + (random() - 0.5) * m.base * 0.12)::numeric, 2))
+from generate_series(CURRENT_DATE - 89, CURRENT_DATE, interval '1 day') d
+cross join demo_metric_seed m
+where exists (select 1 from metrics mm where mm.key = m.key);
+
+-- Dimension slices, so Explore has something to slice.
+insert into metric_snapshots ("metricKey", dims, date, value)
+select 'leads_new_30d', jsonb_build_object('source', s.src), d::date,
+       greatest(0, round((s.share * 42 * (1 + 0.35 * (90 - (CURRENT_DATE - d::date)) / 90.0)
+         + (random() - 0.5) * 4)::numeric, 2))
+from generate_series(CURRENT_DATE - 89, CURRENT_DATE, interval '1 day') d
+cross join (values ('WHATSAPP',0.34),('WEBSITE',0.26),('EVENT',0.18),('REFERRAL',0.12),('SOCIAL',0.10))
+  as s(src, share);
+
+insert into metric_snapshots ("metricKey", dims, date, value)
+select 'leads_new_30d', jsonb_build_object('campaign', c.name), d::date,
+       greatest(0, round((c.share * 42 + (random() - 0.5) * 3)::numeric, 2))
+from generate_series(CURRENT_DATE - 89, CURRENT_DATE, interval '1 day') d
+cross join (select name, (case when status = 'ACTIVE' then 0.3 else 0.12 end) share from campaigns) c;
+
+-- Targets with pacing, and one deliberately behind.
+insert into metric_targets ("metricKey", dims, "periodStart", "periodEnd", target, "ownerId") values
+  ('leads_new_30d','{}'::jsonb, date_trunc('month', now())::date, (date_trunc('month', now()) + interval '1 month - 1 day')::date, 70, '11111111-1111-1111-1111-111111111111'),
+  ('won_value_30d','{}'::jsonb, date_trunc('month', now())::date, (date_trunc('month', now()) + interval '1 month - 1 day')::date, 80000, '11111111-1111-1111-1111-111111111111'),
+  ('cpl_usd_30d','{}'::jsonb, date_trunc('month', now())::date, (date_trunc('month', now()) + interval '1 month - 1 day')::date, 95, '33333333-3333-3333-3333-333333333333'),
+  ('pulse_index','{}'::jsonb, date_trunc('quarter', now())::date, (date_trunc('quarter', now()) + interval '3 month - 1 day')::date, 75, '11111111-1111-1111-1111-111111111111'),
+  ('publish_ontime_pct_30d','{}'::jsonb, date_trunc('month', now())::date, (date_trunc('month', now()) + interval '1 month - 1 day')::date, 95, '55555555-5555-5555-5555-555555555555');
+
+insert into metric_alerts ("metricKey", dims, condition, threshold, "windowDays", audience, active, "lastFiredAt") values
+  ('cpl_usd_30d','{}'::jsonb,'ABOVE', 140, 7, '["ADMINS"]'::jsonb, true, now() - interval '13 day'),
+  ('negative_share_pct_30d','{}'::jsonb,'ABOVE', 20, 3, '["ADMINS"]'::jsonb, true, null),
+  ('form_cvr_pct_30d','{}'::jsonb,'BELOW', 12, 7, '["ADMINS"]'::jsonb, true, now() - interval '13 day'),
+  ('pulse_index','{}'::jsonb,'BELOW', 55, 14, '["ADMINS"]'::jsonb, true, null);
+
+-- Extra boards for the demo. The default Executive board is seeded by the
+-- generic seed and is left alone; these sit alongside it and use the same
+-- widget contract (metricKey), not a shape of their own.
+insert into dashboards (name, "nameAr", "ownerId", role, widgets, shared, "isDefault") values
+  ('Demand generation','توليد الطلب','22222222-2222-2222-2222-222222222222', null,
+   '[{"kind":"metric","metricKey":"leads_new_30d"},{"kind":"metric","metricKey":"cpl_usd_30d"},{"kind":"metric","metricKey":"form_cvr_pct_30d"},{"kind":"slices","metricKey":"leads_new_30d","dim":"source"}]', true, false),
+  ('Brand & listening','العلامة والرصد','55555555-5555-5555-5555-555555555555', null,
+   '[{"kind":"metric","metricKey":"mentions_30d"},{"kind":"metric","metricKey":"sentiment_avg_30d"},{"kind":"metric","metricKey":"corroborated_share_30d"}]', true, false);
+
+insert into report_runs ("templateKey", period, snapshot, "generatedById", "generatedAt") values
+  ('board_pack', to_char(now() - interval '1 month', 'YYYY-MM'),
+   '{"pulseIndex":61,"leads":184,"wonValueUsd":47500,"spendUsd":21400,"roiPct":122,"topSource":"WHATSAPP","notes":"Ramadan promotion drove the month; solar launch began late."}',
+   '11111111-1111-1111-1111-111111111111', now() - interval '27 day'),
+  ('board_pack', to_char(now() - interval '2 month', 'YYYY-MM'),
+   '{"pulseIndex":57,"leads":151,"wonValueUsd":39800,"spendUsd":18900,"roiPct":111,"topSource":"WEBSITE","notes":"Baseline month before the seasonal push."}',
+   '11111111-1111-1111-1111-111111111111', now() - interval '58 day');
+
+-- ── Forecasting & MMM (W3·F/G) — including the honest refusal ─────────
+insert into mmm_weeks ("weekStart", "outcomeKey", outcome, spend, controls, completeness)
+select (date_trunc('week', CURRENT_DATE) - (n || ' week')::interval)::date, 'won_value_30d',
+       round((38000 + n * 240 + (random() - 0.5) * 6000)::numeric, 2),
+       jsonb_build_object(
+         'META',  round((2100 + (random() - 0.5) * 900)::numeric, 2),
+         'GOOGLE',round((1400 + (random() - 0.5) * 700)::numeric, 2),
+         'TIKTOK',round((600  + (random() - 0.5) * 400)::numeric, 2),
+         'BTL',   round((900  + (random() - 0.5) * 600)::numeric, 2)),
+       jsonb_build_object('ramadan', (case when n between 8 and 12 then 1 else 0 end)),
+       round((0.7 + random() * 0.3)::numeric, 2)
+from generate_series(0, 33) n;
+
+-- 34 weeks against a floor of ~80: the readiness panel must say so, and
+-- the run records that it refused rather than quietly producing ROI.
+insert into mmm_runs ("outcomeKey", weeks, "aboveFloor", params, coefficients, contributions, diagnostics, "runById") values
+  ('won_value_30d', 34, false,
+   '{"adstock":{"META":0.55,"GOOGLE":0.40,"TIKTOK":0.35,"BTL":0.65},"saturation":"hill","ridgeAlpha":1.0}',
+   '{"META":0.0,"GOOGLE":0.0,"TIKTOK":0.0,"BTL":0.0}',
+   '{"verdict":"DIRECTIONAL_ONLY","note":"Contributions withheld: below the data floor."}',
+   '{"weeksUsed":34,"weeksNeeded":80,"readinessPct":43,
+     "message":"34 weekly observations against a floor of about 80. Channel contributions are directional only — no ROI figures and no optimiser, because a media-mix model built on this much data would be confidently wrong.",
+     "inseparable":[["META","GOOGLE"]],"completenessAvg":0.84}',
+   '11111111-1111-1111-1111-111111111111');
+
+-- ── The AI rail (W3·C) — drafts, costs, and one honest abstention ─────
+insert into ai_runs (feature, model, status, "promptTokens", "completionTokens", "costUsd", "latencyMs", detail, "at") values
+  ('campaign_retro','claude-sonnet-4-6','OK', 1840, 420, 0.0092, 3120, '{"campaign":"Odoo ERP Awareness"}', now() - interval '5 day'),
+  ('theme_clustering','claude-sonnet-4-6','OK', 6200, 890, 0.0271, 7400, '{"signals":142,"themes":6}', now() - interval '1 day'),
+  ('competitor_brief','claude-sonnet-4-6','OK', 4100, 1240, 0.0223, 5900, '{"entity":"Regional battery importer"}', now() - interval '3 day'),
+  ('relevance_recommendation','claude-sonnet-4-6','ABSTAINED', 980, 60, 0.0031, 1400,
+   '{"reason":"not enough evidence: two sources, neither independent"}', now() - interval '6 hour'),
+  ('morning_digest','claude-sonnet-4-6','OK', 2400, 610, 0.0128, 4100, '{"date":"today"}', now() - interval '9 hour');
+
+insert into search_runs (provider, query, results, ingested, "costUsd", status, "runById", "at") values
+  ('anthropic_web','Saria batteries Sudan market', 10, 6, 0.0000, 'OK','11111111-1111-1111-1111-111111111111', now() - interval '1 day'),
+  ('anthropic_web','solar EPC Khartoum tender',    10, 4, 0.0000, 'OK','11111111-1111-1111-1111-111111111111', now() - interval '2 day'),
+  ('x','competitor battery pricing',                8, 2, 0.0400, 'OK','11111111-1111-1111-1111-111111111111', now() - interval '4 day'),
+  ('reddit','solar inverter reliability',          10, 1, 0.0000, 'OK','11111111-1111-1111-1111-111111111111', now() - interval '6 day');
+
+-- ── Listening control room (W4·F) ────────────────────────────────────
+-- Admiralty-graded sources, including one muted syndication mill and one
+-- blocked domain, so the two levers are visibly different things.
+insert into osint_sources (domain, name, "nameAr", kind, reliability, country, lang, active, muted, "gradeNote", "gradedById", "gradedAt") values
+  ('sudanbusinessdaily.example','Sudan Business Daily','يومية الأعمال السودانية','NEWS','B','SD','en', true, false,'Consistent sourcing and corrections over six months.','11111111-1111-1111-1111-111111111111', now() - interval '20 day'),
+  ('khartoumtrade.example','Khartoum Trade Review','مراجعة تجارة الخرطوم','NEWS','C','SD','ar', true, false,'Reliable on business, weaker on attribution.','11111111-1111-1111-1111-111111111111', now() - interval '20 day'),
+  ('energycentral.example','Energy Central','إنرجي سنترال','TRADE','B','AE','en', true, false, null, null, null),
+  ('newsaggregator.example','Regional Aggregator','مجمّع الأخبار','AGGREGATOR','D','EG','ar', true, true,'Syndication mill — kept for the evidence trail, muted so it cannot move a number.','11111111-1111-1111-1111-111111111111', now() - interval '11 day'),
+  ('rumourmill.example','Unattributed Feed','تغذية غير موثقة','BLOG','F','XX','ar', false, false,'Repeatedly fabricated quotes. Blocked from collection entirely.','11111111-1111-1111-1111-111111111111', now() - interval '7 day');
+
+insert into listening_alert_rules (name, "nameAr", kind, "topicId", threshold, "windowHours", severity, "corroboratedOnly", "quietFrom", "quietTo", channel, active, "lastFiredAt")
+select v.name, v.name_ar, v.kind, t.id, v.threshold, v.window_h, v.sev, v.corrob, v.qf, v.qt, 'INAPP', true, v.fired
+from (values
+  ('Competitor mention spike','قفزة في ذكر المنافسين','VOLUME_SPIKE', 2.0, 24, 'HIGH',  true,  22, 6, now() - interval '3 day'),
+  ('Negative coverage burst','موجة تغطية سلبية','NEGATIVE_BURST', 4.0, 12, 'HIGH',  false, 22, 6, null),
+  ('Grade-A outlet mention','ذكر في مصدر من الدرجة أ','GRADE_A_MENTION', 1.0, 48, 'MEDIUM', false, null, null, null)
+) as v(name, name_ar, kind, threshold, window_h, sev, corrob, qf, qt, fired)
+join lateral (select id from osint_topics order by "createdAt" limit 1) t on true;
+
+-- Tuning history: the markers that explain a jump in share of voice.
+insert into listening_changes (kind, field, "fromValue", "toValue", replay, note, "changedById", "changedAt") values
+  ('BAND','reviewBand','0.35–0.65','0.30–0.70',
+   '{"windowDays":7,"scanned":312,"wouldAccept":96,"wouldQueue":141,"wouldReject":75,"reviewLoadChange":38}',
+   'Widened the review band ahead of the Ramadan campaign — we would rather look at more and rule faster.',
+   '11111111-1111-1111-1111-111111111111', now() - interval '16 day'),
+  ('SOURCE_MUTE','muted','false','true','{}',
+   'Aggregator republishes the same wire copy under four bylines.',
+   '11111111-1111-1111-1111-111111111111', now() - interval '11 day'),
+  ('SOURCE_BLOCK','active','true','false','{}',
+   'Fabricated a quote attributed to our GM. Blocked.',
+   '11111111-1111-1111-1111-111111111111', now() - interval '7 day');
+
+insert into osint_themes (label, "labelAr", summary, "signalCount", sentiment, status, "aiGenerated", "createdAt")
+select v.n, v.na, v.s, v.c, v.sent, 'ACCEPTED', true, now() - interval '2 day'
+from (values
+  ('Grid instability driving solar interest','عدم استقرار الشبكة يدفع الاهتمام بالطاقة الشمسية',
+   'Coverage links repeated outages to a rise in commercial solar enquiries across Khartoum and Port Sudan.', 34, 0.42),
+  ('Import costs on battery pricing','تكاليف الاستيراد وأسعار البطاريات',
+   'Trade press attributes price movement to currency and shipping rather than manufacturer margin.', 21, 0.05),
+  ('Local manufacturing sentiment','الانطباع تجاه التصنيع المحلي',
+   'Consistently positive framing of locally made goods, strongest in Arabic-language outlets.', 17, 0.58)
+) as v(n, na, s, c, sent);
+
+-- ── Security posture (SEC·A/B/C) ─────────────────────────────────────
+-- An SSO connection, configured but INACTIVE: a demo should show the
+-- screen without diverting the demo instance's own logins.
+insert into sso_connections (name, "issuerUrl", "clientId", "emailDomains", "roleMap", "defaultRole",
+                             "jitEnabled", "ssoRequired", active) values
+  ('Saria Microsoft Entra ID','https://login.microsoftonline.com/00000000-0000-0000-0000-000000000000/v2.0',
+   'pulse-saria-demo','["saria.sd"]',
+   '{"claim":"groups","values":{"Marketing":"DIGITAL","Marketing Leadership":"HEAD"}}',
+   'CONTENT_BRAND', true, false, false);
+
+insert into auth_events ("userId", email, method, ok, reason, ip, ua, "at")
+select u.id, u.email, v.method, v.ok, v.reason, v.ip, 'Mozilla/5.0 (demo)', now() - (v.mins || ' minute')::interval
+from (values
+  ('local', true,  null,                    '196.202.10.14',   35),
+  ('local', true,  null,                    '196.202.10.14',  1480),
+  ('local', false, 'bad password',          '196.202.10.14',  1495),
+  ('sso',   true,  null,                    '10.14.2.9',       220),
+  ('local', false, 'unknown or inactive account','41.223.88.2', 640)
+) as v(method, ok, reason, ip, mins)
+join lateral (select id, email from users order by "createdAt" limit 1) u on true;
+
+-- A completed erasure with its certificate, so the privacy workflow is
+-- demonstrable end to end without erasing anything a demo needs.
+insert into erasure_requests (id, kind, status, "subjectEmail", "subjectNote", "verifiedAt", "verifiedBy",
+                              inventory, certificate, "requestedById", "approvedById", "executedAt", "confirmedAt") values
+  ('e0000001-0000-0000-0000-000000000001','ERASURE','CONFIRMED','former.contact@example.sd',
+   'Asked by email to be removed from all marketing.', now() - interval '6 day','SUBJECT',
+   '{"total":4,"tables":[{"table":"leads","rows":1},{"table":"contacts","rows":1},{"table":"form_submissions","rows":1},{"table":"outreach_touches","rows":1}]}',
+   '{"kind":"ERASURE","executedAt":"recent","operator":"head@saria.sd","anonymised":3,"redacted":1,"retained":0,
+     "verifiedByRediscovery":true,
+     "tables":[{"table":"leads","action":"ANONYMISE","rows":1},{"table":"contacts","action":"ANONYMISE","rows":1},{"table":"form_submissions","action":"REDACT_JSONB","rows":1}],
+     "residual":[],
+     "freeTextChecklist":"Structured fields are erased mechanically. Notes, attachments and message bodies that mention this person need a human pass — Pulse does not claim to have searched them."}',
+   '11111111-1111-1111-1111-111111111111','11111111-1111-1111-1111-111111111111',
+   now() - interval '6 day', now() - interval '6 day'),
+  ('e0000002-0000-0000-0000-000000000002','EXPORT','PENDING_APPROVAL','curious.customer@example.sd',
+   'Asked for a copy of everything we hold.', now() - interval '1 day','ADMIN',
+   '{"total":2,"tables":[{"table":"leads","rows":1},{"table":"survey_responses","rows":1}]}',
+   '{}','11111111-1111-1111-1111-111111111111', null, null, null);
+
+insert into erasure_log ("requestId", "tableName", columns, "rowRefHash", action) values
+  ('e0000001-0000-0000-0000-000000000001','leads','["contactName","email","phone"]', encode(sha256('leads:demo-1'::bytea),'hex'),'ANONYMISE'),
+  ('e0000001-0000-0000-0000-000000000001','contacts','["name","email","phone"]',     encode(sha256('contacts:demo-1'::bytea),'hex'),'ANONYMISE'),
+  ('e0000001-0000-0000-0000-000000000001','form_submissions','["data"]',             encode(sha256('form_submissions:demo-1'::bytea),'hex'),'REDACT_JSONB');
+
+-- ── Operational surfaces: notifications, workflow runs, logs ──────────
+insert into notifications ("userId", type, meta, link, "createdAt") values
+  ('11111111-1111-1111-1111-111111111111','APPROVAL_STALE','{"entity":"creative_requests","hours":48}','/approvals', now() - interval '2 day'),
+  ('22222222-2222-2222-2222-222222222222','LEAD_SLA_BREACH','{"company":"Kassala Traders"}','/leads', now() - interval '9 hour'),
+  ('11111111-1111-1111-1111-111111111111','LISTENING_ALERT','{"rule":"Competitor mention spike","count":19,"baseline":7,"severity":"HIGH"}','/listening', now() - interval '3 day'),
+  ('33333333-3333-3333-3333-333333333333','METRIC_ANOMALY','{"metric":"cpl_usd_30d","value":151,"threshold":140}','/analytics', now() - interval '13 day'),
+  ('55555555-5555-5555-5555-555555555555','PUBLISH_DUE','{"count":3}','/publish', now() - interval '5 hour');
+
+insert into workflow_runs ("workflowId", entity, "entityId", status, log, "createdAt")
+select w.id, 'leads', null, v.status, v.log::jsonb, now() - (v.h || ' hour')::interval
+from (values
+  ('DONE',  '[{"action":"NOTIFY","ok":true},{"action":"IF","ok":true,"branch":"then"},{"action":"ADD_TAG","ok":true}]', 3),
+  ('DONE',  '[{"action":"NOTIFY","ok":true},{"action":"IF","ok":true,"branch":"else"}]', 26),
+  ('ERROR', '[{"action":"NOTIFY","ok":true},{"action":"SEND_WA","ok":false,"detail":"template not approved by Meta"}]', 50)
+) as v(status, log, h)
+join lateral (select id from workflows order by "createdAt" limit 1) w on true;
+
+insert into audit_log ("actorId","actorName",action,entity,"entityId",meta,"createdAt")
+select '11111111-1111-1111-1111-111111111111','Yousra Idris', v.action, v.entity, null, '{}'::jsonb, now() - (v.h || ' hour')::interval
+from (values
+  ('campaigns.transition','campaigns', 5),
+  ('approvals.approved','invoices', 168),
+  ('listening.regrade','osint_sources', 480),
+  ('erasure.executed','erasure_requests', 144),
+  ('sso.connectionCreate','sso_connections', 72)
+) as v(action, entity, h);
+
+insert into error_log (at, level, fingerprint, route, method, status, message, "payloadDigest") values
+  (now() - interval '2 day','ERROR','a1b2c3d4','/api/cron/publish-tick','GET', 429,'Meta Graph API rate limit reached','sha256:9f2a…'),
+  (now() - interval '1 day','WARN', 'e5f6a7b8','/api/cron/daily-pulse','GET', 504,'Upstream RSS feed timed out','sha256:41cb…');
+
+insert into digest_log (kind, channel, payload, "sentAt") values
+  ('MORNING_PULSE','EMAIL','{"recipients":5,"actions":{"approvals":2,"leads":3,"review":6}}', now() - interval '9 hour'),
+  ('MORNING_PULSE','EMAIL','{"recipients":5,"actions":{"approvals":1,"leads":5,"review":4}}', now() - interval '33 hour'),
+  ('MORNING_PULSE','EMAIL','{"recipients":5,"actions":{"approvals":3,"leads":2,"review":9}}', now() - interval '57 hour');
+
+-- ── Studio assets and event registrations ────────────────────────────
+-- NOTE: `assets` is NOT in the truncate list above. content_variants
+-- references it and scheduled_posts references those, so a cascading
+-- truncate here would silently empty the whole Publish territory that
+-- part 1 just seeded. Cleared narrowly instead.
+delete from asset_versions;
+delete from assets where entity = 'campaigns';
+
+insert into assets (name, url, kind, entity, "entityId")
+select v.n, v.u, v.k, 'campaigns', 'c0000001-0000-0000-0000-000000000001'
+from (values
+  -- Absolute URLs: publishing adapters require a fetchable address, and a
+  -- relative path here would break any flow that picks the first asset.
+  ('Ramadan key visual (AR)','https://cdn.saria.example/demo/ramadan-kv-ar.png','IMAGE'),
+  ('Ramadan key visual (EN)','https://cdn.saria.example/demo/ramadan-kv-en.png','IMAGE'),
+  ('Battery range one-pager','https://cdn.saria.example/demo/battery-onepager.pdf','DOC')
+) as v(n, u, k);
+
+insert into asset_versions ("assetId", version, url, note, status, "createdAt")
+select a.id, v.ver, a.url, v.note, (case when v.ver = 3 then 'APPROVED' else 'REVIEW' end), now() - (v.d || ' day')::interval
+from (values (1,'First cut from the agency.', 12), (2,'Arabic typography corrected.', 9), (3,'Approved.', 7)) as v(ver, note, d)
+join lateral (select id, url from assets order by "createdAt" limit 1) a on true;
+
+-- Registrations link an event to a lead; the person's details live on the
+-- lead, which is also what makes them erasable in one place.
+insert into event_registrations ("eventId", "leadId", status, "checkedInAt", source, "createdAt")
+select e.id, l.id, v.st,
+       (case when v.st = 'ATTENDED' then now() - interval '8 day' else null end), 'QR',
+       now() - (v.d || ' day')::interval
+from (values ('ATTENDED', 8, 0), ('REGISTERED', 6, 1), ('ATTENDED', 8, 2), ('NO_SHOW', 8, 3)) as v(st, d, off)
+join lateral (select id from events order by "createdAt" limit 1) e on true
+-- ordered by id, not createdAt: seeded rows share timestamps, so an
+-- unstable sort would hand the same lead to two registrations
+join lateral (select id from leads order by id limit 1 offset v.off) l on true;
+
+insert into feedback (source, score, comment, "createdAt")
+select v.src, v.r, v.c, now() - (v.d || ' day')::interval
+from (values
+  ('NPS', 5,'Delivery was quick and the invoice matched the quote.', 4),
+  ('NPS', 3,'Good product, but I had to chase for the price list.', 9),
+  ('CSAT',5,'The engineer explained the whole system clearly.', 2),
+  ('NPS', 5,'We have moved all three branches to Saria batteries.', 15)
+) as v(src, r, c, d);
+
+insert into influencer_collabs ("influencerId", "campaignId", deliverable, "costUsd", status, "postUrl")
+select i.id, 'c0000001-0000-0000-0000-000000000001','Ramadan unboxing reel', 450, 'DONE',
+       'https://instagram.com/p/demo-ramadan-reel'
+from (select id from influencers order by "createdAt" limit 1) i;
+
+-- ── Listening depth: the links that make SOV and clustering real ──────
+-- Signals resolved to entities is what turns a pile of articles into
+-- share of voice; without these rows the Listening screens look busy and
+-- say nothing.
+insert into osint_signal_entities ("signalId", "entityId", "matchMethod", "matchedOn", confidence, sentiment, "sentimentLabel", "sentimentConfidence")
+select s.id, e.id, 'ALIAS', e.name,
+       round((0.72 + random() * 0.26)::numeric, 2),
+       round((random() * 1.2 - 0.4)::numeric, 2),
+       (case when random() > 0.72 then 'NEG' when random() > 0.4 then 'POS' else 'NEU' end),
+       round((0.6 + random() * 0.35)::numeric, 2)
+from (select id from osint_signals order by id limit 24) s
+join lateral (select id, name from osint_entities order by id limit 1 offset (abs(hashtext(s.id::text)) % 2)) e on true
+on conflict do nothing;
+
+insert into osint_theme_signals ("themeId", "signalId", quote)
+select t.id, s.id, left(coalesce(s.title, 'Signal'), 120)
+from (select id, row_number() over (order by id) rn from osint_themes) t
+join lateral (
+  select id, title from osint_signals order by id limit 3 offset ((t.rn - 1) * 3)
+) s on true
+on conflict do nothing;
+
+insert into osint_case_items ("caseId", "signalId", note, "addedById")
+select c.id, s.id, 'Filed as evidence for the fabricated-quote complaint.', '11111111-1111-1111-1111-111111111111'
+from (select id from osint_cases order by id limit 1) c
+join lateral (select id from osint_signals order by id limit 3) s on true;
+
+-- Handle discovery, ORG-only by design: the guardrail is visible in the
+-- data, not just in the code.
+insert into osint_handle_candidates ("entityId", platform, handle, url, similarity, evidence, status, "decidedById", "decidedAt")
+select e.id, v.plat, v.handle, v.url, v.sim, v.ev::jsonb, v.st,
+       (case when v.st = 'PENDING' then null else '11111111-1111-1111-1111-111111111111' end)::uuid,
+       (case when v.st = 'PENDING' then null else now() - interval '4 day' end)
+from (values
+  ('FACEBOOK','@regionalbatteries','https://facebook.com/regionalbatteries', 0.94,'{"nameMatch":true,"bioMentionsBrand":true}','CONFIRMED'),
+  ('INSTAGRAM','@regional.batteries','https://instagram.com/regional.batteries', 0.81,'{"nameMatch":true,"lowActivity":true}','PENDING'),
+  ('X','@regionalbat_sd','https://x.com/regionalbat_sd', 0.42,'{"nameMatch":false,"note":"unrelated account"}','REJECTED')
+) as v(plat, handle, url, sim, ev, st)
+join lateral (select id from osint_entities where kind in ('ORG','BRAND') order by id limit 1) e on true
+on conflict do nothing;
+
+-- ── Insights: what the research territory is for ─────────────────────
+insert into insights (title, "titleAr", body, source, links, impact) values
+  ('Distributors buy on availability, not price','الموزعون يشترون حسب التوفر لا السعر',
+   'Across 42 survey responses and 11 interviews, stock reliability outranked unit price as the deciding factor. Price only decided the sale when two suppliers could both deliver on time.',
+   'SURVEY','[]','HIGH'),
+  ('Grid outages are the strongest solar trigger','انقطاع الكهرباء هو المحفز الأقوى للطاقة الشمسية',
+   'Enquiry volume tracks reported outage days with roughly a four-day lag. Worth pre-positioning creative rather than reacting.',
+   'LISTENING','[]','HIGH'),
+  ('Arabic-first content outperforms translated posts','المحتوى المكتوب بالعربية يتفوق على المترجم',
+   'Posts authored in Arabic carry a materially higher engagement rate than the same message translated from English. The difference is largest on WhatsApp and Facebook.',
+   'DATA','[]','MEDIUM');
+
+-- ── Operational logs the System page reads ───────────────────────────
+insert into integration_runs (platform, "accountId", kind, status, detail, at)
+select v.plat, a.id, v.kind, v.st, v.detail::jsonb, now() - (v.h || ' hour')::interval
+from (values
+  ('FACEBOOK','METRICS','OK','{"posts":12,"reach":48200}', 9),
+  ('INSTAGRAM','METRICS','OK','{"posts":8,"reach":31400}', 9),
+  ('FACEBOOK','ADSPEND','OK','{"spendUsd":412.55}', 9),
+  ('WA','INBOX','OK','{"messages":17}', 2),
+  ('TIKTOK','VERIFY','FAILED','{"error":"token expired"}', 30)
+) as v(plat, kind, st, detail, h)
+join lateral (select id from social_accounts order by id limit 1) a on true;
+
+insert into mail_log (kind, "to", subject, status, "sentAt") values
+  ('MORNING_PULSE','head@saria.sd','Morning Pulse — today''s actions','SENT', now() - interval '9 hour'),
+  ('APPROVAL','head@saria.sd','A creative request is waiting for you','SENT', now() - interval '2 day'),
+  ('PORTAL_INVITE','studio@agency.example','Your Saria deliverables portal','SENT', now() - interval '12 day'),
+  ('ERASURE_CONFIRM','former.contact@example.sd','Confirm your erasure request','SENT', now() - interval '7 day'),
+  ('MORNING_PULSE','digital@saria.sd','Morning Pulse — today''s actions','FAILED', now() - interval '33 hour');
+
+insert into ai_cache ("cacheKey", feature, response) values
+  ('demo-theme-clustering-v1','theme_clustering','{"themes":3,"cached":true}'),
+  ('demo-competitor-brief-v1','competitor_brief','{"entity":"Regional battery importer","cached":true}');

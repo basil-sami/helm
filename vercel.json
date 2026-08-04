@@ -29,6 +29,10 @@
     {
       "path": "/api/cron/daily-pulse",
       "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/api/cron/publish-tick",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

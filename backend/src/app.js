@@ -60,6 +60,14 @@ import { eventRegsRouter, regsRouter } from "./routes/registrations.js";
 import { customersExtraRouter } from "./routes/customersExtra.js";
 import { templatesRouter } from "./routes/templates.js";
 import { feedbackRouter } from "./routes/feedback.js";
+import campaignRoomRouter from "./routes/campaignRoom.js";
+import importRouter, { segmentEvalRouter } from "./routes/dataimport.js";
+import { conversionsRouter, leadLoopRouter } from "./routes/conversions.js";
+import { calendarRouter, seasonalRouter, delegationRouter, linkBuilderRouter } from "./routes/calendar.js";
+import { homeRouter, templateLibraryRouter } from "./routes/home.js";
+import listeningControlRouter from "./routes/listeningControl.js";
+import { ssoRouter, ssoAdminRouter } from "./routes/sso.js";
+import erasureRouter, { privacyPublicRouter } from "./routes/erasure.js";
 import { productsRouter, segmentsRouter, personasRouter, mediaContactsRouter, pressRouter,
          influencersRouter, collabsRouter, postsRouter, assetsRouter, customersRouter } from "./routes/modules.js";
 
@@ -79,9 +87,15 @@ export function createApp() {
   });
   app.use(express.json({ limit: "1mb", verify: (req, _res, buf) => { req.rawBody = buf; } }));
 
-  app.get("/api/health", (_req, res) =>
+  // Liveness probe: no database, no work — for load balancers and uptime
+  // checks. The FULL health report lives at /api/health, further down.
+  // (Until SEC·A this stub was registered at /api/health itself and
+  // shadowed the real report, which therefore never served over HTTP.)
+  app.get("/api/health/live", (_req, res) =>
     res.json({ ok: true, service: "Pulse API", db: process.env.DATABASE_URL ? "configured" : "missing", time: new Date().toISOString() })
   );
+  app.use("/api/auth/sso", ssoRouter);        // public: OIDC handshake
+  app.use("/api/privacy", privacyPublicRouter);  // public: subject confirmation link
   app.use("/api/setup", setupRouter);          // public installer: status + first-admin bootstrap
   app.get("/api/cron/daily-pulse", dailyPulseCronHandler); // nightly heartbeat (CRON_SECRET-guarded)
   app.get("/api/cron/osint", dailyPulseCronHandler);       // legacy path — same orchestrator
@@ -89,6 +103,19 @@ export function createApp() {
   app.get("/r/:code", redirectHandler);          // public tracked-link redirect
   app.use("/api/capture", captureRouter);       // public lead + feedback capture (rate-limited, honeypot)
   app.use("/api/auth", authRouter);
+  // W4·A · war room mounts FIRST so /picker, /links and /:id/room are not
+  // swallowed by the CRUD router's /:id handler.
+  app.use("/api/campaigns", campaignRoomRouter);
+  app.use("/api/imports", importRouter);
+  app.use("/api/conversions", conversionsRouter);
+  app.use("/api/calendar", calendarRouter);
+  app.use("/api/home", homeRouter);
+  app.use("/api/templates", templateLibraryRouter);  // library mounts before templates CRUD
+  app.use("/api/seasonal", seasonalRouter);
+  app.use("/api/delegations", delegationRouter);
+  app.use("/api/links", linkBuilderRouter);   // builder mounts before links CRUD
+  app.use("/api/leads", leadLoopRouter);   // loop actions mount before lead CRUD
+  app.use("/api/segments", segmentEvalRouter);  // eval surface mounts before CRUD
   app.use("/api/campaigns", campaignsRouter);
   app.use("/api/content", contentRouter);
   app.use("/api/leads", leadsRouter);
@@ -102,6 +129,7 @@ export function createApp() {
   app.use("/api/analytics", analyticsRouter);
   app.use("/api/planning", requireModule("planning"), planningRouter);
   app.use("/api/roles", rolesRouter);
+  app.use("/api/listening/control", requireModule("listening"), listeningControlRouter);
   app.use("/api/listening", requireModule("listening"), listeningRouter);
   app.use("/api/audit", auditRouter);
   app.use("/api/notifications", notificationsRouter);
@@ -202,6 +230,8 @@ export function createApp() {
   app.use("/api/public/pulse.js", pulseJsRouter);
   app.use("/pulse.js", pulseJsRouter);
   app.use("/api/export", exportRouter);
+  app.use("/api/sso", ssoAdminRouter);        // admin: connections + auth audit
+  app.use("/api/erasure", erasureRouter);     // data-subject erasure and export
   app.use("/api/settings", settingsRouter);
   app.use("/api/storage", storageInfoRouter);
   app.get("/api/health", async (_req, res) => {

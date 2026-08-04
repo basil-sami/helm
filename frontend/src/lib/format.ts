@@ -1,4 +1,5 @@
 import { Lang } from "../locales/dict";
+import { dataLocale } from "./bayan";
 
 // ── Local currency (Wave 0) ──────────────────────────────────────────
 // The second currency is per-client (settings.localCurrency). Call sites
@@ -14,7 +15,7 @@ export function localCurrencyLabel(lang: Lang) {
 }
 
 export function fmtMoney(amount: number, currency: "USD" | "SDG" | "LOCAL", lang: Lang): string {
-  const locale = lang === "ar" ? "ar-EG" : "en-US";
+  const locale = dataLocale(lang); // Bayan §3: data uses Western digits
   const n = new Intl.NumberFormat(locale, {
     maximumFractionDigits: 0,
   }).format(amount || 0);
@@ -27,7 +28,7 @@ export function fmtDual(usd: number, sdg: number, lang: Lang): string {
 }
 
 export function fmtNum(n: number, lang: Lang): string {
-  const locale = lang === "ar" ? "ar-EG" : "en-US";
+  const locale = dataLocale(lang); // Bayan §3
   return new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(n || 0);
 }
 
@@ -35,7 +36,7 @@ export function fmtDate(iso?: string | null, lang: Lang = "ar"): string {
   if (!iso) return "—";
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "—";
-  const locale = lang === "ar" ? "ar-EG" : "en-GB";
+  const locale = lang === "ar" ? dataLocale(lang) : "en-GB"; // Bayan §3
   return d.toLocaleDateString(locale, { day: "numeric", month: "short", year: "numeric" });
 }
 

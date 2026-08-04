@@ -702,3 +702,238 @@ app data** first — demo instances only, never a live client.
 | `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` | optional — the AI Brain |
 | `ALLOWED_ORIGINS` | optional CORS allow-list (default same-origin) |
 | `PGSSL=disable` | local non-SSL Postgres only |
+
+---
+
+## Campaigns: the war room (Wave 4·A)
+
+A campaign is where the work lives. Open **Campaigns → any campaign → Room** to see, on one screen: everything attached to it across the platform, the budget against what has actually been spent, the leads it produced, and the cost per lead and return.
+
+**Attaching work.** Anything with a campaign field — content, scheduled posts, landing pages, forms, surveys, outreach, press, events, creative requests, media plans, promotions, tracked links, collaborations, insights — joins the campaign by choosing it on that item. There is no separate "add to campaign" list to keep in sync.
+
+**The lifecycle.** `PLANNING → ACTIVE → PAUSED / COMPLETED → ARCHIVED`.
+- A campaign **cannot be activated without a brief**. Open the campaign → Brief.
+- Illegal moves are refused with an explanation (planning cannot jump to completed).
+- Completing a campaign closes it and asks for the learnings.
+
+**The retrospective.** On completion, Pulse assembles the facts — what shipped, what was spent, what came back, why leads were lost — and, if AI is enabled, drafts a retrospective from those rows and nothing else. If the evidence is thin, it says so rather than inventing a story. **The draft is a draft: your edit is what gets kept.**
+
+**Per-campaign numbers.** Campaign is a reporting dimension, so campaign slices appear in Analytics wherever a metric supports them (`/metrics/leads_new_30d/slices?dim=campaign`) and flow into targets and board packs like any other slice.
+
+## The Arabic language system — Bayan (بيان)
+
+Pulse's Arabic is written, not translated, and the rules are enforced automatically.
+- `BAYAN.md` is the charter: register, terminology, numerals, dates, punctuation, plurals.
+- `frontend/src/locales/glossary.json` holds one canonical Arabic term per concept.
+- `npm run lint:ar` fails the build on transliteration, bureaucratic passive, untranslated values, or a banned term.
+
+To change a term everywhere, edit `glossary.json` and the dictionary — never one screen at a time.
+**Numerals:** data uses Western digits for scannability; Arabic-Indic digits are reserved for editorial and brand moments. **Dates:** Gregorian with hijri alongside, never hijri alone.
+
+## Keeping the documentation honest
+
+`ARCHITECTURE.md` is the single technical map. Its table census is generated, not written:
+
+```bash
+npm run docs:census   # regenerate after any schema change
+npm run docs:check    # CI: census matches schema, every table classified
+```
+
+A migration that adds a table without declaring its territory fails the build.
+
+---
+
+## Importing your data (Wave 4·B)
+
+**Settings → Imports** (or `POST /api/imports`). Paste or upload a CSV and Pulse walks five steps, none of which can be skipped:
+
+1. **Upload** — the header row is read and columns are matched to fields by name automatically. Quoted values containing commas are handled correctly.
+2. **Map** — confirm which column feeds which field. Required fields must be mapped or the step is refused, naming the field.
+3. **Validate** — every row is typed and checked. Bad rows are reported **by line number and reason**; they do not silently disappear.
+4. **Preview** — exactly what the commit will do: how many will be created, updated and skipped, and which rows are duplicates of each other or of records you already hold.
+5. **Commit** — the import runs, and the raw file is discarded.
+
+**Duplicates.** Choose the matching field (email, phone or company) and a strategy: **skip** (leave existing records alone), **update** (overwrite from the file), or **merge** (fill blanks only, never overwrite good data with empty cells).
+
+**Consent.** Set the lawful basis and source before committing. Every contact the import creates carries that consent record — it is captured at the moment of import, not assumed afterwards.
+
+**Committing twice is refused.** If you click again, Pulse tells you the import is already committed rather than importing everything a second time.
+
+## Segments that target, not just describe (Wave 4·B)
+
+A segment can now carry a **definition** — conditions on your data — which makes it a live audience instead of a label:
+
+> Leads · source is IMPORT · value ≥ 5,000
+
+Press **Preview** to see the count before saving, and **Members** to see who is in it. Segments without a definition keep working exactly as before as descriptive records. A segment may only test approved fields; anything else is refused.
+
+## Conversions and the follow-up clock (Wave 4·C)
+
+**Conversions** are where money is recorded. Add one against a lead or customer with the amount and date; campaign attribution is inherited from the lead automatically. Several purchases mean several conversions — that is the point.
+
+This unlocks real return figures: **Marketing ROI % (90d)**, **Realised value (30d)** (sliced per campaign), plus **Follow-up on time %** and **Active campaigns** in the metrics catalog.
+
+**The follow-up clock.** Assign a lead and Pulse starts an SLA timer (default 48 hours, set in Settings). Mark it contacted and the clock stops. If the deadline passes, the nightly Daily Pulse notifies the owner **once** and escalates to their department head. Overdue leads are listed at **Leads → Due**.
+
+---
+
+## The calendar, and the season (Wave 4·D)
+
+The calendar now carries five layers: content, events, campaign spans, the **publishing queue**, and the **season**.
+
+**Seasonal packs** ship with two sets — the Islamic calendar (Ramadan, both Eids, Hijri New Year) and Sudan (Independence Day, back-to-school). Religious dates are stored as hijri month and day and resolved to the correct Gregorian date **for each year**, so Ramadan moves as it should instead of drifting.
+
+Each seasonal entry also carries a **prep date** — how far ahead marketing should start. That is usually the date that matters more than the holiday itself.
+
+Packs are data, not assumptions. In **Settings → Seasonal**, deactivate what does not apply and add your own market's dates; nothing in the software needs to change.
+
+## Approvals that do not stall (Wave 4·D)
+
+**Delegation.** Going away? **Approvals → Delegate** hands your approvals to a colleague for a date window. They decide in your place while it is open, and only then. Two overlapping delegations for the same approver are refused, so it is always clear who holds authority.
+
+**Escalation.** An approval waiting longer than the limit in Settings (default 48 hours) is escalated by the nightly Daily Pulse — once — to the approver's delegates and their department head. You are not nagged nightly about the same item.
+
+**Bulk decisions.** Select several approvals and decide them together. Each is processed exactly as if decided one at a time: same permission checks, same side-effects (an approved invoice still releases its budget entry), same audit trail. Items already decided are reported as skipped rather than silently overwritten.
+
+## The campaign link builder (Wave 4·D)
+
+**Links → Build** composes a destination with UTM parameters (source, medium, campaign, content, term) using shared presets so a team's naming stays consistent, and existing query parameters on your URL are preserved.
+
+Every tracked link can now produce a **QR code** — print it on a flyer or a stand, and scans attribute to the campaign automatically through the `/r/` redirect.
+
+---
+
+## Your home screen (Wave 4·E)
+
+Pulse now opens with **what it wants from you today**, and shows only what your role can act on:
+
+- **Coordinator** — leads due (with overdue flagged), the publishing queue for today and tomorrow, your open tasks.
+- **Approver / GM** — approvals waiting and how many have gone stale, the Pulse Index and its movement, campaigns ending this week.
+- **Analyst** — the listening review queue and **the age of its oldest item**, which is usually what matters more than the count.
+
+## Getting started, guided (Wave 4·E)
+
+**Home → Setup** shows eight steps from branding to activating your first campaign. The list is worked out from your actual data every time it loads, so it can never disagree with what you have really done — no step to tick manually, none to forget.
+
+## The template library (Wave 4·E)
+
+**Templates** now holds more than task lists. Alongside the process templates you already had:
+
+- **Campaign templates** — product launch, seasonal push, re-engage dormant distributors. Each arrives complete with a brief, so you can activate straight away rather than being stopped by the brief requirement.
+- **Workflow templates** — created **switched off** so you can read what they will do before they do it.
+
+Templates are a starting point, not a shortcut: everything created from one obeys exactly the same rules as if you had built it by hand.
+
+## The Morning Pulse ends with a to-do list (Wave 4·E)
+
+The briefing still reports where the pulse sits and what happened overnight — and now finishes with the four queues you can actually clear: approvals waiting, leads due, listening items awaiting review, and campaigns ending this week. Each shows its age, and each links straight to the place you act on it.
+
+---
+
+## The Listening Control Room (Wave 4·F)
+
+**Listening → Control** is where an analyst tunes market listening. Three rules govern everything on that screen.
+
+**1. The controls tune the pipeline — nothing skips it.** Pausing collection stops the nightly gather; pausing a single watch skips that watch; muting a source removes it from your numbers. Each of these is enforced where it actually matters, not merely recorded as a preference.
+
+**2. Nothing changes without showing you what it will do.** Before you move the review threshold or the relevance band, press **Replay**: Pulse re-scores the last few weeks with your proposed setting and tells you how many items it would have accepted, queued for review, and rejected — and how much your review workload would change. The replay writes nothing.
+
+Once applied, the change is logged with who made it, when, why, and what the replay predicted, and appears as a **marker on your listening charts**. If share of voice jumps, you can tell at a glance whether the market moved or you changed a setting.
+
+**3. Some things cannot be changed at all.** Pulse monitors organisations, brands, products, outlets and official spokespeople. It does not profile private individuals, and no setting, rule or permission in this control room can change that.
+
+### Blocking and muting are different
+
+- **Block** — stop collecting from this source entirely.
+- **Mute** — keep collecting for the record, but stop it affecting alerts and reported numbers.
+
+Use mute for a syndication mill you still want in the evidence trail. Changing a source's **Admiralty grade** requires an administrator and a written reason, which is kept with the change.
+
+### The review queue
+
+Assign items to analysts, and rule on several at once. A bulk ruling does exactly what ruling them one by one would do. Pulse also records whether each ruling **agreed with the AI's recommendation** — that is measured to tell you how well the model is doing. It never rules the queue itself.
+
+The queue reports its **oldest waiting item**, not just a count, and the nightly Daily Pulse nudges analysts when that age passes the limit set in Settings.
+
+### Alerts
+
+Create rules for volume spikes, bursts of negative coverage, mentions in grade-A sources, or emerging topics — on a watch or a specific competitor. Set **quiet hours** to suppress overnight notifications without switching the rule off, and **corroborated only** to be told only when two independent sources agree. Each rule fires once per window.
+
+### Watches and campaigns
+
+Attach a watch to a campaign, and that campaign's share of voice appears in its war room alongside spend and leads.
+
+---
+
+## How Pulse protects your credentials (SEC·A)
+
+The access tokens Pulse holds for Facebook, Instagram, TikTok, Google and WhatsApp — and your two-factor secrets — are **encrypted in the database**. Someone who obtained a copy of your database, without also having your instance's encryption key, would find nothing usable.
+
+- The key exists only in your instance's environment. It is never stored in the database or in a backup.
+- Each encrypted value is tied to the exact record it belongs to, so a value copied elsewhere will not decrypt.
+- Tokens are never shown in the interface or returned by the API — only whether one is present.
+- **Guest portal links** are stored as one-way hashes. Your existing links keep working, but a database copy yields no usable link.
+
+**Health check.** `GET /api/health` reports whether the key is configured and whether anything remains unprotected. If Pulse is deployed without its key, it says so instead of quietly failing to reach your connected accounts.
+
+---
+
+## Single sign-on (SEC·B)
+
+**Settings → Single sign-on.** Pulse connects to your identity provider using **OpenID Connect** — the same connector entry your IT team uses for other applications in Entra ID, Okta, Google Workspace or Ping.
+
+**Setting it up**
+
+1. Register Pulse in your identity provider and copy the **redirect URI** shown on the Pulse SSO page.
+2. Enter the issuer URL, client ID and client secret. The secret is encrypted immediately and never displayed again.
+3. Press **Test connection** — this only reads your provider's public configuration and signing keys. Nobody is signed in.
+4. Optionally restrict which **email domains** may sign in, and map an identity-provider group claim onto a Pulse role.
+5. Turn on **Automatic provisioning** if you want accounts created on first successful sign-in; leave it off to require that accounts exist first.
+
+**Requiring SSO.** Once you turn on **Require SSO**, password sign-in is closed for everyone — with one exception.
+
+**The break-glass account.** Before SSO can be required, you must designate one administrator who keeps password access. This exists so that a misconfiguration or outage at your identity provider cannot lock your organisation out of its own instance. Every use of it is recorded separately in the sign-in log, and Pulse will not let you remove the last one while SSO is required.
+
+**Sign-in log.** Every attempt — successful or refused, password or SSO — is recorded with the reason, address and browser. Find it under **Settings → Single sign-on → Sign-in log**.
+
+**Group changes** at your identity provider take effect at the user's next sign-in. To remove someone's access immediately, deactivate their Pulse account.
+
+---
+
+## Erasure and data requests (SEC·C)
+
+**Privacy → Requests.** When someone asks you to delete their data, or to send them a copy, this is where it happens — as a checked sequence, not an ad-hoc database edit.
+
+1. **Record the request** with the person's email address or phone number.
+2. **Verify who they are.** Either send a confirmation link to their own address, or record how you verified them in person. Pulse keeps track of which of the two it was, because they are not the same evidence.
+3. **Discover.** Pulse lists every table holding that person and exactly which fields would change. Read it before approving.
+4. **Approve and execute.** Administrators only, and irreversible.
+5. **Confirmation.** Pulse re-runs discovery afterwards and only marks the request complete if it now finds nothing. You get a certificate stating what was erased, what was legally retained and why, and who did it.
+
+**What erasure does — and deliberately does not do.** Personal details are removed; the record itself stays. A lead becomes an anonymous row that still counts in your funnel, still carries its stage and its lost reason, and still appears in past months' reports. **Erasing a person never changes your historical numbers.**
+
+**Free text.** Pulse erases structured fields mechanically. Notes, attachments and message bodies that mention someone need a human read — the certificate says so plainly rather than implying a search that did not happen.
+
+**Backups.** Erasures are logged in a form that contains no personal data. If you ever restore from a backup, run **Replay erasures** and every completed erasure is applied again.
+
+**Copies of data.** Choose **Export** instead of **Erasure** at step 1; the same discovery produces a bundle of that person's records, and nothing is changed.
+
+---
+
+## The demonstration instance
+
+`npm run seed:demo` installs a complete, believable Saria instance: **every table in the platform carries data**, so no screen demonstrates blank.
+
+What that gives you:
+
+- **Analytics** — 90 days of history across 34 metrics, with a rising trend, weekly rhythm, and a dip a fortnight ago that the anomaly card points at. Targets are set for the month with one deliberately behind pace, and two past board packs are already generated.
+- **Campaigns** — five campaigns across the group's business units, each with a brief, plus one completed campaign carrying its retrospective and learnings.
+- **Money** — recorded conversions, so return on marketing spend is a real number rather than a placeholder.
+- **The lead loop** — owners, follow-up clocks, and two deliberately overdue leads so the escalation is visible.
+- **Listening** — Admiralty-graded sources including one *muted* syndication mill and one *blocked* domain, so the difference between the two levers is visible; alert rules; and a tuning history that explains its own chart markers.
+- **The honest refusals** — a media-mix run that declines to give ROI on 34 weeks of data against a floor of 80, and an AI run that abstained for want of evidence. These are the demo's strongest moments, not its weakest.
+- **Security** — an SSO connection configured but switched off, a sign-in log, and a completed erasure with its certificate.
+
+Everything is dated relative to installation, so a demo instance never looks stale.
+
+**Sign in** with the addresses in the seed (for example `head@saria.sd`) using the shared demo password. Change it before showing the instance to anyone outside your team.

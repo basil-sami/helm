@@ -103,7 +103,12 @@ export async function entitySov({ days = 30 } = {}) {
      FROM osint_signal_entities se
      JOIN osint_entities e ON e.id = se."entityId"
      JOIN osint_signals s ON s.id = se."signalId"
+     LEFT JOIN osint_sources src ON src.domain = s.source
      WHERE s.canonical = true AND s."reviewStatus" <> 'REJECTED'
+       -- W4·F: a MUTED source stays in the evidence trail but must not
+       -- move a number. Enforced here, at the metric, so muting is a real
+       -- lever rather than a label on a settings page.
+       AND (src.muted IS NOT TRUE)
        AND s."fetchedAt" >= now() - ($1 || ' days')::interval
      GROUP BY e.id ORDER BY mentions DESC`, [String(days)]);
 

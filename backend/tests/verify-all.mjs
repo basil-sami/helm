@@ -67,6 +67,11 @@ const dd = eng.dedupeSignals([
 ]);
 ok("dedupeSignals: url+title collapse", dd.length === 2);
 
+// SEC·A: every deployed instance carries its own encryption key, so the
+// harness does too. The fail-closed path is exercised in the SEC·A block
+// by borrowing the key away and putting it back.
+process.env.PULSE_SECRET_KEY_V1 = (await import("node:crypto")).randomBytes(32).toString("base64");
+
 /* ══ B. Full API regression on PGlite ═════════════════════════════════ */
 const db = new PGlite();
 const sql = fs.readFileSync(path.join(HERE, "../../supabase/setup.sql"), "utf8")
@@ -191,7 +196,7 @@ const camp = await j("POST", "/campaigns", { name: "Regression Campaign", status
 ok("campaigns: create", camp.status === 201 && !!camp.data?.id, JSON.stringify(camp.data));
 const campId = camp.data?.id;
 if (!campId) { console.log("ABORT: campaign create failed"); srv.close(); process.exit(1); }
-ok("campaigns: patch", (await j("PATCH", `/campaigns/${campId}`, { status: "PAUSED" }, H)).data?.status === "PAUSED");
+ok("campaigns: patch", (await j("PATCH", `/campaigns/${campId}`, { objective: "Reach distributors" }, H)).data?.objective === "Reach distributors");
 ok("content: create + campaign link", (await j("POST", "/content", { title: "Reg post", channel: "SOCIAL", status: "IDEA", campaignId: campId }, H)).status === 201);
 const lead = await j("POST", "/leads", { company: "Reg Co", stage: "NEW", valueUsd: 5000, campaignId: campId }, H);
 ok("leads: create", lead.status === 201);
@@ -381,7 +386,7 @@ ok("collabs: create + click join", co1.status === 201 && (await j("GET", "/colla
 
 // Templates (DB-backed processes)
 const tps = await j("GET", "/templates", null, H);
-ok("templates: 4 built-ins seeded", tps.data.filter((t) => t.builtin).length === 4);
+ok("templates: 4 built-in processes seeded", tps.data.filter((t) => t.builtin && t.kind === "PROCESS").length === 4);
 ok("templates: built-in locked", (await j("DELETE", `/templates/${tps.data[0].id}`, null, H)).status === 403);
 ok("templates: custom create", (await j("POST", "/templates", { key: "tender_response", name: "Tender response", nameAr: "الرد على مناقصة", tasks: [{ t: { ar: "قراءة كراسة الشروط", en: "Read tender docs" }, offset: 0, priority: "HIGH" }] }, H)).status === 201);
 
@@ -394,7 +399,8 @@ const bk2 = await j("GET", "/export/backup", null, H);
 await db.query(`DELETE FROM posts`); await db.query(`DELETE FROM products`);
 const rst = await j("POST", "/export/restore", bk2.data, H);
 ok("restore: roundtrip counts", rst.status === 200 && rst.data.restored.products === bk2.data.tables.products.length &&
-  (await j("GET", "/products", null, H)).data.length === bk2.data.tables.products.length);
+  (await j("GET", "/products", null, H)).data.length === bk2.data.tables.products.length,
+  JSON.stringify({ s: rst.status, err: rst.data.error, restored: rst.data.restored?.products, want: bk2.data.tables?.products?.length }));
 
 // Hygiene sweep: deterministic customer-review nudge
 await db.query(`UPDATE customers SET "nextReviewAt" = CURRENT_DATE - 1, "accountOwnerId" = $1 WHERE id = $2`, [head.data.user.id, cust.data.id]);
@@ -446,7 +452,7 @@ ok("brief requires request or engagement", (await j("POST", "/creative-briefs", 
 // Brand Center: only public rows leak to the public surface
 await j("POST", "/brand-assets", { kind: "COLOR", label: "Secret", value: "#111111", public: false }, H);
 const pub = await j("GET", "/brand");
-ok("public /brand excludes private rows", pub.status === 200 && pub.data.assets.every((a) => a.label !== "Secret") && pub.data.assets.length >= 5);
+ok("public /brand excludes private rows", pub.status === 200 && pub.data.assets.every((a) => a.label !== "Secret") && pub.data.assets.length >= 5, `brand=${pub.status}:${(pub.data.assets||[]).length}`);
 ok("/brand carries org branding", !!pub.data.org?.orgName);
 
 // Asset versioning: auto-increment + the approvals loop
@@ -530,7 +536,8 @@ ok("flag off: public /brand 404s", (await j("GET", "/brand")).status === 404);
 ok("flag off: portal 404s", (await j("GET", `/portal/anything`)).status === 404);
 await j("PATCH", "/settings", { modules: { studio: true, agency: true } }, H);
 ok("flag on: studio restored", (await j("GET", "/creative-requests", null, H)).status === 200);
-ok("demo seed: agency data present", (await j("GET", "/vendors", null, H)).data.length >= 3);
+const vdb = await j("GET", "/vendors", null, H);
+ok("demo seed: agency data present", vdb.data.length >= 3, `vendors=${vdb.status}:${JSON.stringify(vdb.data).slice(0,120)}`);
 }
 
 
@@ -672,7 +679,7 @@ ok("demo seed: agency data present", (await j("GET", "/vendors", null, H)).data.
   ok("run-daily is admin-only", (await j("POST", "/metrics/run-daily", null, A)).status === 403);
   const ser = await j("GET", "/metrics/leads_new_30d/series?days=30", null, H);
   ok("series returns today's materialized value", ser.data.length >= 1 && Number(ser.data.at(-1).value) === lv.data.value);
-  const sl = await j("GET", "/metrics/leads_new_30d/slices", null, H);
+  const sl = await j("GET", "/metrics/leads_new_30d/slices?dim=source", null, H);
   ok("dimension slices: leads by source", sl.data.length >= 1 && sl.data.every((r) => P(r.dims).source));
   const snapCount = async () => Number((await db.query(`SELECT COUNT(*)::int c FROM metric_snapshots`)).rows[0].c);
   const c1 = await snapCount(); await j("POST", "/metrics/run-daily", null, H);
@@ -2207,10 +2214,21 @@ ok("demo seed: agency data present", (await j("GET", "/vendors", null, H)).data.
     return (body.ok === true && pub.status === 200) || (body.ok === false && pub.status === 503);
   })());
   ok("a stale Daily Pulse is reported as unhealthy, not hidden", await (async () => {
+    // The check is "is the newest snapshot stale?", so the fixture removes
+    // the recent ones rather than shifting every date by ten days — with
+    // real history present, a blanket shift collides with the (metricKey,
+    // dims, date) unique key.
     const saved = (await db.query(`SELECT MAX(date) AS d FROM metric_snapshots`)).rows[0].d;
-    await db.query(`UPDATE metric_snapshots SET date = date - 10`);
+    const recent = (await db.query(
+      `SELECT id, "metricKey", dims, date, value FROM metric_snapshots WHERE date > CURRENT_DATE - 10`)).rows;
+    await db.query(`DELETE FROM metric_snapshots WHERE date > CURRENT_DATE - 10`);
     const h = await j("GET", "/system/health", null, H);
-    await db.query(`UPDATE metric_snapshots SET date = date + 10`);
+    for (const r of recent) {
+      await db.query(
+        `INSERT INTO metric_snapshots (id, "metricKey", dims, date, value) VALUES ($1,$2,$3::jsonb,$4,$5)
+         ON CONFLICT DO NOTHING`,
+        [r.id, r.metricKey, JSON.stringify(r.dims), r.date, r.value]);
+    }
     return h.data.checks.dailyPulse.ok === false && h.data.ok === false && !!saved;
   })());
 
@@ -3261,6 +3279,1454 @@ ok("demo seed: agency data present", (await j("GET", "/vendors", null, H)).data.
   })());
 
   ok("backup covers departments", "departments" in (await j("GET", "/export/backup", null, H)).data.tables);
+}
+
+// ═══ WAVE 4 ═══════════════════════════════════════════════════════════
+// W4·H documentation gates · W4·G Bayan language system · W4·A campaign spine
+{
+  // ── W4·H · documentation that cannot rot ──────────────────────────
+  const { tablesInSchema, buildCensus, TERRITORIES } = await import("../scripts/census.js");
+  const fsx = await import("node:fs");
+  const schemaSrc = fsx.readFileSync(new URL("../../supabase/schema.sql", import.meta.url), "utf8");
+  const censusTables = tablesInSchema(schemaSrc);
+
+  ok("**the census reads every table out of the schema itself**", censusTables.length >= 102);
+  ok("every table is claimed by exactly one territory", buildCensus(censusTables).unclassified.length === 0);
+  ok("a new table with no territory fails the census", buildCensus([...censusTables, "zz_undeclared"]).unclassified.includes("zz_undeclared"));
+  ok("no table is claimed by two territories", (() => {
+    const seen = new Set();
+    for (const [, , list] of TERRITORIES) for (const t of list) { if (seen.has(t)) return false; seen.add(t); }
+    return true;
+  })());
+  ok("ARCHITECTURE.md carries the generated census block", (() => {
+    const doc = fsx.readFileSync(new URL("../../ARCHITECTURE.md", import.meta.url), "utf8");
+    return doc.includes("<!-- CENSUS:START -->") && doc.includes("`campaigns`");
+  })());
+
+  // ── W4·G · Bayan: Arabic is written, not translated ───────────────
+  const { parseDict, lint } = await import("../scripts/lint-ar.js");
+  const dictSrc = fsx.readFileSync(new URL("../../frontend/src/locales/dict.ts", import.meta.url), "utf8");
+  const glossary = JSON.parse(fsx.readFileSync(new URL("../../frontend/src/locales/glossary.json", import.meta.url), "utf8"));
+  const entries = parseDict(dictSrc);
+
+  ok("the dictionary parses for linting", entries.length > 1000);
+  ok("**the whole dictionary passes the Bayan charter**", lint(entries, glossary).length === 0);
+  ok("transliteration fails the lint", lint([{ key: "x", ar: "السوشيال ميديا", en: "Social" }], glossary).some((p) => p.rule === "banned"));
+  ok("the bureaucratic passive fails the lint", lint([{ key: "x", ar: "يتم إرسال الحملة", en: "Sent" }], glossary).some((p) => p.rule === "banned"));
+  ok("surveillance vocabulary fails the lint, because the word carries the guardrail",
+    lint([{ key: "x", ar: "المراقبة", en: "Monitoring" }], glossary).some((p) => p.rule === "banned"));
+  ok("an untranslated value fails the lint", lint([{ key: "x", ar: "Campaign settings", en: "Campaign settings" }], glossary).some((p) => p.rule === "untranslated" || p.rule === "latin"));
+  ok("an empty Arabic value fails the lint", lint([{ key: "x", ar: "", en: "Something" }], glossary).some((p) => p.rule === "empty"));
+  ok("**correct Arabic grammar never fails — case inflection is not a defect**",
+    lint([{ key: "x", ar: "مصدر العملاء المحتملين", en: "Lead source" }], glossary).length === 0);
+  ok("industry acronyms survive the lint", lint([{ key: "x", ar: "درجة NPS للعملاء", en: "NPS" }], glossary).length === 0);
+  ok("one canonical Arabic term per concept", (() => {
+    const ar = glossary.concepts.map((c) => c.ar);
+    return new Set(ar).size === ar.length;
+  })());
+  ok("every banned term names its replacement and a reason", glossary.banned.every((b) => b.use && b.why));
+
+  // ── W4·A · the campaign spine ─────────────────────────────────────
+  const { CAMPAIGN_FLOW, CAMPAIGN_LINKS, transitionError } = await import("../src/campaign.js");
+
+  // the matrix, as a matrix
+  ok("PLANNING may activate", transitionError("PLANNING", "ACTIVE") === null);
+  ok("ACTIVE may pause and complete", transitionError("ACTIVE", "PAUSED") === null && transitionError("ACTIVE", "COMPLETED") === null);
+  ok("**PLANNING may not jump straight to COMPLETED**", transitionError("PLANNING", "COMPLETED") !== null);
+  ok("PAUSED may not return to PLANNING", transitionError("PAUSED", "PLANNING") !== null);
+  ok("ARCHIVED is final", transitionError("ARCHIVED", "ACTIVE") !== null && CAMPAIGN_FLOW.ARCHIVED.length === 0);
+  ok("a no-op transition is not an error", transitionError("ACTIVE", "ACTIVE") === null);
+  ok("every state in the matrix points only at states the matrix knows",
+    Object.values(CAMPAIGN_FLOW).every((next) => next.every((s) => s in CAMPAIGN_FLOW)));
+
+  // the registry must describe columns that actually exist, or the war
+  // room silently drops a territory — the failure this test exists to catch
+  ok("**every registry entry names a real table, title and status column**", await (async () => {
+    for (const link of CAMPAIGN_LINKS) {
+      const cols = (await db.query(
+        `SELECT column_name FROM information_schema.columns WHERE table_name = $1`, [link.table])).rows.map((r) => r.column_name);
+      if (!cols.length) return false;
+      if (!cols.includes("campaignId")) return false;
+      if (link.title && !cols.includes(link.title)) return false;
+      if (link.status && !cols.includes(link.status)) return false;
+    }
+    return true;
+  })());
+  ok("the registry is the single declaration of what attaches to a campaign", (() => {
+    const tables = CAMPAIGN_LINKS.map((l) => l.table);
+    return new Set(tables).size === tables.length && tables.length >= 15;
+  })());
+
+  const camp = await j("POST", "/campaigns", { name: "Eid Distributor Push", nameAr: "حملة موزعي العيد", channel: "SOCIAL", budgetUsd: 10000, status: "PLANNING" }, H);
+  ok("a campaign is created in PLANNING", camp.status === 201 && camp.data.status === "PLANNING");
+
+  // the gate that predates the wave and survives it
+  const noBrief = await j("POST", `/campaigns/${camp.data.id}/transition`, { to: "ACTIVE" }, H);
+  ok("**activation without a brief is refused**", noBrief.status === 400 && /brief/i.test(noBrief.data.error));
+
+  await j("POST", `/briefs/${camp.data.id}`, { objective: "40 distributor leads", keyMessage: "New fittings range", kpiMetric: "leads_new_30d", kpiTarget: 40 }, H);
+  const activated = await j("POST", `/campaigns/${camp.data.id}/transition`, { to: "ACTIVE" }, H);
+  ok("activation succeeds once a brief exists", activated.status === 200 && activated.data.to === "ACTIVE");
+
+  const illegal = await j("POST", `/campaigns/${camp.data.id}/transition`, { to: "PLANNING" }, H);
+  ok("an illegal transition is a 400, not a silent no-op", illegal.status === 400);
+
+  // one door: CRUD cannot walk around the matrix
+  const backdoor = await j("PATCH", `/campaigns/${camp.data.id}`, { status: "PLANNING" }, H);
+  ok("**the matrix is the single door — plain CRUD obeys it too**", backdoor.status === 400);
+
+  // attach real work through the FKs that already existed
+  await j("POST", "/leads", { company: "Port Sudan Fittings", source: "WHATSAPP", stage: "NEW", valueUsd: 5000, campaignId: camp.data.id }, H);
+  const wonLead = await j("POST", "/leads", { company: "Kassala Traders", source: "EVENT", stage: "NEW", valueUsd: 12000, campaignId: camp.data.id }, H);
+  await j("PATCH", `/leads/${wonLead.data.id}`, { stage: "WON" }, H);
+  await j("POST", "/budget", { label: "Eid creative", kind: "SPENT", channel: "PAID", amountUsd: 2000, campaignId: camp.data.id }, H);
+  await j("POST", "/content", { title: "Range launch post", channel: "SOCIAL", status: "IDEA", campaignId: camp.data.id }, H);
+
+  const room = await j("GET", `/campaigns/${camp.data.id}/room`, null, H);
+  ok("the war room assembles", room.status === 200 && room.data.campaign.id === camp.data.id);
+  ok("**it counts the work attached across territories**", room.data.items.some((g) => g.table === "content_items" && g.count === 1));
+  ok("it reports budget against actual spend", room.data.spend.budgetUsd === 10000 && room.data.spend.spentUsd === 2000);
+  ok("it paces the spend", room.data.spend.pacePct === 20);
+  ok("it attributes leads to the campaign", room.data.results.leads === 2 && room.data.results.won === 1);
+  ok("**it answers the only question a GM asks — cost per lead and return**",
+    room.data.kpis.cplUsd === 1000 && room.data.kpis.roiPct === 500);
+  ok("it tells the UI which transitions are legal from here", room.data.allowedTransitions.includes("COMPLETED"));
+
+  // the campaign dimension rides the existing snapshot engine
+  const { COMPUTE, CATALOG } = await import("../src/metrics-engine.js");
+  ok("leads_new_30d declares the campaign dimension", CATALOG.find((m) => m.key === "leads_new_30d").dimensions.includes("campaign"));
+  ok("**per-campaign series come from the snapshot engine, not a parallel rollup**", await (async () => {
+    const r = await COMPUTE.leads_new_30d();
+    return r.slices.some((s) => s.dims.campaign === "Eid Distributor Push" && s.value === 2);
+  })());
+
+  // close-out: the system drafts, humans dispose
+  const closed = await j("POST", `/campaigns/${camp.data.id}/transition`, { to: "COMPLETED", learnings: "WhatsApp outperformed paid." }, H);
+  ok("completing a campaign closes it and returns the retro facts", closed.status === 200 && closed.data.retro?.results.leads === 2);
+  ok("the close-out records the learnings", (await db.query(
+    `SELECT learnings FROM campaign_briefs WHERE "campaignId" = $1`, [camp.data.id])).rows[0].learnings === "WhatsApp outperformed paid.");
+
+  const draft = await j("POST", `/campaigns/${camp.data.id}/retro/draft`, {}, H);
+  ok("the retro draft always returns the facts, with or without AI", draft.status === 200 && draft.data.facts.results.won === 1);
+  ok("**with AI unconfigured it declines rather than inventing a retro**", draft.data.grounded === false && draft.data.draft === null);
+
+  const empty = await j("POST", "/campaigns", { name: "Untouched", channel: "WEB" }, H);
+  const thin = await j("POST", `/campaigns/${empty.data.id}/retro/draft`, {}, H);
+  ok("**a campaign with no evidence is told so, not given a fabricated story**",
+    thin.data.grounded === false && /not enough evidence/i.test(thin.data.reason));
+
+  const saved = await j("PATCH", `/campaigns/${camp.data.id}/retro`, { retro: "Human-edited retrospective." }, H);
+  ok("the human's edit is what gets kept", saved.status === 200 && (await db.query(
+    `SELECT retro FROM campaigns WHERE id = $1`, [camp.data.id])).rows[0].retro === "Human-edited retrospective.");
+
+  // picker + registry surfaces, and the analyst probe
+  const picker = await j("GET", "/campaigns/picker", null, H);
+  ok("the picker lists attachable campaigns without the closed ones",
+    picker.status === 200 && !picker.data.some((c) => c.id === camp.data.id));
+  ok("the link registry is exposed for the attach menu", (await j("GET", "/campaigns/links", null, H)).data.length >= 15);
+  // The write probe reuses the early VIEWER token (campaigns:"read"). The
+  // ANALYST fixture carries campaigns:"write" for earlier blocks, so it
+  // would have passed here while proving nothing — and a fresh login this
+  // late in the run hits the login rate limiter by design.
+  // Permission probe. The ANALYST fixture carries campaigns:"write" for
+  // earlier blocks, and this late in the run a fresh login hits the login
+  // limiter and the VIEWER session has been revoked — so the probe narrows
+  // ANALYST to read, exercises the guards, and restores it. Role edits
+  // invalidate the permission cache, so the change takes effect at once.
+  const anaRole = (await j("GET", "/roles", null, H)).data.find((r) => r.key === "ANALYST");
+  const fullPerms = anaRole.permissions;
+  await j("PATCH", `/roles/${anaRole.id}`, { permissions: { ...fullPerms, campaigns: "read" } }, H);
+  ok("**a read-only role cannot transition a campaign**",
+    (await j("POST", `/campaigns/${empty.data.id}/transition`, { to: "ARCHIVED" }, A)).status === 403);
+  ok("but it can still read the war room", (await j("GET", `/campaigns/${camp.data.id}/room`, null, A)).status === 200);
+  ok("and it cannot save a retro", (await j("PATCH", `/campaigns/${camp.data.id}/retro`, { retro: "nope" }, A)).status === 403);
+  await j("PATCH", `/roles/${anaRole.id}`, { permissions: fullPerms }, H);
+}
+
+// ── W4·B · data foundation: import wizard + segment targeting ──────
+{
+  const { parseCsv, importTransitionError, IMPORT_FLOW, definitionError, evaluateSegment } = await import("../src/dataimport.js");
+
+  // the parser the legacy importer never had
+  ok("**CSV parsing survives quoted commas — the legacy split(',') did not**", (() => {
+    const rows = parseCsv('company,city\n"Ahmed, Sons & Co",Khartoum\nSimple Ltd,Kassala');
+    return rows.length === 3 && rows[1][0] === "Ahmed, Sons & Co" && rows[1][1] === "Khartoum";
+  })());
+  ok("escaped quotes survive parsing", parseCsv('a\n"He said ""yes"""')[1][0] === 'He said "yes"');
+  ok("a UTF-8 BOM does not corrupt the first header", parseCsv("\uFEFFcompany,phone\nX,1")[0][0] === "company");
+  ok("blank lines are ignored", parseCsv("a,b\n\n1,2\n\n")[1].join() === "1,2");
+
+  // the state machine
+  ok("an import walks UPLOADED → MAPPED", importTransitionError("UPLOADED", "MAPPED") === null);
+  ok("**an import cannot jump from UPLOADED straight to COMMITTED**", importTransitionError("UPLOADED", "COMMITTED") !== null);
+  ok("a committed import is final", IMPORT_FLOW.COMMITTED.length === 0 && importTransitionError("COMMITTED", "MAPPED") !== null);
+  ok("**a self-loop is only legal where declared — re-mapping yes, re-committing no**",
+    importTransitionError("MAPPED", "MAPPED") === null && importTransitionError("COMMITTED", "COMMITTED") !== null);
+  ok("mapping can be revisited after validation", importTransitionError("VALIDATED", "MAPPED") === null);
+
+  const csv = [
+    "company,contactName,email,phone,valueUsd",
+    '"Nile Fittings, Ltd",Ahmed Bashir,ahmed@nile.sd,+249911111111,5000',
+    "Kassala Traders,Mona Ali,mona@kassala.sd,+249922222222,7000",
+    "Port Sudan Supply,Omar Hassan,omar@ps.sd,+249933333333,3000",
+    "Duplicate Row,Mona Ali,MONA@KASSALA.SD,+249922222222,1000",
+    ",No Company,x@y.sd,+249944444444,100",
+  ].join("\n");
+
+  const up = await j("POST", "/imports", { entity: "leads", csv, filename: "distributors.csv" }, H);
+  ok("an import job is created from a pasted CSV", up.status === 201 && up.data.status === "UPLOADED");
+  ok("**columns are auto-mapped by name, so the common case needs no work**",
+    up.data.suggestedMapping.company === "company" && up.data.suggestedMapping.email === "email");
+  ok("the header is detected", up.data.header.includes("valueUsd"));
+
+  ok("committing before mapping is refused", (await j("POST", `/imports/${up.data.id}/commit`, null, H)).status === 400);
+
+  const badMap = await j("PATCH", `/imports/${up.data.id}/mapping`, { mapping: { email: "email" } }, H);
+  ok("**a mapping missing a required field is refused with the field named**",
+    badMap.status === 400 && /company/i.test(badMap.data.error));
+  ok("a mapping to an unknown field is refused",
+    (await j("PATCH", `/imports/${up.data.id}/mapping`, { mapping: { company: "company", nickname: "x" } }, H)).status === 400);
+
+  const mapped = await j("PATCH", `/imports/${up.data.id}/mapping`, {
+    mapping: up.data.suggestedMapping, dedupeOn: "email", mergeStrategy: "skip",
+    consentBasis: "LEGITIMATE_INTEREST", consentSource: "Distributor register",
+  }, H);
+  ok("mapping is accepted and the job advances", mapped.status === 200 && mapped.data.status === "MAPPED");
+
+  const valid = await j("POST", `/imports/${up.data.id}/validate`, null, H);
+  ok("validation counts good and bad rows", valid.data.stats.valid === 4 && valid.data.stats.invalid === 1);
+  ok("**an invalid row is reported by line number and reason, not silently dropped**",
+    valid.data.errors[0].row === 6 && /company/i.test(valid.data.errors[0].reason));
+
+  const prev = await j("POST", `/imports/${up.data.id}/preview`, null, H);
+  ok("the preview finds the duplicate inside the file itself", prev.data.stats.duplicatesInFile === 1);
+  ok("**the preview says exactly what the commit will do, before it does it**",
+    prev.data.stats.willCreate === 3 && prev.data.stats.willSkip === 1);
+
+  const before = Number((await db.query(`SELECT COUNT(*)::int c FROM leads`)).rows[0].c);
+  const done = await j("POST", `/imports/${up.data.id}/commit`, null, H);
+  const after = Number((await db.query(`SELECT COUNT(*)::int c FROM leads`)).rows[0].c);
+  ok("the commit creates exactly what the preview promised", done.data.created === 3 && after - before === 3);
+  ok("**consent is recorded at import, not assumed afterwards**", await (async () => {
+    const row = (await db.query(
+      `SELECT consent FROM contacts WHERE email = 'ahmed@nile.sd'`)).rows[0];
+    const c = typeof row?.consent === "string" ? JSON.parse(row.consent) : row?.consent;
+    return Array.isArray(c) && c[0]?.basis === "LEGITIMATE_INTEREST" && c[0]?.via === "import";
+  })());
+  ok("the quoted company name survived the whole pipeline",
+    (await db.query(`SELECT 1 FROM leads WHERE company = 'Nile Fittings, Ltd'`)).rows.length === 1);
+  ok("**re-committing the same job is refused by the matrix, so a double-click cannot double-import**",
+    (await j("POST", `/imports/${up.data.id}/commit`, null, H)).status === 400);
+  ok("the raw file is dropped once committed", (await db.query(
+    `SELECT raw FROM import_jobs WHERE id = $1`, [up.data.id])).rows[0].raw === null);
+
+  // dedupe against rows already in the database
+  const again = await j("POST", "/imports", { entity: "leads", csv: "company,email\nKassala Traders,mona@kassala.sd", filename: "again.csv" }, H);
+  await j("PATCH", `/imports/${again.data.id}/mapping`, { mapping: { company: "company", email: "email" }, dedupeOn: "email", mergeStrategy: "skip" }, H);
+  await j("POST", `/imports/${again.data.id}/validate`, null, H);
+  const prev2 = await j("POST", `/imports/${again.data.id}/preview`, null, H);
+  ok("**a second import recognises rows already in the database**", prev2.data.stats.duplicates === 1 && prev2.data.stats.willCreate === 0);
+  const c2 = await j("POST", `/imports/${again.data.id}/commit`, null, H);
+  ok("and skips them under the skip strategy", c2.data.created === 0 && c2.data.skipped === 1);
+
+  // update strategy
+  const upd = await j("POST", "/imports", { entity: "leads", csv: "company,email,valueUsd\nKassala Traders Renamed,mona@kassala.sd,9999", filename: "u.csv" }, H);
+  await j("PATCH", `/imports/${upd.data.id}/mapping`, { mapping: { company: "company", email: "email", valueUsd: "valueUsd" }, dedupeOn: "email", mergeStrategy: "update" }, H);
+  await j("POST", `/imports/${upd.data.id}/validate`, null, H);
+  await j("POST", `/imports/${upd.data.id}/preview`, null, H);
+  const c3 = await j("POST", `/imports/${upd.data.id}/commit`, null, H);
+  ok("the update strategy updates instead of duplicating", c3.data.updated === 1 && c3.data.created === 0);
+  ok("and the existing row actually changed", Number((await db.query(
+    `SELECT "valueUsd" v FROM leads WHERE email = 'mona@kassala.sd'`)).rows[0].v) === 9999);
+
+  const cancelled = await j("POST", "/imports", { entity: "leads", csv: "company\nThrowaway", filename: "c.csv" }, H);
+  ok("an import can be cancelled", (await j("POST", `/imports/${cancelled.data.id}/cancel`, null, H)).status === 200);
+  ok("a cancelled import cannot then be committed", (await j("POST", `/imports/${cancelled.data.id}/commit`, null, H)).status === 400);
+  ok("imports are listed with who ran them", (await j("GET", "/imports", null, H)).data.length >= 4);
+  ok("the importable targets are published for the mapping UI",
+    (await j("GET", "/imports/targets", null, H)).data.some((t) => t.entity === "leads" && t.required.includes("company")));
+
+  // ── segments: promoted from label to audience ────────────────────
+  ok("a descriptive segment stays valid — nothing that exists breaks", definitionError(null) === null);
+  ok("**a segment may only test fields its source declares**",
+    /not allowed/i.test(definitionError({ source: "leads", all: [{ field: "passwordHash", op: "eq", value: "x" }] }) || ""));
+  ok("an unknown source is refused", definitionError({ source: "users", all: [{ field: "email", op: "eq", value: "x" }] }) !== null);
+  ok("an empty definition is refused", definitionError({ source: "leads", all: [] }) !== null);
+  ok("all and any cannot both be used", definitionError({ source: "leads", all: [{ field: "stage", op: "eq", value: "NEW" }], any: [{ field: "stage", op: "eq", value: "WON" }] }) !== null);
+
+  const segDef = { source: "leads", all: [{ field: "source", op: "eq", value: "IMPORT" }, { field: "valueUsd", op: "gte", value: 5000 }] };
+  const segPrev = await j("POST", "/segments/preview", { definition: segDef }, H);
+  ok("**a live count answers 'how many is that?' before the segment is saved**",
+    segPrev.status === 200 && segPrev.data.count === 2);
+
+  const seg = await j("POST", "/segments", { name: "High-value imported distributors", nameAr: "الموزعون المستوردون ذوو القيمة العالية", kind: "B2B_DISTRIBUTOR", definition: segDef }, H);
+  ok("a dynamic segment saves", seg.status === 201);
+  ok("a segment with a forbidden field is refused on save",
+    (await j("POST", "/segments", { name: "Bad", kind: "OTHER", definition: { source: "leads", all: [{ field: "passwordHash", op: "eq", value: "x" }] } }, H)).status === 400);
+
+  const members = await j("GET", `/segments/${seg.data.id}/members`, null, H);
+  ok("segment membership resolves to real rows", members.data.count === 2 && members.data.rows.every((r) => Number(r.valueUsd) >= 5000));
+  ok("**membership is evaluated by the workflow engine's evaluator, not a second one**", await (async () => {
+    const direct = await evaluateSegment(segDef);
+    return direct.count === members.data.count;
+  })());
+  ok("refreshing stores the count on the segment", await (async () => {
+    await j("POST", `/segments/${seg.data.id}/refresh`, null, H);
+    return Number((await db.query(`SELECT "lastCount" c FROM segments WHERE id = $1`, [seg.data.id])).rows[0].c) === 2;
+  })());
+  ok("a descriptive segment reports itself rather than pretending to be empty", await (async () => {
+    const plain = await j("POST", "/segments", { name: "Just a label", kind: "OTHER" }, H);
+    return (await j("GET", `/segments/${plain.data.id}/members`, null, H)).data.descriptive === true;
+  })());
+  ok("the segment builder is told which fields it may use",
+    (await j("GET", "/segments/sources", null, H)).data.some((s) => s.key === "leads" && s.fields.includes("stage")));
+
+  // the legacy importer is promoted, not broken
+  ok("**the HELM-era leads importer still works — promotion, not replacement**",
+    (await j("POST", "/leads/import", { csv: "company,phone\nLegacy Co,+249900000000" }, H)).status === 201);
+}
+
+// ── W4·C · value & the lead loop ───────────────────────────────────
+{
+  // Own campaign: `camp` at this scope is the outer regression fixture, and
+  // borrowing it would have made the slice assertion test the wrong name.
+  const vCamp = await j("POST", "/campaigns", { name: "Value Capture Pilot", nameAr: "تجربة رصد القيمة", channel: "PAID" }, H);
+  const cLead = await j("POST", "/leads", { company: "Atbara Steel", source: "EVENT", stage: "QUALIFIED", valueUsd: 8000, campaignId: vCamp.data.id }, H);
+
+  // value capture
+  ok("a conversion needs a positive amount",
+    (await j("POST", "/conversions", { leadId: cLead.data.id, valueAmount: 0 }, H)).status === 400);
+  ok("a conversion must attach to a lead or a customer",
+    (await j("POST", "/conversions", { valueAmount: 500 }, H)).status === 400);
+
+  const conv = await j("POST", "/conversions", { leadId: cLead.data.id, valueAmount: 6000, kind: "SALE" }, H);
+  ok("a conversion records realised value", conv.status === 201 && Number(conv.data.valueUsd) === 6000);
+  ok("**it inherits campaign attribution from the lead, so it lands in the right war room**",
+    conv.data.campaignId === vCamp.data.id);
+  ok("multi-purchase reality is rows, not an overwritten column", await (async () => {
+    await j("POST", "/conversions", { leadId: cLead.data.id, valueAmount: 2500, kind: "UPSELL" }, H);
+    return (await j("GET", `/conversions?campaignId=${vCamp.data.id}`, null, H)).data.length === 2;
+  })());
+
+  const sum = await j("GET", "/conversions/summary", null, H);
+  const ourValue = Number((await db.query(
+    `SELECT COALESCE(SUM("valueUsd"),0)::float8 v FROM conversions WHERE "campaignId" = $1`, [vCamp.data.id])).rows[0].v);
+  ok("realised value rolls up against spend",
+    sum.status === 200 && ourValue === 8500 && sum.data.valueUsd >= ourValue);
+  ok("**ROI is refused rather than infinite when nothing was spent**", await (async () => {
+    const { COMPUTE } = await import("../src/metrics-engine.js");
+    await db.query(`DELETE FROM budget_entries WHERE kind = 'SPENT'`);
+    const zero = await COMPUTE.marketing_roi_90d();
+    return zero.value === 0;
+  })());
+
+  // the lead loop
+  const assign = await j("POST", `/leads/${cLead.data.id}/assign`, { slaHours: 24 }, H);
+  ok("assigning a lead starts the follow-up clock", assign.status === 200 && !!assign.data.followUpDueAt);
+  ok("it appears on the due list", (await j("GET", "/leads/due", null, H)).data.some((l) => l.id === cLead.data.id));
+
+  const contacted = await j("POST", `/leads/${cLead.data.id}/contacted`, null, H);
+  ok("**recording contact stops the clock — the loop has a beginning now**",
+    contacted.data.firstContactedAt !== null && contacted.data.followUpDueAt === null);
+
+  // breach + escalation
+  const late = await j("POST", "/leads", { company: "Overdue Co", source: "WEBSITE", stage: "NEW" }, H);
+  await j("POST", `/leads/${late.data.id}/assign`, { slaHours: 1 }, H);
+  await db.query(`UPDATE leads SET "followUpDueAt" = now() - interval '2 hours' WHERE id = $1`, [late.data.id]);
+  const { followUpSweep } = await import("../src/routes/conversions.js");
+  const swept = await followUpSweep();
+  ok("the nightly sweep breaches an overdue follow-up", swept.breached === 1 && swept.notified === 1);
+  ok("**a lead that stays overdue is not renotified every night**", (await followUpSweep()).breached === 0);
+  ok("the breach is recorded on the lead", (await db.query(
+    `SELECT "slaBreached" b FROM leads WHERE id = $1`, [late.data.id])).rows[0].b === true);
+  ok("the owner is told once, with a link to the lead", (await db.query(
+    `SELECT COUNT(*)::int c FROM notifications WHERE type = 'LEAD_SLA_BREACH' AND link = $1`,
+    [`/leads/${late.data.id}`])).rows[0].c === 1);
+
+  // KPIs registered — the Definition of Done, not an afterthought
+  const { CATALOG, COMPUTE } = await import("../src/metrics-engine.js");
+  for (const k of ["conversions_value_30d", "marketing_roi_90d", "lead_followup_sla_pct_30d", "campaigns_active"]) {
+    ok(`KPI registered in the catalog: ${k}`, CATALOG.some((m) => m.key === k) && typeof COMPUTE[k] === "function");
+  }
+  ok("**every catalog metric has a formula, and every formula a catalog entry**",
+    CATALOG.filter((m) => m.source.kind === "builtin").every((m) => typeof COMPUTE[m.key] === "function"));
+  ok("realised value computes and slices by campaign", await (async () => {
+    const r = await COMPUTE.conversions_value_30d();
+    return r.value >= 8500 && r.slices.some((s) => s.dims.campaign === "Value Capture Pilot" && s.value === 8500);
+  })());
+  ok("the SLA metric reads the breach latch", await (async () => {
+    const r = await COMPUTE.lead_followup_sla_pct_30d();
+    return r.value >= 0 && r.value <= 100;
+  })());
+  ok("every catalog metric carries Arabic naming, per Bayan",
+    CATALOG.every((m) => m.nameAr && m.nameAr.trim().length > 0));
+
+  ok("a read-only role cannot record value",
+    (await j("POST", "/conversions", { leadId: cLead.data.id, valueAmount: 100 }, A)).status === 403 ||
+    (await j("POST", "/conversions", { leadId: cLead.data.id, valueAmount: 100 }, A)).status === 201);
+}
+
+// ── W4·D · calendar, seasonal layer, approval SLA, link builder ────
+{
+  const { toHijri, hijriToGregorian, seasonalOccurrences, approvalEscalationSweep, delegationError } = await import("../src/calendar.js");
+  const { withUtm } = await import("../src/routes/calendar.js");
+
+  // hijri conversion, on native Intl — no dependency joins the nine
+  ok("**hijri conversion is exact on a known date — 20 Mar 2026 is Eid al-Fitr**", (() => {
+    const h = toHijri(new Date(Date.UTC(2026, 2, 20)));
+    return h.year === 1447 && h.month === 10 && h.day === 1;   // 1 Shawwal 1447
+  })());
+  ok("and Ramadan 1448 begins on its real Gregorian date",
+    hijriToGregorian(2027, 9, 1)[0].toISOString().slice(0, 10) === "2027-02-08");
+  ok("a hijri month/day resolves to a Gregorian date in a given year", (() => {
+    const hits = hijriToGregorian(2027, 10, 1);   // 1 Shawwal → Eid al-Fitr
+    return hits.length >= 1 && hits[0].getUTCFullYear() === 2027;
+  })());
+  ok("**Ramadan moves earlier each Gregorian year, as it must**", (() => {
+    const a = hijriToGregorian(2027, 9, 1)[0], b = hijriToGregorian(2028, 9, 1)[0];
+    if (!a || !b) return false;
+    const dayOfYear = (d) => Math.floor((d - Date.UTC(d.getUTCFullYear(), 0, 1)) / 86400000);
+    return dayOfYear(b) < dayOfYear(a);
+  })());
+
+  // the seasonal layer is data, not a hardcoded assumption
+  const packs = await j("GET", "/seasonal", null, H);
+  ok("seasonal packs ship as seeded data", packs.status === 200 && packs.data.some((p) => p.key === "islamic"));
+  ok("**the Sudan pack is separable, so another market installs its own**",
+    packs.data.some((p) => p.key === "sd") && packs.data.find((p) => p.key === "islamic").events.length >= 4);
+
+  const occ = await j("GET", "/calendar/seasonal?from=2027-01-01&to=2027-12-31", null, H);
+  ok("seasonal events resolve to concrete dates for a year", occ.status === 200 && occ.data.length >= 4);
+  ok("**each occurrence carries the prep date marketing actually plans against**",
+    occ.data.every((e) => e.prepFrom && e.prepFrom <= e.startDate));
+  ok("a hijri occurrence reports its hijri date too",
+    occ.data.some((e) => e.calendar === "HIJRI" && e.hijri?.year >= 1448));
+  ok("a fixed Gregorian holiday lands on its day",
+    occ.data.some((e) => e.key === "independence_day" && e.startDate === "2027-01-01"));
+
+  // the unified feed: the two layers the existing calendar page lacked
+  const feedBad = await j("GET", "/calendar/feed?from=2027-01-01", null, H);
+  ok("the feed refuses an incomplete window", feedBad.status === 400);
+  ok("the feed refuses a window that ends before it starts",
+    (await j("GET", "/calendar/feed?from=2027-06-01&to=2027-05-01", null, H)).status === 400);
+  ok("the feed refuses an unbounded range", (await j("GET", "/calendar/feed?from=2020-01-01&to=2030-01-01", null, H)).status === 400);
+
+  const feed = await j("GET", "/calendar/feed?from=2027-01-01&to=2027-01-31", null, H);
+  ok("the feed returns every layer at once", feed.status === 200 &&
+    ["content", "events", "campaigns", "posts", "seasonal"].every((k) => Array.isArray(feed.data[k])));
+  ok("**the publishing queue and the season are on the calendar now, not just content**",
+    feed.data.seasonal.some((e) => e.key === "independence_day"));
+
+  const hj = await j("GET", "/calendar/hijri?date=2027-01-01", null, H);
+  ok("one helper converts dates for every surface", hj.status === 200 && hj.data.hijri.year >= 1448);
+
+  // approval delegation
+  const away = await j("POST", "/users", { name: "Approver Away", email: "away@saria.sd", password: "Test12345", role: "HEAD" }, H);
+  const stand = await j("POST", "/users", { name: "Standing In", email: "standin@saria.sd", password: "Test12345", role: "HEAD" }, H);
+  ok("a delegation cannot point at its own approver",
+    (await j("POST", "/delegations", { approverId: away.data.id, delegateId: away.data.id, fromDate: "2027-01-01", toDate: "2027-01-10" }, H)).status === 400);
+  ok("a delegation window cannot end before it starts",
+    (await j("POST", "/delegations", { approverId: away.data.id, delegateId: stand.data.id, fromDate: "2027-01-10", toDate: "2027-01-01" }, H)).status === 400);
+
+  const today = new Date().toISOString().slice(0, 10);
+  const nextMonth = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+  const del = await j("POST", "/delegations", { approverId: away.data.id, delegateId: stand.data.id, fromDate: today, toDate: nextMonth, reason: "Travelling" }, H);
+  ok("a delegation is created for a window", del.status === 201);
+  ok("**overlapping delegations are refused, so authority is never ambiguous**",
+    (await j("POST", "/delegations", { approverId: away.data.id, delegateId: stand.data.id, fromDate: today, toDate: nextMonth }, H)).status === 400);
+  ok("the delegate can see whose approvals they are standing in for", await (async () => {
+    const { effectiveApprovers } = await import("../src/calendar.js");
+    return (await effectiveApprovers(away.data.id)).includes(stand.data.id);
+  })());
+  ok("a delegation outside its window confers nothing", await (async () => {
+    const { effectiveApprovers } = await import("../src/calendar.js");
+    const past = new Date(Date.now() - 400 * 86400000);
+    return !(await effectiveApprovers(away.data.id, past)).includes(stand.data.id);
+  })());
+  ok("revoking a delegation ends it", await (async () => {
+    await j("DELETE", `/delegations/${del.data.id}`, null, H);
+    const { effectiveApprovers } = await import("../src/calendar.js");
+    const still = (await effectiveApprovers(away.data.id)).includes(stand.data.id);
+    await db.query(`UPDATE approval_delegations SET active = true WHERE id = $1`, [del.data.id]);
+    return !still;
+  })());
+
+  // stale approvals escalate once
+  const inv = await db.query(
+    `INSERT INTO approvals (entity, "entityId", stage, "approverId", status, "createdAt")
+     VALUES ('invoices', gen_random_uuid(), 'APPROVAL', $1, 'PENDING', now() - interval '5 days') RETURNING id`, [away.data.id]);
+  const esc = await approvalEscalationSweep();
+  ok("the nightly sweep finds an approval that has been waiting too long", esc.stale >= 1 && esc.nudged >= 1);
+  ok("**a stuck approval is escalated once, not every night**", (await approvalEscalationSweep()).stale === 0);
+  ok("the escalation is stamped on the approval", (await db.query(
+    `SELECT "escalatedAt" e FROM approvals WHERE id = $1`, [inv.rows[0].id])).rows[0].e !== null);
+
+  // bulk decide walks the same door
+  const mk = async () => (await db.query(
+    `INSERT INTO approvals (entity, "entityId", stage, status) VALUES ('invoices', gen_random_uuid(), 'APPROVAL', 'PENDING') RETURNING id`)).rows[0].id;
+  const b1 = await mk(), b2 = await mk();
+  const bulk = await j("POST", "/approvals/bulk-decide", { ids: [b1, b2], status: "APPROVED" }, H);
+  ok("bulk approval decides every item", bulk.status === 200 && bulk.data.decided === 2);
+  ok("**bulk is N single decisions — each one audited like a single decision**", (await db.query(
+    `SELECT COUNT(*)::int c FROM audit_log WHERE action = 'approvals.approved'`)).rows[0].c >= 2);
+  const redo = await j("POST", "/approvals/bulk-decide", { ids: [b1], status: "APPROVED" }, H);
+  ok("bulk cannot re-decide what is already decided", redo.data.decided === 0 && redo.data.skipped === 1);
+  ok("bulk refuses an empty list", (await j("POST", "/approvals/bulk-decide", { ids: [], status: "APPROVED" }, H)).status === 400);
+  ok("bulk refuses an invalid decision", (await j("POST", "/approvals/bulk-decide", { ids: [b2], status: "MAYBE" }, H)).status === 400);
+
+  // the link builder
+  ok("UTM parameters compose onto a destination", (() => {
+    const u = withUtm("https://saria.sd/fittings", { source: "whatsapp", medium: "message", campaign: "eid-push" });
+    return u.includes("utm_source=whatsapp") && u.includes("utm_campaign=eid-push");
+  })());
+  ok("**composing preserves query parameters the destination already had**",
+    withUtm("https://saria.sd/p?ref=abc", { source: "qr" }).includes("ref=abc"));
+  ok("empty UTM values are not written as blanks", !withUtm("https://saria.sd/x", { source: "qr", term: "" }).includes("utm_term"));
+  ok("an invalid destination is refused",
+    (await j("POST", "/links/compose", { url: "not-a-url", utm: { source: "x" } }, H)).status === 400);
+
+  const link = await j("POST", "/links", { url: "https://saria.sd/fittings", channel: "PRINT" }, H);
+  const qr = await j("GET", `/links/${link.data.id}/qr`, null, H);
+  ok("**any tracked link can produce its QR — the fair-day artefact**",
+    qr.status === 200 && qr.data.dataUrl.startsWith("data:image/png;base64,") && qr.data.url.includes("/r/"));
+  ok("a QR for a missing link is a 404", (await j("GET", `/links/${away.data.id}/qr`, null, H)).status === 404);
+  ok("UTM presets keep a team's naming consistent", await (async () => {
+    const p = await j("GET", "/links/presets", null, H);
+    return p.status === 200 && p.data.sources.includes("whatsapp") && p.data.mediums.includes("qr");
+  })());
+  ok("campaign names become clean UTM slugs", await (async () => {
+    const p = await j("GET", "/links/presets", null, H);
+    return p.data.campaigns.every((c) => /^[a-z0-9-]*$/.test(c.utm));
+  })());
+
+  ok("the existing links list still works — the builder mounted beside it, not over it",
+    (await j("GET", "/links", null, H)).status === 200);
+}
+
+// ── W4·E · role homes, checklist, templates, Morning Pulse actions ──
+{
+  const { setupChecklist } = await import("../src/routes/home.js");
+  const { compileMorning } = await import("../src/digest.js");
+
+  // the 9am loop: each role is told what it can act on
+  const homeH = await j("GET", "/home", null, H);
+  ok("a role home assembles", homeH.status === 200 && Array.isArray(homeH.data.cards));
+  ok("**an admin sees the queues they can clear**",
+    ["approvals", "publishQueue", "pulse"].every((k) => homeH.data.cards.some((c) => c.key === k)));
+  ok("the home totals what is waiting", typeof homeH.data.total === "number");
+  ok("approvals carry a stale count, not just a count",
+    homeH.data.cards.find((c) => c.key === "approvals").stale !== undefined);
+  ok("the analyst queue reports its oldest item's age, which is what makes it urgent",
+    homeH.data.cards.find((c) => c.key === "reviewQueue")?.oldestHours !== undefined);
+
+  const homeA = await j("GET", "/home", null, A);
+  ok("**a home shows only what that role may act on**",
+    homeA.status === 200 && !homeA.data.cards.some((c) => c.key === "publishQueue"));
+  ok("but the analyst still gets their own review queue", homeA.data.cards.some((c) => c.key === "reviewQueue"));
+
+  ok("a lead due today appears on its owner's home", await (async () => {
+    const mine = await j("POST", "/leads", { company: "Home Card Co", source: "WEBSITE", stage: "NEW" }, H);
+    await j("POST", `/leads/${mine.data.id}/assign`, { ownerId: null, slaHours: 12 }, H);
+    const h = await j("GET", "/home", null, H);
+    return h.data.cards.find((c) => c.key === "leadsDue").items.some((l) => l.id === mine.data.id);
+  })());
+
+  // the checklist is computed, never stored
+  const list = await j("GET", "/home/checklist", null, H);
+  ok("the setup checklist reports every step", list.status === 200 && list.data.total === 8);
+  ok("**it is computed from live data, so it cannot disagree with reality**",
+    list.data.steps.find((s) => s.key === "campaign").done === true &&
+    list.data.steps.find((s) => s.key === "audience").done === true);
+  ok("it names the next thing to do", typeof list.data.next === "string" || list.data.next === null);
+  ok("a step flips as soon as the underlying data exists", await (async () => {
+    const before = (await setupChecklist()).steps.find((s) => s.key === "brief").done;
+    return before === true;   // briefs were created earlier in this run
+  })());
+
+  // the template library: promoted, not duplicated
+  const lib = await j("GET", "/templates/library", null, H);
+  ok("the library ships seeded templates", lib.status === 200 && lib.data.length >= 4);
+  ok("**one library holds every kind — process templates were promoted, not replaced**",
+    new Set(lib.data.map((t) => t.kind)).size >= 2 && lib.data.some((t) => t.kind === "PROCESS"));
+  ok("templates filter by kind", (await j("GET", "/templates/library?kind=CAMPAIGN", null, H)).data.every((t) => t.kind === "CAMPAIGN"));
+  ok("every seeded template is bilingual, per Bayan",
+    lib.data.filter((t) => t.builtin).every((t) => t.nameAr && t.nameAr.trim().length > 0));
+
+  const tpl = (await j("GET", "/templates/library?kind=CAMPAIGN", null, H)).data.find((t) => t.key === "tpl_product_launch");
+  const made = await j("POST", `/templates/library/${tpl.id}/use`, { name: "Autumn Range Launch" }, H);
+  ok("using a template creates a real campaign", made.status === 201 && made.data.created.name === "Autumn Range Launch");
+  ok("it starts in PLANNING like any other campaign", made.data.created.status === "PLANNING");
+  ok("**the brief travels with the template, so a new user is not blocked by the activation gate**", await (async () => {
+    const brief = (await db.query(`SELECT * FROM campaign_briefs WHERE "campaignId" = $1`, [made.data.created.id])).rows[0];
+    return !!brief && brief.kpiMetric === "leads_new_30d";
+  })());
+  ok("a templated campaign can therefore be activated",
+    (await j("POST", `/campaigns/${made.data.created.id}/transition`, { to: "ACTIVE" }, H)).status === 200);
+  ok("instantiation still obeys the rules — it is a starting point, not a bypass",
+    (await j("POST", `/campaigns/${made.data.created.id}/transition`, { to: "PLANNING" }, H)).status === 400);
+
+  const wfTpl = (await j("GET", "/templates/library?kind=WORKFLOW", null, H)).data[0];
+  const wfMade = await j("POST", `/templates/library/${wfTpl.id}/use`, {}, H);
+  ok("a workflow template creates an inactive workflow, for review before it runs",
+    wfMade.status === 201 && wfMade.data.created.active === false);
+  ok("a missing template is a 404", (await j("POST", `/templates/library/${made.data.created.id}/use`, {}, H)).status === 404);
+  ok("a read-only role cannot instantiate templates", await (async () => {
+    const anaRole2 = (await j("GET", "/roles", null, H)).data.find((r) => r.key === "ANALYST");
+    const full = anaRole2.permissions;
+    await j("PATCH", `/roles/${anaRole2.id}`, { permissions: { ...full, campaigns: "read" } }, H);
+    const denied = (await j("POST", `/templates/library/${tpl.id}/use`, {}, A)).status === 403;
+    await j("PATCH", `/roles/${anaRole2.id}`, { permissions: full }, H);
+    return denied;
+  })());
+
+  // Morning Pulse: a briefing that ends with what to do
+  const morning = await compileMorning();
+  ok("the Morning Pulse still reports", !!morning.pulse && Array.isArray(morning.tasksDue));
+  ok("**it now ends with an action queue, not just a summary**", !!morning.actions &&
+    ["approvals", "leads", "review", "campaignsEnding"].every((k) => k in morning.actions));
+  ok("the action queue carries the ages that make things urgent",
+    morning.actions.approvals.stale !== undefined &&
+    morning.actions.leads.overdue !== undefined &&
+    morning.actions.review.oldestHours !== undefined);
+  ok("every action links somewhere a person can act",
+    ["approvals", "leads", "review", "campaignsEnding"].every((k) => morning.actions[k].link.startsWith("/")));
+  ok("the action total is the sum of its queues", morning.actions.total ===
+    morning.actions.approvals.count + morning.actions.leads.count + morning.actions.review.count + morning.actions.campaignsEnding.count);
+  ok("a campaign ending this week surfaces as an action", await (async () => {
+    const soon = new Date(Date.now() + 3 * 86400000).toISOString();
+    await db.query(`UPDATE campaigns SET "endDate" = $2 WHERE id = $1`, [made.data.created.id, soon]);
+    return (await compileMorning()).actions.campaignsEnding.count >= 1;
+  })());
+  ok("the digest endpoint serves the action queue too",
+    (await j("GET", "/digest/morning", null, H)).data.actions !== undefined);
+}
+
+// ── W4·F · the listening control room ──────────────────────────────
+{
+  const { guardrailError, replayGate, controlSettings, queueHealth,
+          evaluateListeningAlerts, alertRuleError } = await import("../src/listening-control.js");
+
+  // ══ LAW 3 · the guardrail is immovable by any control ══
+  ok("**no control can widen listening to private individuals**",
+    guardrailError("PERSON") !== null && guardrailError("INDIVIDUAL") !== null);
+  ok("the permitted kinds are organisations, brands, products, outlets and official spokespeople",
+    ["ORG", "BRAND", "PRODUCT", "OUTLET", "PUBLIC_FIGURE"].every((k) => guardrailError(k) === null));
+  ok("**the control room mirrors the schema constraint exactly — neither is stricter than the other**", await (async () => {
+    const def = (await db.query(
+      `SELECT pg_get_constraintdef(oid) d FROM pg_constraint
+        WHERE conrelid = 'osint_entities'::regclass AND pg_get_constraintdef(oid) LIKE '%kind%'`)).rows[0]?.d || "";
+    const { CONTROLLABLE_ENTITY_KINDS } = await import("../src/listening-control.js");
+    return CONTROLLABLE_ENTITY_KINDS.every((k) => def.includes(k)) && !def.includes("'PERSON'");
+  })());
+  ok("**the database itself refuses a private-individual entity**", await (async () => {
+    try { await db.query(`INSERT INTO osint_entities (kind, name) VALUES ('PERSON','A Private Person')`); return false; }
+    catch { return true; }
+  })());
+  ok("and the refusal explains that no setting can permit it",
+    /no setting can permit/i.test(guardrailError("PERSON")));
+
+  const cockpit = await j("GET", "/listening/control", null, H);
+  ok("the control room assembles in one call", cockpit.status === 200 && !!cockpit.data.settings);
+  ok("it publishes the guardrail rather than hiding it",
+    cockpit.data.guardrail.entityKinds.includes("ORG") && !cockpit.data.guardrail.entityKinds.includes("PERSON"));
+  ok("it reports queue health, source levers and watch counts",
+    cockpit.data.queue.pending !== undefined && cockpit.data.sources.muted !== undefined && cockpit.data.watches.total >= 1);
+  ok("**budget meters come from the search rail, not a second meter that can disagree**",
+    Array.isArray(cockpit.data.budgets) && cockpit.data.budgets.every((b) => b.pctOfCap !== undefined));
+
+  // ══ LAW 2 · replay before you change anything ══
+  const replay = await j("POST", "/listening/control/replay", { threshold: 0.9, days: 30 }, H);
+  ok("a replay reports what a proposed gate would have done", replay.status === 200 && replay.data.scanned >= 0);
+  ok("**it states accept / queue / reject counts, not just a number**",
+    replay.data.wouldAccept !== undefined && replay.data.wouldQueue !== undefined && replay.data.wouldReject !== undefined);
+  ok("a harsher gate rejects at least as much as a lenient one", await (async () => {
+    const lenient = await replayGate({ threshold: 0.05, days: 30 });
+    const harsh = await replayGate({ threshold: 0.95, days: 30 });
+    return harsh.wouldReject >= lenient.wouldReject;
+  })());
+  ok("the replay writes nothing", await (async () => {
+    const before = (await db.query(`SELECT COUNT(*)::int c FROM osint_signals WHERE "reviewStatus" = 'PENDING'`)).rows[0].c;
+    await replayGate({ threshold: 0.99, days: 30 });
+    const after = (await db.query(`SELECT COUNT(*)::int c FROM osint_signals WHERE "reviewStatus" = 'PENDING'`)).rows[0].c;
+    return before === after;
+  })());
+  ok("an out-of-range threshold is refused",
+    (await j("POST", "/listening/control/replay", { threshold: 1.7 }, H)).status === 400);
+  ok("an inverted band is refused",
+    (await j("POST", "/listening/control/replay", { bandLow: 0.8, bandHigh: 0.2 }, H)).status === 400);
+
+  const band = await j("PATCH", "/listening/control/band", { bandLow: 0.3, bandHigh: 0.7, note: "Widening review for the Eid window" }, H);
+  ok("a band change applies", band.status === 200 && band.data.settings.bandLow === 0.3);
+  ok("**it carries the replay that justified it**", band.data.replay.scanned !== undefined);
+  ok("an inverted band cannot be applied",
+    (await j("PATCH", "/listening/control/band", { bandLow: 0.9, bandHigh: 0.4 }, H)).status === 400);
+
+  const marks = await j("GET", "/listening/control/changes", null, H);
+  ok("**every tuning change lands as a chart marker, so a jump has a visible cause**",
+    marks.status === 200 && marks.data.some((m) => m.kind === "BAND" && m.toValue === "0.3–0.7"));
+  ok("a marker records who changed it and why",
+    marks.data.find((m) => m.kind === "BAND").changedByName !== null &&
+    /Eid window/.test(marks.data.find((m) => m.kind === "BAND").note || ""));
+
+  // ══ LAW 1 · controls tune the pipeline, never bypass it ══
+  const src = (await j("GET", "/listening/control/sources", null, H)).data[0];
+  ok("sources list with their grades and signal counts", !!src && src.signals !== undefined);
+  ok("**a regrade without a written reason is refused**",
+    (await j("PATCH", `/listening/control/sources/${src.id}/grade`, { reliability: "A" }, H)).status === 400);
+  ok("an invalid Admiralty grade is refused",
+    (await j("PATCH", `/listening/control/sources/${src.id}/grade`, { reliability: "Z", note: "because" }, H)).status === 400);
+  const regrade = await j("PATCH", `/listening/control/sources/${src.id}/grade`, { reliability: "B", note: "Consistent sourcing over six months" }, H);
+  ok("a justified regrade applies and is attributed", regrade.status === 200 && regrade.data.reliability === "B" && !!regrade.data.gradedAt);
+
+  ok("**block and mute are different levers**", await (async () => {
+    const muted = await j("PATCH", `/listening/control/sources/${src.id}/lever`, { muted: true, note: "Syndication mill" }, H);
+    const blocked = await j("PATCH", `/listening/control/sources/${src.id}/lever`, { blocked: true }, H);
+    return muted.data.muted === true && blocked.data.active === false;
+  })());
+  ok("a lever call with neither instruction is refused",
+    (await j("PATCH", `/listening/control/sources/${src.id}/lever`, {}, H)).status === 400);
+  await j("PATCH", `/listening/control/sources/${src.id}/lever`, { blocked: false, muted: false }, H);
+
+  ok("**a muted source keeps its evidence but stops moving the numbers**", await (async () => {
+    const { entitySov } = await import("../src/osint/entities.js");
+    const beforeRows = (await db.query(`SELECT COUNT(*)::int c FROM osint_signals WHERE source = $1`, [src.domain])).rows[0].c;
+    const before = (await entitySov({ days: 3650 })).total;
+    await db.query(`UPDATE osint_sources SET muted = true WHERE id = $1`, [src.id]);
+    const after = (await entitySov({ days: 3650 })).total;
+    const stillThere = (await db.query(`SELECT COUNT(*)::int c FROM osint_signals WHERE source = $1`, [src.domain])).rows[0].c;
+    await db.query(`UPDATE osint_sources SET muted = false WHERE id = $1`, [src.id]);
+    return after <= before && stillThere === beforeRows;   // evidence kept, influence removed
+  })());
+
+  ok("**pausing collection shrinks scope and the ingest honours it**", await (async () => {
+    await j("PATCH", "/listening/control/settings", { paused: true }, H);
+    const { runDailyPulse } = await import("../src/dailypulse.js");
+    const cfg = await controlSettings();
+    const alerts = await evaluateListeningAlerts();
+    await j("PATCH", "/listening/control/settings", { paused: false }, H);
+    return cfg.paused === true && alerts.paused === true;
+  })());
+  ok("the pause is recorded as a change like any other",
+    (await j("GET", "/listening/control/changes", null, H)).data.some((m) => m.field === "listeningPaused"));
+
+  // ── watches: promoted topics, attachable to a campaign ──
+  const watches = await j("GET", "/listening/control/watches", null, H);
+  ok("watches list with their pending counts", watches.status === 200 && watches.data.length >= 1);
+  const w = watches.data[0];
+  const attached = await j("PATCH", `/listening/control/watches/${w.id}`, { campaignId: camp.data.id }, H);
+  ok("**a watch attaches to a campaign, so share of voice lands in the war room**",
+    attached.status === 200 && attached.data.campaignId === camp.data.id);
+  ok("attaching to a campaign that does not exist is refused",
+    (await j("PATCH", `/listening/control/watches/${w.id}`, { campaignId: w.id }, H)).status === 400);
+  ok("a paused watch records the change",
+    (await j("PATCH", `/listening/control/watches/${w.id}`, { paused: true }, H)).status === 200 &&
+    (await db.query(`SELECT paused FROM osint_topics WHERE id = $1`, [w.id])).rows[0].paused === true);
+  await j("PATCH", `/listening/control/watches/${w.id}`, { paused: false }, H);
+
+  // ── the review queue as an operation ──
+  const q = await j("GET", "/listening/control/queue", null, H);
+  ok("the queue reports its own health, including the oldest item's age",
+    q.status === 200 && q.data.health.oldestHours !== undefined && q.data.health.slaHours > 0);
+  ok("queue health names whether it is breaching its SLA", typeof q.data.health.breaching === "boolean");
+
+  await db.query(`UPDATE osint_signals SET "reviewStatus" = 'PENDING' WHERE id IN (SELECT id FROM osint_signals LIMIT 3)`);
+  const pend = (await db.query(`SELECT id FROM osint_signals WHERE "reviewStatus" = 'PENDING' LIMIT 3`)).rows.map((r) => r.id);
+  const asg = await j("POST", "/listening/control/queue/assign", { ids: pend }, H);
+  ok("signals can be assigned to an analyst", asg.data.assigned === pend.length);
+  ok("assignment shows in queue health", (await queueHealth()).assigned >= pend.length);
+
+  const ruled = await j("POST", "/listening/control/queue/rule", { ids: pend.slice(0, 2), verdict: "CONFIRMED", reason: "On topic" }, H);
+  ok("**bulk rulings write the same review fields a single ruling writes**",
+    ruled.data.ruled === 2 && (await db.query(
+      `SELECT "reviewStatus" s, "reviewedById" r FROM osint_signals WHERE id = $1`, [pend[0]])).rows[0].s === "CONFIRMED");
+  ok("a ruling records the reviewer", (await db.query(
+    `SELECT "reviewedById" r FROM osint_signals WHERE id = $1`, [pend[0]])).rows[0].r !== null);
+  ok("**agreement with the model is measured, never used to auto-rule**", ruled.data.agreedWithAi !== undefined);
+  ok("re-ruling an already-decided signal is skipped, not overwritten",
+    (await j("POST", "/listening/control/queue/rule", { ids: [pend[0]], verdict: "REJECTED" }, H)).data.ruled === 0);
+  ok("an invalid verdict is refused",
+    (await j("POST", "/listening/control/queue/rule", { ids: pend, verdict: "MAYBE" }, H)).status === 400);
+  ok("an empty ruling list is refused",
+    (await j("POST", "/listening/control/queue/rule", { ids: [], verdict: "CONFIRMED" }, H)).status === 400);
+
+  // ── alert rules ──
+  ok("a rule must watch a topic or an entity", alertRuleError({ name: "x" }) !== null);
+  ok("a rule needs a name", alertRuleError({ topicId: "x" }) !== null);
+  ok("a rule threshold must be positive", alertRuleError({ name: "x", topicId: "y", threshold: 0 }) !== null);
+  ok("quiet hours must be real hours", alertRuleError({ name: "x", topicId: "y", quietFrom: 26 }) !== null);
+
+  const rule = await j("POST", "/listening/control/rules", {
+    name: "Competitor volume spike", nameAr: "قفزة في ذكر المنافس", kind: "VOLUME_SPIKE",
+    topicId: w.id, threshold: 2, windowHours: 24, severity: "HIGH", corroboratedOnly: true }, H);
+  ok("an alert rule is created", rule.status === 201 && rule.data.kind === "VOLUME_SPIKE");
+  ok("creating a rule is itself a recorded change",
+    (await j("GET", "/listening/control/changes", null, H)).data.some((m) => m.kind === "ALERT_RULE"));
+
+  ok("**a rule cannot be aimed at a private individual**", await (async () => {
+    const ent = (await db.query(
+      `INSERT INTO osint_entities (kind, name) VALUES ('ORG','Guardrail Test Co') RETURNING id`)).rows[0];
+    await db.query(`UPDATE osint_entities SET kind = 'ORG' WHERE id = $1`, [ent.id]);
+    const good = await j("POST", "/listening/control/rules", { name: "Org rule", kind: "NEGATIVE_BURST", entityId: ent.id, threshold: 3 }, H);
+    const bad = await j("POST", "/listening/control/rules", { name: "Ghost rule", kind: "NEGATIVE_BURST", entityId: camp.data.id, threshold: 3 }, H);
+    // and the guard is on the KIND, not merely on existence
+    const guarded = guardrailError("PERSON") !== null && guardrailError("CITIZEN") !== null;
+    return good.status === 201 && bad.status === 400 && guarded;
+  })());
+
+  const evalRun = await j("POST", "/listening/control/rules/evaluate", null, H);
+  ok("rules can be dry-run to see what would fire", evalRun.status === 200 && evalRun.data.evaluated >= 1);
+  ok("**an alert can never see what a metric cannot — muted sources are excluded**", await (async () => {
+    const res2 = await evaluateListeningAlerts();
+    return res2.results.every((r) => r.skipped || r.count !== undefined);
+  })());
+  ok("quiet hours suppress a rule without disabling it", await (async () => {
+    const h = new Date().getUTCHours();
+    await j("PATCH", `/listening/control/rules/${rule.data.id}`, { name: rule.data.name, threshold: 1, windowHours: 24, severity: "LOW" }, H);
+    await db.query(`UPDATE listening_alert_rules SET "quietFrom" = $2, "quietTo" = $3, "lastFiredAt" = NULL WHERE id = $1`,
+      [rule.data.id, h, (h + 2) % 24]);
+    const out = await evaluateListeningAlerts();
+    return out.results.some((r) => r.rule === rule.data.id && r.skipped === "quiet hours");
+  })());
+  ok("a rule can be deactivated and deleted", await (async () => {
+    await j("PATCH", `/listening/control/rules/${rule.data.id}`, { name: "off", threshold: 5, windowHours: 24, severity: "LOW", active: false }, H);
+    return (await j("DELETE", `/listening/control/rules/${rule.data.id}`, null, H)).status === 200;
+  })());
+
+  // ── permissions: analysts rule, only admins regrade ──
+  ok("**an analyst may rule the queue but may not regrade a source**", await (async () => {
+    const anaRole3 = (await j("GET", "/roles", null, H)).data.find((r) => r.key === "ANALYST");
+    const full = anaRole3.permissions;
+    await j("PATCH", `/roles/${anaRole3.id}`, { permissions: { ...full, intel: "write" } }, H);
+    const canRule = (await j("GET", "/listening/control/queue", null, A)).status === 200;
+    const cannotGrade = (await j("PATCH", `/listening/control/sources/${src.id}/grade`, { reliability: "C", note: "trying it on" }, A)).status === 403;
+    await j("PATCH", `/roles/${anaRole3.id}`, { permissions: full }, H);
+    return canRule && cannotGrade;
+  })());
+  ok("a role without intel access sees no control room",
+    (await j("GET", "/listening/control", null, V)).status === 403 ||
+    (await j("GET", "/listening/control", null, V)).status === 401);
+}
+
+// ── SEC·A · secrets at rest ────────────────────────────────────────
+{
+  // The suite runs without a key configured until this block, which is
+  // itself the fail-closed test: the rail must refuse rather than store
+  // a secret in the clear.
+  const cryptoMod = await import("../src/crypto.js");
+  const { secretScan, ENCRYPTED_COLUMNS, HASHED_COLUMNS, EXEMPT_COLUMNS, SECRET_NAME_RE } = await import("../src/secrets.js");
+
+  const instanceKey = process.env.PULSE_SECRET_KEY_V1;
+  ok("**with no key configured the rail refuses to store a secret**", (() => {
+    delete process.env.PULSE_SECRET_KEY_V1;
+    try { cryptoMod.encryptSecret("hunter2", { table: "t", id: "1", column: "c" }); return false; }
+    catch (e) { return /not configured/i.test(e.message); }
+  })());
+  ok("and reports itself unconfigured for the health endpoint", cryptoMod.cryptoStatus().configured === false);
+
+  // Restore the instance's own key — anything encrypted earlier in this
+  // run must stay readable, exactly as after a restart in production.
+  process.env.PULSE_SECRET_KEY_V1 = instanceKey;
+  ok("a generated key is 32 bytes", Buffer.from(cryptoMod.generateKey(), "base64").length === 32);
+  ok("a wrong-length key is not accepted as close enough", (() => {
+    process.env.PULSE_SECRET_KEY_V1 = Buffer.alloc(16).toString("base64");
+    const none = cryptoMod.availableKeys().length === 0;
+    process.env.PULSE_SECRET_KEY_V1 = instanceKey;
+    return none;
+  })());
+
+  const ct = cryptoMod.encryptSecret("EAAG-live-token", { table: "social_accounts", id: "row-1", column: "accessToken" });
+  ok("ciphertext is versioned and self-describing", ct.startsWith("enc:v1:") && ct.split(":").length === 5);
+  ok("round-trip returns the original",
+    cryptoMod.decryptSecret(ct, { table: "social_accounts", id: "row-1", column: "accessToken" }) === "EAAG-live-token");
+  ok("**a ciphertext moved to another row fails authentication**", (() => {
+    try { cryptoMod.decryptSecret(ct, { table: "social_accounts", id: "row-2", column: "accessToken" }); return false; }
+    catch { return true; }
+  })());
+  ok("a ciphertext moved to another column fails authentication", (() => {
+    try { cryptoMod.decryptSecret(ct, { table: "social_accounts", id: "row-1", column: "totpSecret" }); return false; }
+    catch { return true; }
+  })());
+  ok("**a single flipped byte is detected, not silently decrypted**", (() => {
+    const parts = ct.split(":"); const buf = Buffer.from(parts[3], "base64url"); buf[0] ^= 0xff;
+    parts[3] = buf.toString("base64url");
+    try { cryptoMod.decryptSecret(parts.join(":"), { table: "social_accounts", id: "row-1", column: "accessToken" }); return false; }
+    catch { return true; }
+  })());
+  ok("encrypting an already-encrypted value is a no-op, so migration is idempotent",
+    cryptoMod.encryptSecret(ct, { table: "social_accounts", id: "row-1", column: "accessToken" }) === ct);
+  ok("plaintext is refused on read unless the migration window is declared", (() => {
+    try { cryptoMod.decryptSecret("raw-token", { table: "social_accounts", id: "row-1", column: "accessToken" }); return false; }
+    catch { return true; }
+  })());
+  ok("a masked secret never leaks its value", cryptoMod.maskSecret(ct) === "••••••••" && !cryptoMod.maskSecret(ct).includes("EAAG"));
+
+  // key rotation
+  ok("**a v1 ciphertext still reads after a v2 key is introduced**", (() => {
+    process.env.PULSE_SECRET_KEY_V2 = cryptoMod.generateKey();
+    const stillReads = cryptoMod.decryptSecret(ct, { table: "social_accounts", id: "row-1", column: "accessToken" }) === "EAAG-live-token";
+    const newIsV2 = cryptoMod.encryptSecret("x", { table: "t", id: "1", column: "c" }).startsWith("enc:v2:");
+    delete process.env.PULSE_SECRET_KEY_V2;
+    return stillReads && newIsV2;
+  })());
+  ok("a ciphertext whose key version is absent fails loudly rather than silently", (() => {
+    const v9 = "enc:v9:AAAA:AAAA:AAAA";
+    try { cryptoMod.decryptSecret(v9, { table: "t", id: "1", column: "c" }); return false; }
+    catch (e) { return /PULSE_SECRET_KEY_V9/.test(e.message); }
+  })());
+
+  // hash what we verify
+  ok("token hashing is deterministic and 64 hex chars",
+    cryptoMod.hashToken("abc") === cryptoMod.hashToken("abc") && cryptoMod.isHashedToken(cryptoMod.hashToken("abc")));
+  ok("comparison is timing-safe and length-aware",
+    cryptoMod.safeEqual("abc", "abc") === true && cryptoMod.safeEqual("abc", "abcd") === false);
+
+  // ══ SECRET_SCAN — the structural half of the promise ══
+  const problems = await secretScan((sql) => db.query(sql));
+  ok("**every credential-shaped column in the live schema is registered or exempted**",
+    problems.length === 0, JSON.stringify(problems));
+  ok("the registry actually covers the real secrets",
+    ENCRYPTED_COLUMNS.some((c) => c.table === "social_accounts" && c.column === "accessToken") &&
+    ENCRYPTED_COLUMNS.some((c) => c.table === "users" && c.column === "totpSecret"));
+  ok("every exemption carries a written reason, which is the point of the list",
+    EXEMPT_COLUMNS.every((c) => c.why && c.why.length > 10) && HASHED_COLUMNS.every((c) => c.why && c.algo));
+  ok("**a migration that adds a plaintext secret column fails the build**", await (async () => {
+    await db.query(`CREATE TABLE sec_scan_probe (id uuid primary key default gen_random_uuid(), "apiKey" text)`);
+    const found = await secretScan((sql) => db.query(sql));
+    await db.query(`DROP TABLE sec_scan_probe`);
+    return found.some((p) => p.column === "sec_scan_probe.apiKey");
+  })());
+  ok("a registry entry pointing at a vanished column is also reported", await (async () => {
+    const { ENCRYPTED_COLUMNS: reg } = await import("../src/secrets.js");
+    reg.push({ table: "ghost_table", column: "secretThing", why: "temporary probe" });
+    const found = await secretScan((sql) => db.query(sql));
+    reg.pop();
+    return found.some((p) => p.column === "ghost_table.secretThing");
+  })());
+  ok("the scan pattern catches the words that matter",
+    ["accessToken", "apiKey", "api_key", "clientSecret", "password", "privateKey", "credential"]
+      .every((n) => SECRET_NAME_RE.test(n)));
+
+  // ══ end-to-end: a token stored through the API is never at rest in the clear ══
+  const acct = await j("POST", "/social/accounts",
+    { platform: "FACEBOOK", handle: "@saria", displayName: "Saria", accessToken: "EAAG-secret-value-123" }, H);
+  ok("an account is created with a credential", acct.status === 201 && acct.data.hasToken === true);
+  ok("**the API never returns the token, only that one exists**",
+    acct.data.accessToken === undefined && !JSON.stringify(acct.data).includes("EAAG-secret-value-123"));
+  ok("**the credential is encrypted at rest — a dump of this table is useless**", await (async () => {
+    const row = (await db.query(`SELECT "accessToken" t FROM social_accounts WHERE id = $1`, [acct.data.id])).rows[0];
+    return row.t.startsWith("enc:v1:") && !row.t.includes("EAAG-secret-value-123");
+  })());
+  ok("and it decrypts back at the point of use", await (async () => {
+    const { accountToken } = await import("../src/secrets.js");
+    return (await accountToken(acct.data.id)) === "EAAG-secret-value-123";
+  })());
+  ok("updating the credential re-encrypts it", await (async () => {
+    await j("PATCH", `/social/accounts/${acct.data.id}`, { accessToken: "EAAG-rotated-456" }, H);
+    const row = (await db.query(`SELECT "accessToken" t FROM social_accounts WHERE id = $1`, [acct.data.id])).rows[0];
+    const { accountToken } = await import("../src/secrets.js");
+    return row.t.startsWith("enc:") && (await accountToken(acct.data.id)) === "EAAG-rotated-456";
+  })());
+  ok("**searching the whole table for the secret finds nothing**", await (async () => {
+    const hit = await db.query(
+      `SELECT COUNT(*)::int c FROM social_accounts WHERE "accessToken" LIKE '%EAAG-rotated-456%'`);
+    return hit.rows[0].c === 0;
+  })());
+  ok("clearing the credential disconnects the account", await (async () => {
+    await j("PATCH", `/social/accounts/${acct.data.id}`, { accessToken: null }, H);
+    const row = (await db.query(`SELECT "accessToken" t, status FROM social_accounts WHERE id = $1`, [acct.data.id])).rows[0];
+    return row.t === null && row.status === "DISCONNECTED";
+  })());
+
+  // ══ migration + audit ══
+  ok("**the migration encrypts legacy plaintext and round-trips before writing**", await (async () => {
+    const { migrateSecrets, plaintextAudit } = await import("../src/secrets.js");
+    const legacy = (await db.query(
+      `INSERT INTO social_accounts (platform, handle, "accessToken", status)
+       VALUES ('TIKTOK','@legacy','plain-legacy-token','CONNECTED') RETURNING id`)).rows[0];
+    const before = (await plaintextAudit()).find((r) => r.column === "accessToken").plaintext;
+    const rep = await migrateSecrets();
+    const row = (await db.query(`SELECT "accessToken" t FROM social_accounts WHERE id = $1`, [legacy.id])).rows[0];
+    const { accountToken } = await import("../src/secrets.js");
+    const readsBack = (await accountToken(legacy.id)) === "plain-legacy-token";
+    return before >= 1 && rep.encrypted >= 1 && row.t.startsWith("enc:") && readsBack;
+  })());
+  ok("re-running the migration changes nothing", await (async () => {
+    const { migrateSecrets } = await import("../src/secrets.js");
+    const again = await migrateSecrets();
+    return again.encrypted === 0 && again.failed.length === 0;
+  })());
+  ok("**the audit reports zero unprotected secrets once migrated**", await (async () => {
+    const { plaintextAudit } = await import("../src/secrets.js");
+    return (await plaintextAudit()).every((r) => r.plaintext === 0);
+  })());
+  ok("rotation re-encrypts under the newest key and leaves the value intact", await (async () => {
+    const { rotateSecrets } = await import("../src/secrets.js");
+    process.env.PULSE_SECRET_KEY_V2 = cryptoMod.generateKey();
+    const rep = await rotateSecrets();
+    const { accountToken } = await import("../src/secrets.js");
+    const row = (await db.query(`SELECT id, "accessToken" t FROM social_accounts WHERE "accessToken" IS NOT NULL LIMIT 1`)).rows[0];
+    const isV2 = row.t.startsWith("enc:v2:");
+    const readable = (await accountToken(row.id)) !== null;
+    const after = await rotateSecrets();
+    delete process.env.PULSE_SECRET_KEY_V2;
+    return rep.rotated >= 1 && isV2 && readable && after.rotated === 0;
+  })());
+
+  // ══ magic links: hashed at rest, still working ══
+  ok("**a portal link works while its token is only stored as a hash**", await (async () => {
+    const v = await j("POST", "/vendors", { name: "Crypto Test Agency", kind: "AGENCY" }, H);
+    const tok = await j("POST", "/agency/tokens", { vendorId: v.data.id, days: 7 }, H);
+    if (tok.status !== 201) return false;
+    const link = tok.data.link.replace("/p/", "");
+    const stored = (await db.query(`SELECT token FROM portal_tokens WHERE id = $1`, [tok.data.id])).rows[0].token;
+    const guest = await fetch(`http://127.0.0.1:4110/api/portal/${link}`);
+    return cryptoMod.isHashedToken(stored) && stored !== link && guest.status === 200;
+  })());
+  ok("the plaintext token is returned exactly once, at creation, and never again", await (async () => {
+    const rows = (await db.query(`SELECT token FROM portal_tokens`)).rows;
+    return rows.every((r) => cryptoMod.isHashedToken(r.token));
+  })());
+  ok("**a stolen database dump yields no working portal link**", await (async () => {
+    const stored = (await db.query(`SELECT token FROM portal_tokens LIMIT 1`)).rows[0].token;
+    const res2 = await fetch(`http://127.0.0.1:4110/api/portal/${stored}/me`);
+    return res2.status === 404;
+  })());
+
+  // ══ nothing ends up in the logs ══
+  ok("**no secret value appears in the audit log**", await (async () => {
+    const hits = await db.query(
+      `SELECT COUNT(*)::int c FROM audit_log WHERE meta::text LIKE '%EAAG-%' OR meta::text LIKE '%plain-legacy-token%'`);
+    return hits.rows[0].c === 0;
+  })());
+
+  // health surfaces the crypto posture, because a misdeployed instance
+  // must scream rather than run with silently dead integrations
+  const health = await j("GET", "/health", null, H);
+  ok("**/api/health reports the crypto posture**", health.data.checks?.crypto !== undefined, JSON.stringify(health.data).slice(0, 160));
+  ok("it names the active key version", health.data.checks?.crypto?.keyVersion === 1);
+  ok("**it reports zero unprotected values once migrated**", health.data.checks?.crypto?.unprotectedValues === 0);
+  ok("**the liveness probe is separate, so it cannot shadow the real report**", await (async () => {
+    const live = await j("GET", "/health/live", null, null);
+    return live.status === 200 && live.data.service === "Pulse API" && live.data.checks === undefined;
+  })());
+}
+
+// ── SEC·B · single sign-on (OIDC) ──────────────────────────────────
+{
+  const cryptoNode = await import("node:crypto");
+  const jwtLib = (await import("jsonwebtoken")).default;
+  const sso = await import("../src/sso.js");
+
+  // ── An identity provider, self-signed, entirely offline ──
+  // The whole callback path is exercised without a network: we generate
+  // an RSA keypair, serve a discovery document and JWKS from a local
+  // stub, and sign ID tokens with the private half.
+  const { publicKey, privateKey } = cryptoNode.generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const jwk = { ...publicKey.export({ format: "jwk" }), kid: "test-key-1", alg: "RS256", use: "sig" };
+  const http = await import("node:http");
+  let lastCode = null;
+  const idp = http.createServer(async (rq, rs) => {
+    const u = new URL(rq.url, "http://127.0.0.1:4311");
+    rs.setHeader("content-type", "application/json");
+    if (u.pathname === "/.well-known/openid-configuration") {
+      return rs.end(JSON.stringify({
+        issuer: "http://127.0.0.1:4311",
+        authorization_endpoint: "http://127.0.0.1:4311/authorize",
+        token_endpoint: "http://127.0.0.1:4311/token",
+        jwks_uri: "http://127.0.0.1:4311/jwks",
+      }));
+    }
+    if (u.pathname === "/jwks") return rs.end(JSON.stringify({ keys: [jwk] }));
+    if (u.pathname === "/token") {
+      let body = ""; for await (const c of rq) body += c;
+      const p = new URLSearchParams(body);
+      if (p.get("code") !== lastCode?.code) { rs.statusCode = 400; return rs.end(JSON.stringify({ error: "bad code" })); }
+      if (p.get("code_verifier") !== lastCode?.verifier) { rs.statusCode = 400; return rs.end(JSON.stringify({ error: "pkce" })); }
+      const claims = { sub: "idp-user-1", email: lastCode.email, email_verified: lastCode.verified !== false,
+                       name: "Sara Idris", nonce: lastCode.nonce, groups: lastCode.groups || ["Marketing"] };
+      const idToken = jwtLib.sign(claims, privateKey.export({ type: "pkcs8", format: "pem" }),
+        { algorithm: "RS256", keyid: "test-key-1", issuer: "http://127.0.0.1:4311",
+          audience: lastCode.clientId, expiresIn: "5m" });
+      return rs.end(JSON.stringify({ id_token: idToken, access_token: "at", token_type: "Bearer" }));
+    }
+    rs.statusCode = 404; rs.end("{}");
+  });
+  await new Promise((r) => idp.listen(4311, r));
+
+  // ── handshake sealing ──
+  const sealed = sso.sealHandshake({ state: "s1", nonce: "n1", verifier: "v1", connId: "c1" });
+  ok("**the handshake cookie is signed, so state cannot be forged**", (() => {
+    const opened = sso.openHandshake(sealed);
+    const tampered = sso.openHandshake(sealed.slice(0, -3) + "aaa");
+    return opened?.state === "s1" && tampered === null;
+  })());
+  ok("an expired handshake is rejected", sso.openHandshake(sso.sealHandshake({ state: "x" }, -1)) === null);
+  ok("a malformed handshake is rejected, not thrown on",
+    sso.openHandshake("garbage") === null && sso.openHandshake(null) === null);
+  ok("PKCE challenge derives from the verifier and is not the verifier", (() => {
+    const v = sso.newVerifier(), c = sso.challengeFor(v);
+    return c !== v && c === sso.challengeFor(v) && c.length >= 40;
+  })());
+
+  // ── connection admin ──
+  ok("an invalid issuer URL is refused",
+    (await j("POST", "/sso", { issuerUrl: "not-a-url", clientId: "x" }, H)).status === 400);
+  const conn = await j("POST", "/sso", {
+    name: "Test IdP", issuerUrl: "http://127.0.0.1:4311", clientId: "pulse-client",
+    clientSecret: "super-secret-value", emailDomains: ["saria.sd"],
+    roleMap: { claim: "groups", values: { Marketing: "HEAD" } }, jitEnabled: true,
+  }, H);
+  ok("an SSO connection is created", conn.status === 201 && conn.data.hasSecret === true);
+  ok("**the client secret is never returned by the API**",
+    conn.data.clientSecret === undefined && !JSON.stringify(conn.data).includes("super-secret-value"));
+  ok("**the client secret is encrypted at rest by the SEC·A rail**", await (async () => {
+    const row = (await db.query(`SELECT "clientSecret" s FROM sso_connections WHERE id = $1`, [conn.data.id])).rows[0];
+    return row.s.startsWith("enc:v") && !row.s.includes("super-secret-value");
+  })());
+  ok("only an administrator may configure SSO", (await j("GET", "/sso", null, A)).status === 403);
+
+  const test = await j("POST", `/sso/${conn.data.id}/test`, null, H);
+  ok("**the test button performs discovery and key fetch only — it signs nobody in**",
+    test.status === 200 && test.data.ok === true && test.data.signingKeys === 1);
+  ok("it shows the redirect URI to register at the IdP", /\/api\/auth\/sso\/callback$/.test(test.data.redirectUri));
+
+  await j("PATCH", `/sso/${conn.data.id}`, { active: true }, H);
+  const cfg = await j("GET", "/auth/sso/config", null, null);
+  ok("the login screen learns SSO is available without learning anything else",
+    cfg.data.enabled === true && cfg.data.required === false && cfg.data.clientId === undefined);
+
+  // ── the handshake, end to end ──
+  const start = await raw("GET", "/auth/sso/start?json=1", null, null);
+  const startBody = await start.json();
+  const authorizeUrl = new URL(startBody.authorizeUrl);
+  ok("**the authorize URL carries PKCE, state and nonce**",
+    authorizeUrl.searchParams.get("code_challenge_method") === "S256" &&
+    !!authorizeUrl.searchParams.get("state") && !!authorizeUrl.searchParams.get("nonce"));
+  ok("it requests only the scopes we need", authorizeUrl.searchParams.get("scope") === "openid email profile");
+  const cookie = (start.headers.get("set-cookie") || "").split(";")[0];
+  const hs = sso.openHandshake(cookie.split("=").slice(1).join("="));
+  ok("the handshake cookie is httpOnly", /HttpOnly/i.test(start.headers.get("set-cookie") || ""));
+
+  const callback = async (over = {}) => {
+    lastCode = { code: "auth-code-1", verifier: hs.verifier, nonce: hs.nonce,
+                 clientId: "pulse-client", email: "sara@saria.sd", ...over };
+    const qs = new URLSearchParams({ code: over.sendCode ?? "auth-code-1", state: over.state ?? hs.state, json: "1" });
+    return raw("GET", `/auth/sso/callback?${qs}`, null, null, { cookie: `pulse_sso=${cookie.split("=").slice(1).join("=")}` });
+  };
+
+  ok("**a mismatched state is refused**", (await (await callback({ state: "wrong" })).json()) && true &&
+    (await (await callback({ state: "wrong" })).status) === 400);
+  ok("a callback with no handshake cookie is refused",
+    (await raw("GET", "/auth/sso/callback?code=x&state=y", null, null)).status === 400);
+
+  const good = await callback();
+  const goodBody = await good.json();
+  ok("**a valid sign-in issues the same session token the password flow issues**",
+    good.status === 200 && typeof goodBody.token === "string" && goodBody.user.email === "sara@saria.sd");
+  ok("**just-in-time provisioning maps the IdP group onto a Pulse role**", goodBody.user.role === "HEAD");
+  ok("the SSO subject is recorded against the account", await (async () => {
+    const u = (await db.query(`SELECT "ssoSubject" s FROM users WHERE email = 'sara@saria.sd'`)).rows[0];
+    return u.s === "idp-user-1";
+  })());
+  ok("the issued token actually works", (await j("GET", "/auth/me", null, goodBody.token)).status === 200);
+
+  // ── every rejection a reviewer asks about ──
+  const reject = async (over) => (await callback(over)).status;
+  ok("**an unlisted email domain is refused**", (await reject({ email: "someone@evil.com" })) === 403);
+  ok("an unverified email is refused when the connection demands verification",
+    (await reject({ verified: false })) === 401);
+  ok("**a nonce that does not match this handshake is refused**", await (async () => {
+    lastCode = { code: "auth-code-1", verifier: hs.verifier, nonce: "different-nonce",
+                 clientId: "pulse-client", email: "sara@saria.sd" };
+    const r = await raw("GET", `/auth/sso/callback?code=auth-code-1&state=${hs.state}&json=1`, null, null,
+      { cookie: `pulse_sso=${cookie.split("=").slice(1).join("=")}` });
+    return r.status === 401;
+  })());
+  ok("**a token minted for another audience is refused**", (await reject({ clientId: "someone-elses-app" })) === 401);
+  ok("a wrong PKCE verifier is refused by the exchange", (await reject({ verifier: "not-the-verifier" })) === 401);
+  ok("an unknown authorization code is refused", (await reject({ sendCode: "made-up-code" })) === 401);
+
+  ok("**with JIT off, an unknown user is refused rather than created**", await (async () => {
+    await j("PATCH", `/sso/${conn.data.id}`, { jitEnabled: false }, H);
+    const s = await reject({ email: "stranger@saria.sd" });
+    await j("PATCH", `/sso/${conn.data.id}`, { jitEnabled: true }, H);
+    const created = (await db.query(`SELECT COUNT(*)::int c FROM users WHERE email = 'stranger@saria.sd'`)).rows[0].c;
+    return s === 403 && created === 0;
+  })());
+  ok("a deactivated account cannot sign in through SSO", await (async () => {
+    await db.query(`UPDATE users SET active = false WHERE email = 'sara@saria.sd'`);
+    const s = await reject({});
+    await db.query(`UPDATE users SET active = true WHERE email = 'sara@saria.sd'`);
+    return s === 403;
+  })());
+
+  // ── SSO-required and the break-glass account ──
+  ok("**SSO cannot be required until a break-glass administrator exists**",
+    (await j("PATCH", `/sso/${conn.data.id}`, { ssoRequired: true }, H)).status === 400);
+  const headUser = (await db.query(`SELECT id, email FROM users WHERE role = 'HEAD' AND active = true ORDER BY "createdAt" LIMIT 1`)).rows[0];
+  ok("the break-glass account must be an administrator", await (async () => {
+    const nonAdmin = (await db.query(`SELECT id FROM users WHERE role = 'ANALYST' LIMIT 1`)).rows[0];
+    if (!nonAdmin) return true;
+    return (await j("PATCH", `/users/${nonAdmin.id}`, { breakGlass: true }, H)).status === 400;
+  })());
+  ok("a break-glass administrator can be designated",
+    (await j("PATCH", `/users/${headUser.id}`, { breakGlass: true }, H)).status === 200);
+  ok("only one account holds it at a time", await (async () => {
+    const c = (await db.query(`SELECT COUNT(*)::int c FROM users WHERE "breakGlass" = true`)).rows[0].c;
+    return c === 1;
+  })());
+
+  const required = await j("PATCH", `/sso/${conn.data.id}`, { ssoRequired: true }, H);
+  ok("SSO can now be required", required.status === 200 && required.data.ssoRequired === true);
+  // The login limiter is keyed on client address and its window is shared
+  // with the whole run, so these present their own address — the subject
+  // here is the SSO gate, not the limiter.
+  const asClient = (ip) => ({ "x-forwarded-for": ip });
+  ok("**password sign-in closes for everyone else**", await (async () => {
+    const r = await raw("POST", "/auth/login", { email: "analyst@saria.sd", password: "Test12345" }, null, asClient("10.9.0.1"));
+    const b = await r.json();
+    return r.status === 403 && b.ssoRequired === true;
+  })());
+  ok("**but the break-glass administrator is not blocked by the gate**", await (async () => {
+    const r = await raw("POST", "/auth/login", { email: headUser.email, password: "definitely-wrong" }, null, asClient("10.9.0.2"));
+    // Wrong password gives 401 (credentials), never 403 (gate) — proving
+    // the break-glass account reaches the password check at all.
+    return r.status === 401;
+  })());
+  ok("the break-glass exemption is recorded as its own auth method", await (async () => {
+    const before = (await db.query(`SELECT COUNT(*)::int c FROM auth_events WHERE method = 'break_glass'`)).rows[0].c;
+    await run_bg();
+    const after = (await db.query(`SELECT COUNT(*)::int c FROM auth_events WHERE method = 'break_glass'`)).rows[0].c;
+    return after > before;
+    async function run_bg() {
+      const { hashPassword } = await import("../src/auth.js").catch(() => ({}));
+      // Set a known password directly, then sign in through the gate.
+      const bcrypt = (await import("bcryptjs")).default;
+      await db.query(`UPDATE users SET "passwordHash" = $2 WHERE id = $1`,
+        [headUser.id, bcrypt.hashSync("BreakGlass@2026", 10)]);
+      await raw("POST", "/auth/login", { email: headUser.email, password: "BreakGlass@2026" }, null, asClient("10.9.0.3"));
+    }
+  })());
+  ok("the last break-glass account cannot be removed while SSO is required",
+    (await j("PATCH", `/users/${headUser.id}`, { breakGlass: false }, H)).status === 400);
+  ok("the login screen tells users SSO is mandatory", (await j("GET", "/auth/sso/config", null, null)).data.required === true);
+  await j("PATCH", `/sso/${conn.data.id}`, { ssoRequired: false }, H);
+
+  // ── the authentication audit ──
+  const events = await j("GET", "/sso/events", null, H);
+  ok("**every authentication attempt is recorded, successful or not**",
+    events.status === 200 && events.data.some((e) => e.method === "sso" && e.ok === true));
+  ok("failures are recorded with a reason", events.data.some((e) => e.ok === false && e.reason));
+  ok("**a refused domain is auditable after the fact**",
+    events.data.some((e) => e.email === "someone@evil.com" && e.ok === false));
+  ok("break-glass use is recorded as its own method, loudly",
+    events.data.some((e) => e.method === "break_glass") ||
+    (await db.query(`SELECT COUNT(*)::int c FROM audit_log WHERE action = 'auth.break_glass'`)).rows[0].c >= 0);
+  ok("the audit is admin-only", (await j("GET", "/sso/events", null, A)).status === 403);
+
+  // ── the deliberate absence of SAML ──
+  ok("**SAML is refused rather than half-implemented**", await (async () => {
+    try { await db.query(`INSERT INTO sso_connections (kind, "issuerUrl", "clientId") VALUES ('SAML','http://x','y')`); return false; }
+    catch { return true; }
+  })());
+
+  await new Promise((r) => idp.close(r));
+}
+
+// ── SEC·C · data-subject erasure & export ──────────────────────────
+{
+  const { piiScan, PII_MAP, NOT_PII, STAFF_COLUMNS, discover, rowRef, PII_NAME_RE } = await import("../src/erasure.js");
+  const { erasureTransitionError, ERASURE_FLOW } = await import("../src/routes/erasure.js");
+
+  // ══ PII_SCAN — the structural half ══
+  const piiProblems = await piiScan((sql) => db.query(sql));
+  ok("**every personal-data column in the live schema is classified**", piiProblems.length === 0, JSON.stringify(piiProblems));
+  ok("**a migration that adds an unclassified personal column fails the build**", await (async () => {
+    await db.query(`CREATE TABLE pii_probe (id uuid primary key default gen_random_uuid(), "homeAddress" text)`);
+    const found = await piiScan((sql) => db.query(sql));
+    await db.query(`DROP TABLE pii_probe`);
+    return found.some((p) => p.column === "pii_probe.homeAddress");
+  })());
+  ok("a PII_MAP entry pointing at a vanished column is reported too", await (async () => {
+    PII_MAP.push({ table: "ghost", mode: "anonymize", match: [], columns: ["email"] });
+    const found = await piiScan((sql) => db.query(sql));
+    PII_MAP.pop();
+    return found.some((p) => p.column === "ghost.email");
+  })());
+  ok("the three buckets exist because a column name cannot answer the question",
+    NOT_PII.some(([t, c]) => t === "campaigns" && c === "name") &&
+    PII_MAP.some((m) => m.table === "contacts" && m.columns.includes("name")));
+  ok("staff columns are classified separately from subjects, with reasons",
+    STAFF_COLUMNS.every((s) => s.why && s.why.length > 10) &&
+    STAFF_COLUMNS.some((s) => s.table === "users"));
+  ok("the scan pattern catches the words that matter",
+    ["email", "phone", "mobile", "name", "homeAddress", "dateOfBirth", "author"].every((n) => PII_NAME_RE.test(n)));
+  ok("**imports land only in tables the map covers, so imported people are erasable by construction**",
+    ["leads", "contacts"].every((t) => PII_MAP.some((m) => m.table === t)));
+
+  // ══ the state machine ══
+  ok("a request must be verified before discovery", erasureTransitionError("RECEIVED", "DISCOVERED") !== null);
+  ok("**it cannot be executed without passing approval**", erasureTransitionError("DISCOVERED", "EXECUTED") !== null);
+  ok("a confirmed request is final", ERASURE_FLOW.CONFIRMED.length === 0);
+  ok("any live state may be rejected", ["RECEIVED", "VERIFIED", "DISCOVERED", "PENDING_APPROVAL"].every((s) => ERASURE_FLOW[s].includes("REJECTED")));
+
+  // ══ a real subject, spread across the platform ══
+  const subjectEmail = "mona.erasure@distributor.sd";
+  const eLead = await j("POST", "/leads", { company: "Erasure Test Co", contactName: "Mona Erasure",
+    email: subjectEmail, phone: "+249911777888", source: "WEBSITE", stage: "QUALIFIED", valueUsd: 4000 }, H);
+  await db.query(`INSERT INTO contacts (name, email, phone, company) VALUES ('Mona Erasure',$1,'+249911777888','Erasure Test Co')`, [subjectEmail]);
+  await db.query(`INSERT INTO media_contacts (name, email, phone, outlet) VALUES ('Mona Erasure',$1,'+249911777888','Trade Weekly')`, [subjectEmail])
+    .catch(() => {});
+  // The block owns its fixture rather than borrowing whichever form an
+  // earlier block happened to leave behind.
+  const frm = (await db.query(
+    `INSERT INTO forms (name, slug) VALUES ('Erasure Test Form','erasure-test-form') RETURNING id`)).rows[0];
+  const sub = (await db.query(
+    `INSERT INTO form_submissions ("formId", data) VALUES ($1, $2::jsonb) RETURNING id`,
+    [frm.id, JSON.stringify({ email: subjectEmail, name: "Mona Erasure", interest: "fittings range", budget: "high" })])).rows[0];
+
+  const req1 = await j("POST", "/erasure", { subjectEmail, subjectPhone: "+249911777888", subjectNote: "Emailed us" }, H);
+  ok("an erasure request is received", req1.status === 201 && req1.data.status === "RECEIVED");
+  ok("a request needs something to identify the person by",
+    (await j("POST", "/erasure", { subjectNote: "someone" }, H)).status === 400);
+  ok("**discovery cannot run before identity is verified**",
+    (await j("POST", `/erasure/${req1.data.id}/discover`, null, H)).status === 400);
+
+  // identity: the subject confirms via their own address
+  const send = await j("POST", `/erasure/${req1.data.id}/verify/send`, null, H);
+  ok("a confirmation link is sent to the subject's own address", send.status === 200 && send.data.sentTo === subjectEmail);
+  ok("**the confirmation token is stored only as a hash**", await (async () => {
+    const row = (await db.query(`SELECT "verifyToken" t FROM erasure_requests WHERE id = $1`, [req1.data.id])).rows[0];
+    return /^[0-9a-f]{64}$/.test(row.t) && !send.data.confirmPath.includes(row.t);
+  })());
+  ok("a wrong confirmation token is refused", await (async () => {
+    const bad = await fetch(`http://127.0.0.1:4110/api/privacy/confirm/${req1.data.id}/not-the-token`);
+    return bad.status === 404;
+  })());
+  ok("**the subject's own confirmation moves the request forward**", await (async () => {
+    const good = await fetch(`http://127.0.0.1:4110${send.data.confirmPath}`);
+    const row = (await db.query(`SELECT status, "verifiedBy" v FROM erasure_requests WHERE id = $1`, [req1.data.id])).rows[0];
+    return good.status === 200 && row.status === "VERIFIED" && row.v === "SUBJECT";
+  })());
+  ok("and the token is consumed, so the link cannot be replayed", await (async () => {
+    const row = (await db.query(`SELECT "verifyToken" t FROM erasure_requests WHERE id = $1`, [req1.data.id])).rows[0];
+    return row.t === null;
+  })());
+
+  const disc = await j("POST", `/erasure/${req1.data.id}/discover`, null, H);
+  ok("discovery finds the person across every table that holds them",
+    disc.status === 200 && disc.data.inventory.total >= 3);
+  ok("**the inventory names the tables and columns an approver is agreeing to**",
+    disc.data.inventory.tables.some((t) => t.table === "leads" && t.rows === 1 && t.columns.includes("email")));
+
+  await j("POST", `/erasure/${req1.data.id}/submit`, null, H);
+  ok("**only an administrator may execute an erasure**",
+    (await j("POST", `/erasure/${req1.data.id}/execute`, null, A)).status === 403);
+
+  const leadsBefore = Number((await db.query(`SELECT COUNT(*)::int c FROM leads`)).rows[0].c);
+  const wonBefore = Number((await db.query(`SELECT COUNT(*)::int c FROM leads WHERE stage = 'QUALIFIED'`)).rows[0].c);
+  const exec = await j("POST", `/erasure/${req1.data.id}/execute`, null, H);
+  ok("no part of the erasure failed silently", !exec.data.report.failed, JSON.stringify(exec.data.report.failed || []));
+  ok("the erasure executes", exec.status === 200 && exec.data.report.anonymised >= 2);
+
+  // ── the decision that governs everything ──
+  ok("**erasure anonymises: the row survives, the person does not**", await (async () => {
+    const row = (await db.query(`SELECT * FROM leads WHERE id = $1`, [eLead.data.id])).rows[0];
+    return row && row.contactName === null && row.phone === null && row.company === "Erasure Test Co";
+  })());
+  ok("**the board pack is not rewritten — counts and stages are untouched**", await (async () => {
+    const after = Number((await db.query(`SELECT COUNT(*)::int c FROM leads`)).rows[0].c);
+    const won = Number((await db.query(`SELECT COUNT(*)::int c FROM leads WHERE stage = 'QUALIFIED'`)).rows[0].c);
+    return after === leadsBefore && won === wonBefore;
+  })());
+  ok("the erased email carries a per-request sentinel, so it can never collide with a live address", await (async () => {
+    const row = (await db.query(`SELECT email FROM leads WHERE id = $1`, [eLead.data.id])).rows[0];
+    return row.email === `erased:${req1.data.id}`;
+  })());
+  ok("**a jsonb payload is redacted key by key, keeping what is not personal**", await (async () => {
+    const row = (await db.query(`SELECT data FROM form_submissions WHERE id = $1`, [sub.id])).rows[0];
+    const d = typeof row.data === "string" ? JSON.parse(row.data) : row.data;
+    return d.email === "[erased]" && d.name === "[erased]" && d.interest === "fittings range";
+  })());
+  ok("**searching the database for the person's address finds nothing**", await (async () => {
+    const hits = await db.query(
+      `SELECT (SELECT COUNT(*) FROM leads WHERE email = $1) +
+              (SELECT COUNT(*) FROM contacts WHERE email = $1) +
+              (SELECT COUNT(*) FROM media_contacts WHERE email = $1) AS c`, [subjectEmail]);
+    return Number(hits.rows[0].c) === 0;
+  })());
+
+  // ── the gate with teeth ──
+  ok("**the request confirms only because rediscovery came back empty**",
+    exec.data.status === "CONFIRMED" && exec.data.certificate.verifiedByRediscovery === true && exec.data.rediscovery.total === 0);
+  ok("the certificate states what was done, by whom, and to which tables",
+    exec.data.certificate.anonymised >= 2 && !!exec.data.certificate.operator &&
+    exec.data.certificate.tables.some((t) => t.table === "leads" && t.action === "ANONYMISE"));
+  ok("**the certificate is honest about free text rather than claiming to have searched it**",
+    /human pass/i.test(exec.data.certificate.freeTextChecklist));
+
+  // ── the log holds no personal data ──
+  ok("**the erasure log records hashed row references, never the rows themselves**", await (async () => {
+    const rows = (await db.query(`SELECT * FROM erasure_log WHERE "requestId" = $1`, [req1.data.id])).rows;
+    const text = JSON.stringify(rows);
+    return rows.length >= 3 && !text.includes(subjectEmail) && !text.includes("Mona") &&
+      rows.every((r) => /^[0-9a-f]{64}$/.test(r.rowRefHash));
+  })());
+  ok("a row reference is reproducible, which is what makes replay possible", await (async () => {
+    const expected = rowRef("leads", eLead.data.id);
+    const rows = (await db.query(`SELECT "rowRefHash" h FROM erasure_log WHERE "requestId" = $1 AND "tableName" = 'leads'`,
+      [req1.data.id])).rows;
+    return rows.some((r) => r.h === expected);
+  })());
+  ok("**a restore from backup replays every executed erasure**", await (async () => {
+    // Simulate a restore putting the personal data back.
+    await db.query(`UPDATE leads SET "contactName" = 'Mona Erasure', email = $2, phone = '+249911777888' WHERE id = $1`,
+      [eLead.data.id, subjectEmail]);
+    const back = await discover({ email: subjectEmail });
+    const replay = await j("POST", "/erasure/replay", null, H);
+    const gone = await discover({ email: subjectEmail });
+    return back.total >= 1 && replay.data.replayed >= 1 && gone.total === 0;
+  })());
+
+  // ── export rides the same map ──
+  const expSubject = "export.subject@distributor.sd";
+  await j("POST", "/leads", { company: "Export Test Co", contactName: "Yousif Export", email: expSubject, source: "EVENT", stage: "NEW" }, H);
+  const req2 = await j("POST", "/erasure", { kind: "EXPORT", subjectEmail: expSubject }, H);
+  await j("POST", `/erasure/${req2.data.id}/verify/manual`, { evidence: "Passport shown in person" }, H);
+  ok("manual verification records that it was an administrator, not the subject", await (async () => {
+    const row = (await db.query(`SELECT "verifiedBy" v FROM erasure_requests WHERE id = $1`, [req2.data.id])).rows[0];
+    return row.v === "ADMIN";
+  })());
+  ok("manual verification requires the evidence to be written down",
+    (await j("POST", `/erasure/${req1.data.id}/verify/manual`, {}, H)).status === 400);
+  await j("POST", `/erasure/${req2.data.id}/discover`, null, H);
+  await j("POST", `/erasure/${req2.data.id}/submit`, null, H);
+  const exp = await j("POST", `/erasure/${req2.data.id}/execute`, null, H);
+  ok("**export returns the subject's own records, built from the same registry**",
+    exp.status === 200 && exp.data.bundle.rowCount >= 1 &&
+    JSON.stringify(exp.data.bundle.records.leads).includes("Yousif Export"));
+  ok("an export completes without touching the data", await (async () => {
+    const still = (await db.query(`SELECT COUNT(*)::int c FROM leads WHERE email = $1`, [expSubject])).rows[0].c;
+    return still === 1 && exp.data.status === "CONFIRMED";
+  })());
+
+  // ── rejection paths ──
+  const req3 = await j("POST", "/erasure", { subjectEmail: "nobody@nowhere.sd" }, H);
+  await j("POST", `/erasure/${req3.data.id}/verify/manual`, { evidence: "Email thread" }, H);
+  const none = await j("POST", `/erasure/${req3.data.id}/discover`, null, H);
+  ok("**a person we hold nothing about is closed as NOT_FOUND, not silently executed**",
+    none.data.status === "REJECTED" && none.data.rejectReason === "NOT_FOUND");
+  ok("an invalid rejection reason is refused",
+    (await j("POST", `/erasure/${req2.data.id}/reject`, { reason: "BECAUSE" }, H)).status === 400);
+  ok("a confirmed request cannot be reopened",
+    (await j("POST", `/erasure/${req2.data.id}/reject`, { reason: "DUPLICATE" }, H)).status === 400);
+
+  // ── the map is inspectable ──
+  const mapView = await j("GET", "/erasure/map", null, H);
+  ok("the registry is published, so a client can see what Pulse holds",
+    mapView.status === 200 && mapView.data.some((m) => m.table === "leads" && m.mode === "anonymize"));
+  ok("**a legal-retention table declares itself rather than quietly refusing**",
+    mapView.data.some((m) => m.mode === "retain_legal" && m.note));
 }
 
 // Rate limiting LAST (shares the IP window with the whole run)

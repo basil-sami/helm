@@ -3,9 +3,11 @@ import { fireEvent, recomputeLeadScore } from "../automate-engine.js";
 import { notify } from "../notify.js";
 import { logActivity } from "../leadlog.js";
 import { get } from "../db.js";
+import { transitionError } from "../campaign.js";
+import { definitionError } from "../dataimport.js";
 
 const ENUMS = {
-  campaignStatus: ["PLANNING", "ACTIVE", "PAUSED", "COMPLETED"],
+  campaignStatus: ["PLANNING", "ACTIVE", "PAUSED", "COMPLETED", "ARCHIVED"],
   channel: ["SOCIAL", "PAID", "EVENT", "PR", "EMAIL", "WEB", "BTL"],
   contentStatus: ["IDEA", "IN_PROGRESS", "REVIEW", "APPROVED", "PUBLISHED"],
   leadStage: ["NEW", "QUALIFIED", "PROPOSAL", "NEGOTIATION", "WON", "LOST"],
@@ -20,14 +22,22 @@ const inSet = (val, set, label) =>
 export const campaignsRouter = crudRouter({
   table: "campaigns",
   module: "campaigns",
+  touchUpdatedAt: true,
   validateUpdate: async (data, prev) => {
+    // W4·A: the transition matrix is the single door. A status written
+    // through plain CRUD walks exactly the same rules as /transition —
+    // otherwise the matrix would be advisory, which is the same as absent.
+    if (data.status !== undefined && prev && data.status !== prev.status) {
+      const err = transitionError(prev.status, data.status);
+      if (err) return err;
+    }
     if (data.status === "ACTIVE" && prev && prev.status !== "ACTIVE") {
       const brief = await get(`SELECT 1 FROM campaign_briefs WHERE "campaignId" = $1`, [prev.id]);
       if (!brief) return "A campaign brief is required before activation (open the campaign → Brief)";
     }
     return null;
   },
-  fields: ["name", "nameAr", "objective", "status", "channel", "startDate", "endDate", "budgetUsd", "budgetSdg", "businessUnit", "ownerId", "departmentId"],
+  fields: ["name", "nameAr", "objective", "status", "channel", "startDate", "endDate", "budgetUsd", "budgetSdg", "businessUnit", "ownerId", "departmentId", "retro", "retroAr"],
   listSql: `SELECT c.*, u.name AS "ownerName", u.role AS "ownerRole",
               (SELECT COUNT(*)::int FROM leads l WHERE l."campaignId" = c.id) AS "leadCount"
             FROM campaigns c LEFT JOIN users u ON u.id = c."ownerId" ORDER BY c."createdAt" DESC`,
@@ -160,8 +170,19 @@ export const productsRouter = crudRouter({
 export const segmentsRouter = crudRouter({
   table: "segments",
   module: "campaigns",
-  fields: ["name", "nameAr", "businessUnit", "kind", "sizeEstimate", "notes"],
+  // W4·B: a segment may now carry a `definition` — the same jsonb condition
+  // shape the workflow engine evaluates. A null definition keeps the
+  // HELM-era descriptive behaviour, so nothing that exists breaks.
+  fields: ["name", "nameAr", "businessUnit", "kind", "sizeEstimate", "notes", "definition"],
   orderBy: '"createdAt" ASC',
+  validate: (d) => {
+    if (d.definition === undefined) return null;
+    const def = typeof d.definition === "string" && d.definition.trim()
+      ? (() => { try { return JSON.parse(d.definition); } catch { return "BAD"; } })()
+      : d.definition;
+    if (def === "BAD") return "definition must be valid JSON";
+    return definitionError(def);
+  },
 });
 
 export const personasRouter = crudRouter({

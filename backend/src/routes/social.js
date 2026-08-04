@@ -23,7 +23,9 @@ socialRouter.post("/accounts/:id/verify", requirePerm("social"), async (req, res
     if (!acc) return res.status(404).json({ error: "Not found" });
     if (!acc.accessToken) return res.status(400).json({ error: "No access token stored for this account" });
     const { callAdapter } = await import("../connectors/index.js");
-    const r = await callAdapter(acc, "VERIFY", (adapter, cfg) => adapter.verify(acc, cfg));
+    const { withToken } = await import("../secrets.js");
+    const live = withToken(acc);
+    const r = await callAdapter(live, "VERIFY", (adapter, cfg) => adapter.verify(live, cfg));
     if (r.ok) {
       await run(`UPDATE social_accounts SET status = 'CONNECTED', "connectedAt" = COALESCE("connectedAt", now()),
                  "externalId" = COALESCE($2, "externalId") WHERE id = $1`, [acc.id, r.externalId || null]);
@@ -58,12 +60,19 @@ socialRouter.post("/accounts", requirePerm("social"), async (req, res, next) => 
   try {
     const status = accessToken ? "CONNECTED" : "PENDING";
     const connectedAt = accessToken ? new Date().toISOString() : null;
-    const row = await get(
-      `INSERT INTO social_accounts (platform, handle, "displayName", "accessToken", "externalId", status, "connectedAt")
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING ${ACCOUNT_PUBLIC}`,
-      [platform, handle, displayName || null, accessToken || null, externalId || null, status, connectedAt]
+    // SEC·A: the ciphertext is bound to its own row id, which does not
+    // exist until the insert returns — so the credential is written in a
+    // second step. The row is never persisted with a plaintext token.
+    const created = await get(
+      `INSERT INTO social_accounts (platform, handle, "displayName", "externalId", status, "connectedAt")
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+      [platform, handle, displayName || null, externalId || null, status, connectedAt]
     );
-    res.status(201).json(row);
+    if (accessToken) {
+      const { setAccountToken } = await import("../secrets.js");
+      await setAccountToken(created.id, accessToken);
+    }
+    res.status(201).json(await get(`SELECT ${ACCOUNT_PUBLIC} FROM social_accounts WHERE id = $1`, [created.id]));
   } catch (e) { next(e); }
 });
 
@@ -76,7 +85,11 @@ socialRouter.patch("/accounts/:id", requirePerm("social"), async (req, res, next
   if (req.body.autoPublish !== undefined) push("autoPublish", !!req.body.autoPublish);
   if (req.body.tokenExpiresAt !== undefined) push("tokenExpiresAt", req.body.tokenExpiresAt || null);
   if (req.body.accessToken !== undefined) {
-    push("accessToken", req.body.accessToken || null);
+    // SEC·A: encrypted on the way in, bound to this row.
+    const { encryptSecret } = await import("../crypto.js");
+    push("accessToken", req.body.accessToken
+      ? encryptSecret(req.body.accessToken, { table: "social_accounts", id: req.params.id, column: "accessToken" })
+      : null);
     push("status", req.body.accessToken ? "CONNECTED" : "DISCONNECTED");
     push("connectedAt", req.body.accessToken ? new Date().toISOString() : null);
   }

@@ -1707,3 +1707,383 @@ alter table dashboards     add column if not exists "departmentId" uuid referenc
 create index if not exists idx_leads_dept on leads ("departmentId");
 create index if not exists idx_campaigns_dept on campaigns ("departmentId");
 create index if not exists idx_tasks_dept on tasks ("departmentId");
+
+-- ═══ WAVE 4·A · THE CAMPAIGN SPINE ═══════════════════════════════════
+-- Campaigns become the platform's organizing unit. The audit that opened
+-- this wave found thirteen territory tables already carrying "campaignId",
+-- so membership is expressed by the foreign key that already exists —
+-- enumerated once in the CAMPAIGN_LINKS registry (backend/src/campaign.js).
+-- A polymorphic join table was designed and then rejected: it would have
+-- created a second, contradictable truth about what belongs to a campaign.
+
+-- Lifecycle gains ARCHIVED. PLANNING is kept as the initial state rather
+-- than renamed to DRAFT — existing rows and seeds use it, and the word is
+-- better anyway. The matrix is enforced in code, the check constraint only
+-- bounds the vocabulary.
+alter table campaigns drop constraint if exists campaigns_status_check;
+alter table campaigns add constraint campaigns_status_check
+  check (status in ('PLANNING','ACTIVE','PAUSED','COMPLETED','ARCHIVED'));
+alter table campaigns add column if not exists "updatedAt" timestamptz not null default now();
+alter table campaigns add column if not exists "closedAt"  timestamptz;
+alter table campaigns add column if not exists retro       text;
+alter table campaigns add column if not exists "retroAr"   text;
+
+-- The five territory tables that lacked the attribution FK the other
+-- thirteen already had. Nullable, on delete set null — attaching is
+-- always optional, and deleting a campaign never deletes the work.
+alter table events             add column if not exists "campaignId" uuid references campaigns(id) on delete set null;
+alter table scheduled_posts    add column if not exists "campaignId" uuid references campaigns(id) on delete set null;
+alter table outreach_campaigns add column if not exists "campaignId" uuid references campaigns(id) on delete set null;
+alter table promotions         add column if not exists "campaignId" uuid references campaigns(id) on delete set null;
+alter table insights           add column if not exists "campaignId" uuid references campaigns(id) on delete set null;
+
+create index if not exists idx_events_campaign     on events ("campaignId");
+create index if not exists idx_schedposts_campaign on scheduled_posts ("campaignId");
+create index if not exists idx_outreach_campaign   on outreach_campaigns ("campaignId");
+create index if not exists idx_promotions_campaign on promotions ("campaignId");
+create index if not exists idx_insights_campaign   on insights ("campaignId");
+create index if not exists idx_campaigns_status    on campaigns (status);
+
+-- ═══ WAVE 4·B · DATA FOUNDATION ══════════════════════════════════════
+-- Two promotions, one new table.
+--
+-- 1. `segments` existed since the HELM era as a descriptive record (kind,
+--    size estimate, notes). It gains a `definition` — the same jsonb
+--    condition shape the workflow engine already evaluates — so a segment
+--    becomes a targetable audience instead of a label. Static segments
+--    keep working: a null definition means "descriptive only".
+-- 2. The leads CSV importer (POST /leads/import) stays where it is and
+--    keeps working. `import_jobs` is the wizard it grew into: mapping,
+--    dedupe preview, consent at commit, and an audit trail of who
+--    imported what — the things a fire-and-forget endpoint cannot have.
+alter table segments add column if not exists definition jsonb;
+alter table segments add column if not exists "lastCount" integer;
+alter table segments add column if not exists "lastCountedAt" timestamptz;
+
+create table if not exists import_jobs (
+  id            uuid primary key default gen_random_uuid(),
+  entity        text not null default 'leads'
+                  check (entity in ('leads','contacts','conversions')),
+  status        text not null default 'UPLOADED'
+                  check (status in ('UPLOADED','MAPPED','VALIDATED','PREVIEWED','COMMITTED','FAILED','CANCELLED')),
+  filename      text,
+  raw           text,                            -- the pasted/uploaded CSV, kept until commit
+  header        jsonb not null default '[]',     -- detected columns
+  mapping       jsonb not null default '{}',     -- { targetField: sourceColumn }
+  "dedupeOn"    text not null default 'email'
+                  check ("dedupeOn" in ('email','phone','company','none')),
+  "mergeStrategy" text not null default 'skip'
+                  check ("mergeStrategy" in ('skip','update','merge')),
+  "consentBasis" text,                           -- recorded against every row this job creates
+  "consentSource" text,
+  stats         jsonb not null default '{}',     -- { rows, valid, invalid, duplicates, created, updated, skipped }
+  errors        jsonb not null default '[]',     -- [{ row, reason }]
+  "createdById" uuid references users(id) on delete set null,
+  "committedAt" timestamptz,
+  "createdAt"   timestamptz not null default now(),
+  "updatedAt"   timestamptz not null default now()
+);
+create index if not exists idx_import_jobs_status on import_jobs (status, "createdAt" desc);
+
+-- ═══ WAVE 4·C · VALUE & THE LEAD LOOP ════════════════════════════════
+-- The funnel had discipline at the end (lostReason is enforced on LOST)
+-- and nothing at the beginning: a scored lead had no owner deadline, so
+-- "twenty scored leads uncontacted on day nine" was invisible. The
+-- hygiene sweep already nudged owners of stale leads; this adds the
+-- explicit promise the sweep was approximating — a due date, an
+-- escalation when it passes, and a first-contact stamp to measure against.
+alter table leads add column if not exists "followUpDueAt"   timestamptz;
+alter table leads add column if not exists "firstContactedAt" timestamptz;
+alter table leads add column if not exists "slaBreached"      boolean not null default false;
+create index if not exists idx_leads_followup on leads ("followUpDueAt") where "followUpDueAt" is not null;
+
+-- Where money enters the platform. Deliberately a value-capture point,
+-- NOT a CRM: one row per realised amount, so multi-purchase reality is
+-- rows rather than a single column that keeps being overwritten. This is
+-- also the y-variable media-mix modelling has been waiting for.
+create table if not exists conversions (
+  id            uuid primary key default gen_random_uuid(),
+  "leadId"      uuid references leads(id) on delete set null,
+  "customerId"  uuid references customers(id) on delete set null,
+  "campaignId"  uuid references campaigns(id) on delete set null,
+  "valueAmount" numeric(16,2) not null default 0,
+  currency      text not null default 'USD',
+  "valueUsd"    numeric(16,2) not null default 0,   -- normalised for metrics
+  "occurredOn"  date not null default CURRENT_DATE,
+  kind          text not null default 'SALE'
+                  check (kind in ('SALE','RENEWAL','UPSELL','OTHER')),
+  source        text not null default 'MANUAL'
+                  check (source in ('MANUAL','IMPORT','WORKFLOW')),
+  notes         text,
+  "createdById" uuid references users(id) on delete set null,
+  "createdAt"   timestamptz not null default now()
+);
+create index if not exists idx_conversions_date on conversions ("occurredOn" desc);
+create index if not exists idx_conversions_campaign on conversions ("campaignId");
+
+-- SLA hours are per instance, alongside the existing staleLeadDays nudge.
+alter table settings add column if not exists "followUpSlaHours" integer not null default 48;
+
+-- ═══ WAVE 4·D · CALENDAR, APPROVAL SLA, LINK BUILDER ═════════════════
+-- The audit found more here than the brief expected: a content calendar
+-- page already exists (content + events + campaign spans), QR generation
+-- already exists on media placements, and inbox→lead conversion already
+-- ships. What was genuinely missing is below.
+
+-- The seasonal layer. Packs are per instance and configurable — the
+-- Sudan/Islamic pack is seeded data, not a hardcoded assumption, so a
+-- client in another market installs their own and the code is unchanged.
+create table if not exists seasonal_packs (
+  id            uuid primary key default gen_random_uuid(),
+  key           text unique not null,
+  name          text not null,
+  "nameAr"      text,
+  region        text,
+  active        boolean not null default true,
+  "createdAt"   timestamptz not null default now()
+);
+
+create table if not exists seasonal_events (
+  id            uuid primary key default gen_random_uuid(),
+  "packId"      uuid not null references seasonal_packs(id) on delete cascade,
+  key           text not null,
+  name          text not null,
+  "nameAr"      text,
+  kind          text not null default 'CULTURAL'
+                  check (kind in ('RELIGIOUS','NATIONAL','CULTURAL','COMMERCIAL','SEASON')),
+  -- A date is EITHER fixed Gregorian (month/day, repeating yearly), OR a
+  -- hijri month/day resolved per year at read time, OR an explicit date.
+  calendar      text not null default 'GREGORIAN'
+                  check (calendar in ('GREGORIAN','HIJRI','EXPLICIT')),
+  month         integer check (month between 1 and 12),
+  day           integer check (day between 1 and 31),
+  "onDate"      date,
+  "durationDays" integer not null default 1,
+  "leadTimeDays" integer not null default 14,   -- how early marketing should start
+  notes         text,
+  "notesAr"     text,
+  active        boolean not null default true,
+  "createdAt"   timestamptz not null default now()
+);
+create index if not exists idx_seasonal_events_pack on seasonal_events ("packId", active);
+
+-- Approvals had a clock only in the sense that rows carried timestamps.
+-- An approval queue without a deadline is where campaigns go to die, so:
+-- a delegate for while an approver is away, and an escalation when the
+-- wait passes the instance's limit.
+create table if not exists approval_delegations (
+  id            uuid primary key default gen_random_uuid(),
+  "approverId"  uuid not null references users(id) on delete cascade,
+  "delegateId"  uuid not null references users(id) on delete cascade,
+  "fromDate"    date not null,
+  "toDate"      date not null,
+  reason        text,
+  active        boolean not null default true,
+  "createdAt"   timestamptz not null default now(),
+  check ("approverId" <> "delegateId")
+);
+create index if not exists idx_delegations_window on approval_delegations ("approverId", "fromDate", "toDate");
+
+alter table approvals add column if not exists "escalatedAt" timestamptz;
+alter table approvals add column if not exists "decidedById" uuid references users(id) on delete set null;
+alter table settings add column if not exists "approvalSlaHours" integer not null default 48;
+
+-- ═══ WAVE 4·E · EXPERIENCE & PRODUCTIZATION ══════════════════════════
+-- `process_templates` already held task-list templates for playbooks.
+-- Rather than introduce a second templating notion, it is promoted to
+-- the general library: `kind` says what is being templated, `definition`
+-- carries the non-task shapes. Existing rows are PROCESS and keep working
+-- untouched — their `tasks` column is unchanged.
+alter table process_templates add column if not exists kind text not null default 'PROCESS'
+  check (kind in ('PROCESS','CAMPAIGN','WORKFLOW','SURVEY'));
+alter table process_templates add column if not exists definition jsonb not null default '{}';
+alter table process_templates add column if not exists description text;
+alter table process_templates add column if not exists "descriptionAr" text;
+create index if not exists idx_templates_kind on process_templates (kind, builtin desc);
+
+-- ═══ WAVE 4·F · THE LISTENING CONTROL ROOM ═══════════════════════════
+-- The pipeline already had integrity: Admiralty grading, SimHash dedupe,
+-- a relevance gate, an analyst review queue, entity resolution and
+-- corroboration. What it lacked was an operator's cockpit — the levers
+-- lived in config and constants. This cluster hands them over.
+--
+-- THREE LAWS, enforced below and in code:
+--  1. Controls TUNE the pipeline; nothing bypasses it.
+--  2. Changes are versioned and replay-previewed.
+--  3. The ORG-only guardrail is immovable by any control.
+
+-- osint_topics already carries query, mustInclude/mustExclude,
+-- contextTerms and reviewThreshold — it IS the watch. Promoted, not
+-- replaced: a watch gains a campaign link (so share-of-voice during a
+-- campaign lands in the W4·A war room through the existing dimension
+-- machinery) and a shrink-only pause.
+alter table osint_topics add column if not exists "campaignId" uuid references campaigns(id) on delete set null;
+alter table osint_topics add column if not exists paused boolean not null default false;
+alter table osint_topics add column if not exists "assigneeId" uuid references users(id) on delete set null;
+create index if not exists idx_topics_campaign on osint_topics ("campaignId");
+
+-- Block and mute are different problems and deserve different levers.
+-- Blocked: stop ingesting entirely. Muted: keep ingesting for the record,
+-- but suppress from alerts and metrics — a source we do not trust to
+-- move a number, yet still want in the evidence trail.
+alter table osint_sources add column if not exists muted boolean not null default false;
+alter table osint_sources add column if not exists "gradeNote" text;
+alter table osint_sources add column if not exists "gradedById" uuid references users(id) on delete set null;
+alter table osint_sources add column if not exists "gradedAt" timestamptz;
+
+-- Review queue operations.
+alter table osint_signals add column if not exists "assignedToId" uuid references users(id) on delete set null;
+create index if not exists idx_signals_assigned on osint_signals ("assignedToId") where "assignedToId" is not null;
+
+-- LAW 2 made concrete. Every tuning change is recorded with what it was,
+-- what it became, and what the replay predicted — so a jump in share of
+-- voice can be explained by a gate change instead of mistaken for the
+-- market moving. These rows render as markers on listening charts.
+create table if not exists listening_changes (
+  id            uuid primary key default gen_random_uuid(),
+  kind          text not null
+                  check (kind in ('THRESHOLD','SOURCE_GRADE','SOURCE_BLOCK','SOURCE_MUTE',
+                                  'WATCH_TERMS','WATCH_PAUSE','ALERT_RULE','BAND','CORROBORATION')),
+  "topicId"     uuid references osint_topics(id) on delete set null,
+  "sourceId"    uuid references osint_sources(id) on delete set null,
+  field         text,
+  "fromValue"   text,
+  "toValue"     text,
+  replay        jsonb not null default '{}',   -- what the preview predicted
+  note          text,
+  "changedById" uuid references users(id) on delete set null,
+  "changedAt"   timestamptz not null default now()
+);
+create index if not exists idx_listening_changes_at on listening_changes ("changedAt" desc);
+
+-- Alert rules. Metric-shaped conditions reuse the anomaly engine;
+-- signal-shaped ones evaluate in the Daily Pulse.
+create table if not exists listening_alert_rules (
+  id            uuid primary key default gen_random_uuid(),
+  name          text not null,
+  "nameAr"      text,
+  kind          text not null default 'VOLUME_SPIKE'
+                  check (kind in ('VOLUME_SPIKE','NEGATIVE_BURST','GRADE_A_MENTION','EMERGING_TOPIC','CORROBORATED_ONLY')),
+  "topicId"     uuid references osint_topics(id) on delete cascade,
+  "entityId"    uuid references osint_entities(id) on delete cascade,
+  threshold     numeric(10,2) not null default 2,
+  "windowHours" integer not null default 24,
+  severity      text not null default 'MEDIUM' check (severity in ('LOW','MEDIUM','HIGH')),
+  "corroboratedOnly" boolean not null default false,
+  "quietFrom"   integer check ("quietFrom" between 0 and 23),
+  "quietTo"     integer check ("quietTo" between 0 and 23),
+  recipients    jsonb not null default '[]',
+  channel       text not null default 'INAPP' check (channel in ('INAPP','EMAIL')),
+  active        boolean not null default true,
+  "lastFiredAt" timestamptz,
+  "createdAt"   timestamptz not null default now()
+);
+create index if not exists idx_listening_rules_active on listening_alert_rules (active, kind);
+
+-- Instance-wide, shrink-only collection pause and tunable gate band.
+alter table settings add column if not exists "listeningPaused" boolean not null default false;
+alter table settings add column if not exists "reviewBandLow"  numeric(4,2) not null default 0.35;
+alter table settings add column if not exists "reviewBandHigh" numeric(4,2) not null default 0.65;
+alter table settings add column if not exists "reviewSlaHours" integer not null default 48;
+
+-- ═══ SEC·B · SINGLE SIGN-ON (OIDC) ═══════════════════════════════════
+-- OIDC first, SAML deliberately deferred. The IdPs an enterprise IT
+-- department actually runs — Entra ID, Okta, Google Workspace, Ping —
+-- all publish OIDC for the same app-catalogue entries as SAML, and OIDC
+-- is JSON + JWT, which this codebase already verifies with jsonwebtoken
+-- and native crypto. A SAML stack would drag XML canonicalisation and
+-- the XML-DSig signature-wrapping vulnerability class into a supply
+-- chain that is nine packages deep. That is a security argument, not a
+-- limitation, and it is the one to make to a reviewer.
+create table if not exists sso_connections (
+  id              uuid primary key default gen_random_uuid(),
+  kind            text not null default 'OIDC' check (kind in ('OIDC')),  -- SAML reserved, not implemented
+  name            text not null default 'Corporate SSO',
+  "issuerUrl"     text not null,
+  "clientId"      text not null,
+  "clientSecret"  text,                            -- encrypted via SEC·A from its first write
+  "emailDomains"  jsonb not null default '[]',     -- allow-list; empty means any verified domain
+  "roleMap"       jsonb not null default '{}',     -- { claim: "groups", values: { "Marketing": "HEAD" } }
+  "defaultRole"   text,
+  "jitEnabled"    boolean not null default false,  -- create users on first successful login
+  "ssoRequired"   boolean not null default false,  -- password login disabled except break-glass
+  "requireVerifiedEmail" boolean not null default true,
+  discovery       jsonb not null default '{}',     -- cached .well-known document
+  "discoveryAt"   timestamptz,
+  jwks            jsonb not null default '{}',     -- cached signing keys, by kid
+  "jwksAt"        timestamptz,
+  active          boolean not null default false,
+  "createdAt"     timestamptz not null default now(),
+  "updatedAt"     timestamptz not null default now()
+);
+
+-- Security reviewers ask for the authentication audit within the first
+-- ten minutes. Every attempt lands here, successful or not.
+create table if not exists auth_events (
+  id          uuid primary key default gen_random_uuid(),
+  "userId"    uuid references users(id) on delete set null,
+  email       text,
+  method      text not null check (method in ('local','sso','break_glass','refresh')),
+  ok          boolean not null default false,
+  reason      text,
+  ip          text,
+  ua          text,
+  at          timestamptz not null default now()
+);
+create index if not exists idx_auth_events_at on auth_events (at desc);
+create index if not exists idx_auth_events_user on auth_events ("userId", at desc);
+
+-- Exactly one account may keep password access when SSO is required.
+-- An IdP misconfiguration must never lock an organisation out of its own
+-- instance; using this account writes a loud audit event.
+alter table users add column if not exists "breakGlass" boolean not null default false;
+alter table users add column if not exists "ssoSubject" text;
+create unique index if not exists idx_users_sso_subject on users ("ssoSubject") where "ssoSubject" is not null;
+
+-- ═══ SEC·C · DATA-SUBJECT ERASURE & EXPORT ═══════════════════════════
+-- The subjects are the market-side humans Pulse holds: leads, contacts,
+-- form and survey respondents, outreach recipients, media contacts,
+-- vendor and partner contact persons. Staff offboarding is a different
+-- mechanism (users.active + SSO deprovisioning) and is out of scope here.
+--
+-- The design decision that governs everything below: ERASURE ANONYMISES,
+-- IT DOES NOT DELETE. Blanking the personal columns while keeping the row
+-- preserves funnel counts, lostReason history, nightly snapshots and the
+-- Pulse Index. Erasure must never rewrite the board pack.
+create table if not exists erasure_requests (
+  id             uuid primary key default gen_random_uuid(),
+  kind           text not null default 'ERASURE' check (kind in ('ERASURE','EXPORT')),
+  status         text not null default 'RECEIVED'
+                   check (status in ('RECEIVED','VERIFIED','DISCOVERED','PENDING_APPROVAL','EXECUTED','CONFIRMED','REJECTED')),
+  "subjectEmail" text,
+  "subjectPhone" text,
+  "subjectNote"  text,
+  "verifyToken"  text,                      -- sha256 of the emailed confirmation token
+  "verifiedAt"   timestamptz,
+  "verifiedBy"   text check ("verifiedBy" in ('SUBJECT','ADMIN')),
+  inventory      jsonb not null default '{}',   -- discovery snapshot the approver reads
+  certificate    jsonb not null default '{}',   -- what was done, for the subject and the file
+  "rejectReason" text check ("rejectReason" in ('IDENTITY_UNVERIFIED','LEGAL_HOLD','DUPLICATE','NOT_FOUND')),
+  "requestedById" uuid references users(id) on delete set null,
+  "approvedById"  uuid references users(id) on delete set null,
+  "executedAt"   timestamptz,
+  "confirmedAt"  timestamptz,
+  "createdAt"    timestamptz not null default now(),
+  "updatedAt"    timestamptz not null default now()
+);
+create index if not exists idx_erasure_status on erasure_requests (status, "createdAt" desc);
+
+-- The log that makes the backup answer honest. Row references are hashed,
+-- so the log of an erasure holds no personal data itself — and a restore
+-- from backup can replay every executed erasure from it.
+create table if not exists erasure_log (
+  id            uuid primary key default gen_random_uuid(),
+  "requestId"   uuid not null references erasure_requests(id) on delete cascade,
+  "tableName"   text not null,
+  columns       jsonb not null default '[]',
+  "rowRefHash"  text not null,               -- sha256(table:id), never the id itself
+  action        text not null check (action in ('ANONYMISE','REDACT_JSONB','RETAIN_LEGAL','EXPORT')),
+  "at"          timestamptz not null default now()
+);
+create index if not exists idx_erasure_log_request on erasure_log ("requestId");
+create index if not exists idx_erasure_log_ref on erasure_log ("rowRefHash");

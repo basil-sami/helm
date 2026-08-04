@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { z } from "zod";
 import { get } from "./db.js";
+import { logAudit } from "./audit.js";
 import { rateLimit } from "./security.js";
 import { totpVerify } from "./totp.js";
 
@@ -148,15 +149,37 @@ authRouter.post("/login", loginLimiter, async (req, res, next) => {
   if (!parsed.success) return res.status(400).json({ error: "Invalid credentials format" });
   try {
     const user = await get("SELECT * FROM users WHERE email = $1", [parsed.data.email]);
-    if (!user || !user.active) return res.status(401).json({ error: "Invalid email or password" });
-    if (!bcrypt.compareSync(parsed.data.password, user.passwordHash)) {
+    const { logAuth, ssoRequired } = await import("./sso.js");
+    if (!user || !user.active) {
+      await logAuth({ email: parsed.data.email, method: "local", ok: false, reason: "unknown or inactive account", req });
       return res.status(401).json({ error: "Invalid email or password" });
+    }
+    if (!bcrypt.compareSync(parsed.data.password, user.passwordHash)) {
+      await logAuth({ userId: user.id, email: user.email, method: "local", ok: false, reason: "bad password", req });
+      return res.status(401).json({ error: "Invalid email or password" });
+    }
+    // SEC·B: when SSO is required, password sign-in closes for everyone
+    // except the one audited break-glass administrator. That account
+    // exists so an identity-provider outage cannot lock an organisation
+    // out of its own instance; every use of it is recorded loudly.
+    if (await ssoRequired()) {
+      if (!user.breakGlass) {
+        await logAuth({ userId: user.id, email: user.email, method: "local", ok: false, reason: "sso required", req });
+        return res.status(403).json({ error: "This instance requires single sign-on", ssoRequired: true });
+      }
+      await logAuth({ userId: user.id, email: user.email, method: "break_glass", ok: true,
+        reason: "password sign-in used while SSO is required", req });
+      logAudit(req, "auth.break_glass", "users", user.id, { email: user.email });
     }
     if (user.totpEnabled) {
       if (!req.body.otp) return res.status(401).json({ error: "OTP required", otpRequired: true });
-      if (!totpVerify(user.totpSecret, req.body.otp)) return res.status(401).json({ error: "Invalid OTP", otpRequired: true });
+      // SEC·A: the seed is decrypted only here, to verify, and never logged.
+      const { decryptSecret } = await import("./crypto.js");
+      const seed = decryptSecret(user.totpSecret, { table: "users", id: user.id, column: "totpSecret", allowLegacyPlaintext: true });
+      if (!totpVerify(seed, req.body.otp)) return res.status(401).json({ error: "Invalid OTP", otpRequired: true });
     }
     const permissions = await getPermissions(user.role);
+    if (!(await ssoRequired())) await logAuth({ userId: user.id, email: user.email, method: "local", ok: true, req });
     res.json({
       token: signToken(user),
       user: { id: user.id, name: user.name, email: user.email, role: user.role, titleAr: user.titleAr, permissions, mustChangePassword: !!user.mustChangePassword, totpEnabled: !!user.totpEnabled },

@@ -261,7 +261,13 @@ async function refreshTopic(topic) {
 }
 
 async function refreshAllTopics() {
-  const topics = await all("SELECT * FROM osint_topics WHERE active = true");
+  // W4·F LAW 1: the control room's levers are real, not decorative. The
+  // instance pause stops collection outright, and a paused watch is
+  // skipped — both SHRINK scope, which is the only direction a control
+  // is allowed to move it.
+  const paused = !!(await get(`SELECT "listeningPaused" v FROM settings WHERE id = 1`).catch(() => null))?.v;
+  if (paused) return { topics: 0, inserted: 0, skipped: 0, quarantined: 0, syndicated: 0, paused: true, results: [] };
+  const topics = await all(`SELECT * FROM osint_topics WHERE active = true AND paused = false`);
   const results = [];
   for (const t of topics) results.push(await refreshTopic(t));
   return {

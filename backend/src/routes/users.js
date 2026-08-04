@@ -69,6 +69,28 @@ usersRouter.patch("/:id", requireAdmin, async (req, res, next) => {
   if (req.body.active !== undefined) push("active", !!req.body.active);
   if (req.body.morningEmail !== undefined) push("morningEmail", !!req.body.morningEmail);
   if (req.body.departmentId !== undefined) push("departmentId", req.body.departmentId || null);
+  // SEC·B: exactly one break-glass administrator. The point of the account
+  // is that an identity-provider outage cannot lock an organisation out,
+  // so it must be an admin, must be active, and must be unique.
+  if (req.body.breakGlass !== undefined) {
+    if (req.body.breakGlass) {
+      const target = await get(`SELECT u.*, r.permissions FROM users u LEFT JOIN roles r ON r.key = u.role WHERE u.id = $1`,
+        [req.params.id]);
+      if (!target) return res.status(404).json({ error: "User not found" });
+      const perms = typeof target.permissions === "string" ? JSON.parse(target.permissions) : (target.permissions || {});
+      if (!perms.admin) return res.status(400).json({ error: "The break-glass account must be an administrator" });
+      if (!target.active) return res.status(400).json({ error: "The break-glass account must be active" });
+      await run(`UPDATE users SET "breakGlass" = false WHERE "breakGlass" = true AND id <> $1`, [req.params.id]);
+    } else {
+      const conn = await get(`SELECT 1 FROM sso_connections WHERE "ssoRequired" = true AND active = true`).catch(() => null);
+      const others = await get(`SELECT COUNT(*)::int c FROM users WHERE "breakGlass" = true AND active = true AND id <> $1`,
+        [req.params.id]);
+      if (conn && !Number(others?.c)) {
+        return res.status(400).json({ error: "Cannot remove the last break-glass account while SSO is required" });
+      }
+    }
+    push("breakGlass", !!req.body.breakGlass);
+  }
   if (req.body.password) {
     if (typeof req.body.password !== "string" || req.body.password.length < 8) {
       return res.status(400).json({ error: "Password must be at least 8 characters" });

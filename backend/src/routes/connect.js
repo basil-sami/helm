@@ -330,8 +330,13 @@ inboxExtraRouter.post("/:id/reply", requirePerm("social"), async (req, res, next
     const it = await get(`SELECT * FROM inbox_items WHERE id = $1`, [req.params.id]);
     if (!it) return res.status(404).json({ error: "Not found" });
     if (it.platform !== "WA") return res.status(400).json({ error: "Replies are available for WhatsApp items" });
-    const acc = await get(`SELECT * FROM social_accounts WHERE platform = 'WA' AND status = 'CONNECTED' LIMIT 1`);
-    if (!acc) return res.status(400).json({ error: "No connected WhatsApp account" });
+    const stored = await get(`SELECT * FROM social_accounts WHERE platform = 'WA' AND status = 'CONNECTED' LIMIT 1`);
+    if (!stored) return res.status(400).json({ error: "No connected WhatsApp account" });
+    // SEC·A: decrypt at the point of use.
+    const { withToken } = await import("../secrets.js");
+    let acc;
+    try { acc = withToken(stored); }
+    catch { return res.status(500).json({ error: "Stored WhatsApp credential could not be decrypted" }); }
 
     const to = String(it.author || "").match(/(\d[\d ]{6,})/)?.[1]?.replace(/\s/g, "");
     if (!to) return res.status(400).json({ error: "No phone number on this item" });

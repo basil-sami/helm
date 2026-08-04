@@ -13,7 +13,13 @@
     "db:apply": "node scripts/apply-db.js",
     "seed": "node scripts/apply-db.js --seed",
     "seed:demo": "node scripts/apply-db.js --demo",
-    "test": "node tests/verify-all.mjs"
+    "test": "node tests/verify-all.mjs",
+    "docs:census": "node scripts/census.js",
+    "docs:check": "node scripts/census.js --check",
+    "lint:ar": "node scripts/lint-ar.js",
+    "secrets:migrate": "node scripts/migrate-secrets.js",
+    "secrets:audit": "node scripts/migrate-secrets.js --audit",
+    "secrets:rotate": "node scripts/migrate-secrets.js --rotate"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

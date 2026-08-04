@@ -129,24 +129,25 @@ exportRouter.get("/:resource", async (req, res, next) => {
 // history stay intact). Order respects foreign keys; child tables first
 // on delete, parents first on insert. Aborts on the first failing table.
 const RESTORE_ORDER = [
-  "campaigns", "products", "segments", "personas", "events", "objectives",
-  "content_items", "leads", "budget_entries", "tasks",
-  "campaign_briefs", "tracked_links", "event_registrations", "customers",
-  "media_contacts", "press_items", "influencers", "influencer_collabs",
-  "posts", "assets", "feedback", "lead_activities",
-  "social_accounts", "social_metrics", "osint_topics", "osint_signals", "osint_sources",
-  "process_templates",
-  "vendors", "engagements", "creative_requests", "creative_briefs", "brand_assets",
-  "copy_bank", "asset_versions", "deliverables", "deliverable_comments", "invoices",
-  "portal_tokens", "approvals",
-  "contacts", "forms", "form_submissions", "landing_pages", "surveys", "survey_responses", "insights",
-  "content_variants", "scheduled_posts", "bio_pages", "bio_links",
-  "workflows", "workflow_runs", "lead_score_rules", "wa_templates",
-  "outreach_campaigns", "outreach_touches", "coverage_reports", "competitors",
+  // `departments` first: it is a parent of campaigns, and the restore
+  // aborts on the first failing table. Names are unique — a table listed
+  // twice is inserted twice and violates its own primary key.
+  "departments", "campaigns", "products", "segments", "personas", "events",
+  "objectives", "content_items", "leads", "budget_entries", "tasks", "campaign_briefs",
+  "tracked_links", "event_registrations", "customers", "media_contacts", "press_items", "influencers",
+  "influencer_collabs", "posts", "assets", "feedback", "lead_activities", "social_accounts",
+  "social_metrics", "osint_topics", "osint_signals", "osint_sources", "process_templates", "vendors",
+  "engagements", "creative_requests", "creative_briefs", "brand_assets", "copy_bank", "asset_versions",
+  "deliverables", "deliverable_comments", "invoices", "portal_tokens", "approvals", "contacts",
+  "forms", "form_submissions", "landing_pages", "surveys", "survey_responses", "insights",
+  "content_variants", "scheduled_posts", "bio_pages", "bio_links", "workflows", "workflow_runs",
+  "lead_score_rules", "wa_templates", "outreach_campaigns", "outreach_touches", "coverage_reports", "competitors",
   "media_plans", "media_placements", "promotions", "referrals", "partners", "partner_campaigns",
-  "playbooks", "ad_spend", "sites", "web_events", "key_results", "digest_log", "inbox_items", "mail_log", "integration_runs", "osint_sources",
-  "osint_entities", "osint_aliases", "osint_signal_entities", "osint_cases", "osint_case_items", "osint_handle_candidates", "error_log", "ai_runs", "search_runs", "search_budget", "osint_themes", "osint_theme_signals", "mmm_weeks", "mmm_runs", "departments",
-  "metrics", "metric_snapshots", "metric_targets", "metric_alerts", "dashboards", "report_runs",
+  "playbooks", "ad_spend", "sites", "web_events", "key_results", "digest_log",
+  "inbox_items", "mail_log", "integration_runs", "osint_entities", "osint_aliases", "osint_signal_entities",
+  "osint_cases", "osint_case_items", "osint_handle_candidates", "error_log", "ai_runs", "search_runs",
+  "search_budget", "osint_themes", "osint_theme_signals", "mmm_weeks", "mmm_runs", "metrics",
+  "metric_snapshots", "metric_targets", "metric_alerts", "dashboards", "report_runs"
 ];
 
 exportRouter.post("/restore", requireAdmin, async (req, res, next) => {

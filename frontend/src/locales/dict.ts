@@ -151,7 +151,7 @@ export const t: Dict = {
   set_saved: { ar: "تم الحفظ", en: "Saved" },
 
   nav_users: { ar: "المستخدمون", en: "Users" },
-  nav_social: { ar: "السوشيال ميديا", en: "Social" },
+  nav_social: { ar: "وسائل التواصل", en: "Social" },
   nav_intel: { ar: "رصد السوق", en: "Market Intel" },
 
   // OSINT / Market intelligence
@@ -196,7 +196,7 @@ export const t: Dict = {
   usr_emailInUse: { ar: "البريد الإلكتروني مستخدم بالفعل", en: "Email already in use" },
 
   // Social
-  soc_title: { ar: "حسابات السوشيال ميديا", en: "Social accounts" },
+  soc_title: { ar: "حسابات وسائل التواصل", en: "Social accounts" },
   soc_connect: { ar: "ربط حساب", en: "Connect account" },
   soc_platform: { ar: "المنصة", en: "Platform" },
   soc_handle: { ar: "المعرّف", en: "Handle" },
@@ -349,7 +349,7 @@ export const t: Dict = {
   mod_agency: { ar: "إدارة الوكالات", en: "Agency Management" },
   mod_agency_d: { ar: "سجل المورّدين وتقييمهم، التسليمات، الفواتير، وبوابة ضيف برابط سحري.", en: "Vendor registry & scorecards, deliverables, invoices, and a magic-link guest portal." },
   st_newRequest: { ar: "طلب إبداعي", en: "Creative request" },
-  st_requests: { ar: "طابور الطلبات", en: "Request queue" },
+  st_requests: { ar: "قائمة الطلبات", en: "Request queue" },
   st_requests_sub: { ar: "كل طلبات التصميم والفيديو والنصوص — بمهلة زمنية تُراقَب تلقائيًا.", en: "Every design, video, and copy ask — with an SLA the sweep watches." },
   st_empty: { ar: "لا طلبات بعد. أول طلب إبداعي يبدأ من هنا.", en: "No requests yet. The first creative ask starts here." },
   st_brief: { ar: "الموجز", en: "Brief" },
@@ -562,7 +562,7 @@ export const t: Dict = {
   nav_publish: { ar: "النشر", en: "Publish" },
   n_PUBLISH_DUE: { ar: "موعد نشر حان — المحتوى والرابط جاهزان", en: "A publish slot is due — copy & link are ready" },
   pb_tabQueue: { ar: "قائمة النشر", en: "Queue" },
-  pb_tabBio: { ar: "صفحات البايو", en: "Bio pages" },
+  pb_tabBio: { ar: "صفحات الروابط", en: "Bio pages" },
   pb_queueTitle: { ar: "قائمة النشر القادمة", en: "Upcoming queue" },
   pb_new: { ar: "جدولة منشور", en: "Schedule a post" },
   pb_content: { ar: "المحتوى", en: "Content item" },
@@ -597,8 +597,8 @@ export const t: Dict = {
   pb_engagement: { ar: "التفاعل", en: "Engagement" },
   pb_clicks: { ar: "النقرات", en: "Clicks" },
   pb_copied: { ar: "نُسخ", en: "Copied" },
-  pb_bioPages: { ar: "صفحات البايو", en: "Bio pages" },
-  pb_newPage: { ar: "صفحة بايو جديدة", en: "New bio page" },
+  pb_bioPages: { ar: "صفحات الروابط", en: "Bio pages" },
+  pb_newPage: { ar: "صفحة روابط جديدة", en: "New bio page" },
   pb_pageTitle: { ar: "عنوان الصفحة", en: "Page title" },
   pb_accent: { ar: "اللون المميز", en: "Accent color" },
   pb_copyUrl: { ar: "انسخ الرابط", en: "Copy URL" },
@@ -752,7 +752,7 @@ export const t: Dict = {
   mod_reach: { ar: "التواصل والعلاقات", en: "Reach & relationships" },
   mod_reach_d: { ar: "حملات تواصل متسلسلة، صحة علاقات، تقارير تغطية ومنافسون", en: "Outreach sequences, relationship health, coverage reports and competitors" },
   mod_publish: { ar: "النشر", en: "Publish" },
-  mod_publish_d: { ar: "منصّة النشر: نسخ لكل منصة وطابور جدولة وصفحات بايو", en: "Per-platform variants, the scheduling queue and bio pages" },
+  mod_publish_d: { ar: "منصّة النشر: نسخ لكل منصة وقائمة جدولة وصفحات روابط", en: "Per-platform variants, the scheduling queue and bio pages" },
 
   // ── Wave 1·G — Connective Tissue ──
   nav_morning: { ar: "صباح النبض", en: "Morning Pulse" },
@@ -1384,7 +1384,7 @@ export const enumLabels: Record<string, { ar: string; en: string }> = {
   PAUSED: { ar: "متوقفة", en: "Paused" },
   COMPLETED: { ar: "مكتملة", en: "Completed" },
   // Channels
-  SOCIAL: { ar: "سوشيال ميديا", en: "Social" },
+  SOCIAL: { ar: "وسائل التواصل", en: "Social" },
   PAID: { ar: "إعلانات مدفوعة", en: "Paid" },
   EVENT: { ar: "فعالية", en: "Event" },
   PR: { ar: "علاقات عامة", en: "PR" },
@@ -1452,7 +1452,7 @@ export const enumLabels: Record<string, { ar: string; en: string }> = {
   OSINT: { ar: "رصد السوق", en: "Market Intel" },
   // Social listening & monitoring
   nav_listening: { ar: "الرصد الاجتماعي", en: "Listening" },
-  li_title: { ar: "الرصد والمراقبة", en: "Listening & Monitoring" },
+  li_title: { ar: "رصد السوق والمنافسين", en: "Listening & Monitoring" },
   li_subtitle: { ar: "حصة الصوت، حجم الذكر، ومؤشرات حساباتك — من إشارات السوق وبيانات المنصات", en: "Share of voice, mention volume, and account health — from market signals and platform metrics" },
   li_mentions8w: { ar: "الذكر (٨ أسابيع)", en: "Mentions (8 wks)" },
   li_sov: { ar: "حصة الصوت", en: "Share of voice" },
@@ -1589,7 +1589,7 @@ export const enumLabels: Record<string, { ar: string; en: string }> = {
   lk_clicks: { ar: "نقرات", en: "clicks" },
   lk_copy: { ar: "نسخ", en: "Copy" },
   lk_copied: { ar: "تم نسخ الرابط القصير", en: "Short link copied" },
-  lk_captureHint: { ar: "أضِف ?src=الرمز إلى نموذج الالتقاط لينسب العملاء تلقائياً", en: "Add ?src=code to the capture form to auto-attribute leads" },
+  lk_captureHint: { ar: "أضِف ‎?src=‎ الرمز إلى نموذج الالتقاط لينسب العملاء تلقائياً", en: "Add ?src=code to the capture form to auto-attribute leads" },
   // Customers
   cu_title: { ar: "العملاء", en: "Customers" },
   cu_sub: { ar: "الحياة بعد الفوز — العلاقة أصلٌ يُدار", en: "Life after WON — the relationship is a managed asset" },

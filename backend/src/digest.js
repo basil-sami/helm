@@ -56,10 +56,41 @@ export async function compileMorning() {
     `SELECT COUNT(*)::int c FROM media_contacts
      WHERE "lastContactAt" IS NULL OR "lastContactAt" < now() - interval '90 days'`))?.c || 0);
 
+  // ── W4·E: the digest ends with what to DO today ──────────────────
+  // A briefing that only reports is a newsletter. These are the four
+  // queues someone can actually clear before lunch, each with the age
+  // that makes it urgent rather than merely present.
+  const num = async (sql) => Number((await get(sql).catch(() => null))?.c || 0);
+  const approvalsWaiting = await num(`SELECT COUNT(*)::int c FROM approvals WHERE status = 'PENDING'`);
+  const approvalsStale = await num(
+    `SELECT COUNT(*)::int c FROM approvals WHERE status = 'PENDING' AND "escalatedAt" IS NOT NULL`);
+  const leadsDue = await num(
+    `SELECT COUNT(*)::int c FROM leads WHERE "followUpDueAt" IS NOT NULL
+       AND stage NOT IN ('WON','LOST') AND "followUpDueAt" <= now() + interval '24 hours'`);
+  const leadsOverdue = await num(
+    `SELECT COUNT(*)::int c FROM leads WHERE "slaBreached" = true AND stage NOT IN ('WON','LOST')`);
+  const reviewQueue = await num(`SELECT COUNT(*)::int c FROM osint_signals WHERE "reviewStatus" = 'PENDING'`);
+  const reviewOldest = await get(
+    `SELECT MIN("createdAt") AS d FROM osint_signals WHERE "reviewStatus" = 'PENDING'`).catch(() => null);
+  const campaignsEnding = await all(
+    `SELECT id, name, "endDate" FROM campaigns WHERE status = 'ACTIVE' AND "endDate" IS NOT NULL
+       AND "endDate"::date BETWEEN CURRENT_DATE AND CURRENT_DATE + 7 ORDER BY "endDate" ASC LIMIT 5`).catch(() => []);
+
+  const actions = {
+    approvals: { count: approvalsWaiting, stale: approvalsStale, link: "/approvals" },
+    leads: { count: leadsDue, overdue: leadsOverdue, link: "/leads" },
+    review: { count: reviewQueue,
+              oldestHours: reviewOldest?.d ? Math.round((Date.now() - new Date(reviewOldest.d)) / 3600000) : 0,
+              link: "/listening" },
+    campaignsEnding: { count: campaignsEnding.length, items: campaignsEnding, link: "/campaigns" },
+  };
+  actions.total = actions.approvals.count + actions.leads.count + actions.review.count + actions.campaignsEnding.count;
+
   return {
     date: new Date().toISOString().slice(0, 10),
     pulse, tasksDue, publishDue, outreachDue, hotLeads, wonYesterday, alerts,
     counts: { inboxOpen, coldMedia },
+    actions,
   };
 }
 
