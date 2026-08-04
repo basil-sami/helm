@@ -29,7 +29,10 @@ export default function Report() {
   return (
     <div className="mx-auto max-w-3xl space-y-5 print:max-w-none">
       <div className="flex items-center justify-between no-print">
-        <h1 className="text-xl font-bold text-ink-900">{tr("rp_title")}</h1>
+        <div className="flex items-center gap-2">
+          <button onClick={() => history.back()} className="btn-ghost">← {tr("ob_back")}</button>
+          <h1 className="text-xl font-bold text-ink-900">{tr("rp_title")}</h1>
+        </div>
         <button onClick={() => window.print()} className="btn-amber">🖨 {tr("rp_print")}</button>
       </div>
       <div className="hidden print:flex items-center gap-3 border-b border-paper-300 pb-3">

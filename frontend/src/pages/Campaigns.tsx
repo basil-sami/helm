@@ -108,7 +108,14 @@ export default function Campaigns() {
         businessUnit: editing.businessUnit, ownerId: editing.ownerId || null,
       };
       if (editing.id) await api.patch(`/campaigns/${editing.id}`, payload);
-      else await api.post("/campaigns", payload);
+      else {
+        const created = await api.post<Campaign>("/campaigns", payload);
+        setEditing({ ...editing, id: created.id, ...created });
+        reload();
+        toast.push(tr("saved"), "success");
+        toast.push(tr("bf_now"), "success");
+        return;
+      }
       setEditing(null);
       reload();
       toast.push(tr("saved"), "success");
