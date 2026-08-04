@@ -26,7 +26,16 @@ const ym = (date) => (date ? new Date(date).toISOString().slice(0, 7) : null);
 // Reusable KPI computation — shared by the analytics route AND the AI brain.
 // windowDays scopes PERIOD metrics (won, win rate, ROMI, CPL, funnel, spend);
 // pipeline is always the CURRENT open state. null = all time.
+const overviewCache = new Map();
+const OVERVIEW_TTL_MS = 30 * 1000;
 export async function computeOverview(windowDays = 365) {
+  const cached = overviewCache.get(String(windowDays));
+  if (cached && Date.now() - cached.at < OVERVIEW_TTL_MS) return cached.payload;
+  const payload = await computeOverviewUncached(windowDays);
+  overviewCache.set(String(windowDays), { at: Date.now(), payload });
+  return payload;
+}
+async function computeOverviewUncached(windowDays = 365) {
   const fetchDays = windowDays ? Math.max(windowDays, 200) : null; // trends need ≥6 months of raw rows
   const leadWhere = fetchDays
     ? `WHERE stage NOT IN ('WON','LOST') OR "updatedAt" >= now() - interval '${fetchDays} days'`
