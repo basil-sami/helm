@@ -60,6 +60,11 @@ function PulseDial({ value }: { value: number }) {
           stroke={strokeOf(value)} strokeWidth="2" strokeLinejoin="round" opacity="0.85" />
       </svg>
       <div className="mt-1 text-sm font-semibold text-ink-800">{tr("an_index")}</div>
+      <div className="mt-1 flex items-center gap-1.5 text-[10px] text-ink-500" title={tr("an_pulseScale")}>
+        <span className="inline-block h-2 w-2 rounded-full" style={{ background: "#b0563f" }} /><span>0–39</span>
+        <span className="inline-block h-2 w-2 rounded-full" style={{ background: "#c98a2b" }} /><span>40–69</span>
+        <span className="inline-block h-2 w-2 rounded-full" style={{ background: "#5f7a4e" }} /><span>70–100</span>
+      </div>
     </div>
   );
 }
@@ -90,6 +95,11 @@ function DeltaChip({ pct, direction }: { pct: number; direction: string }) {
 // ── Overview tab ─────────────────────────────────────────────────────
 function OverviewTab() {
   const { tr, lang } = useI18n();
+  const { data: metrics } = useFetch<Metric[]>("/metrics");
+  const metricName = (key: string) => {
+    const m = metrics?.find((x) => x.key === key);
+    return m ? (lang === "ar" && m.nameAr ? m.nameAr : m.name) : key;
+  };
   const { data, loading } = useFetch<Overview>("/analytics/overview");
   const nameOf = (m: { name: string; nameAr?: string }) => (lang === "ar" && m.nameAr ? m.nameAr : m.name);
   if (loading || !data) return <SkeletonCards count={4} />;
@@ -104,9 +114,9 @@ function OverviewTab() {
               <div key={a.key} className="rounded-xl border border-paper-200 bg-paper-50 p-3">
                 <div className="text-[11px] text-ink-500">{nameOf(a)}</div>
                 <div className={`kpi-num text-2xl ${toneOf(a.value)}`}>{Math.round(a.value)}</div>
-                <div className="mt-2 space-y-1">
+                <div className="mt-2 space-y-1" title={`${tr("an_barsHint")}`}>
                   {a.components.map((c) => (
-                    <div key={c.key} className="h-1.5 w-full overflow-hidden rounded-full bg-paper-200" title={`${c.key}: ${c.score}`}>
+                    <div key={c.key} className="h-1.5 w-full overflow-hidden rounded-full bg-paper-200" title={`${metricName(c.key)}: ${c.score}/100`}>
                       <div className="h-full rounded-full bg-amber-500/70" style={{ width: `${c.score}%` }} />
                     </div>
                   ))}
