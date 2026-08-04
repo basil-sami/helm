@@ -158,7 +158,11 @@ export function Modal({
     };
     document.addEventListener("keydown", onKey);
     const t = setTimeout(() => {
-      panelRef.current?.querySelector<HTMLElement>("input,select,textarea,button")?.focus();
+      const panel = panelRef.current;
+      if (!panel) return;
+      const input = panel.querySelector<HTMLElement>("input,select,textarea");
+      if (input) input.focus();
+      else panel.querySelector<HTMLElement>("button")?.focus();
     }, 30);
     document.body.style.overflow = "hidden";
     return () => {
