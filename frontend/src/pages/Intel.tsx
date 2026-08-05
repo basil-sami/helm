@@ -334,7 +334,7 @@ function ReviewQueue({ canManage }: { canManage: boolean }) {
                     <span className={`kpi-num rounded-full px-1.5 py-0.5 ${CRED_TONE[r.credibility] || CRED_TONE[4]}`}
                       title={tr("rv_credHint")} dir="ltr">{tr("rv_cred")} {r.credibility}</span>
                     <span className="kpi-num rounded-full bg-paper-200 px-1.5 py-0.5 text-ink-500" dir="ltr">
-                      {tr("rv_rel")} {Math.round(Number(r.relevance) * 100)}%
+                      {tr("rv_rel")} {Math.round(Number(r.relevance || 0) * 100)}%
                     </span>
                     {r.syndicationCount > 1 && (
                       <span className="rounded-full bg-moss-100 px-1.5 py-0.5 text-moss-700" dir="ltr">×{r.syndicationCount}</span>
