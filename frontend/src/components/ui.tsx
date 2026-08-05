@@ -140,12 +140,14 @@ export function Modal({
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const restoreRef = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!open) return;
     restoreRef.current = document.activeElement as HTMLElement;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") onCloseRef.current();
       if (e.key === "Tab" && panelRef.current) {
         const f = panelRef.current.querySelectorAll<HTMLElement>(
           'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
@@ -157,6 +159,22 @@ export function Modal({
       }
     };
     document.addEventListener("keydown", onKey);
+    const onInput = (e: Event) => {
+      const panel = panelRef.current;
+      if (!panel) return;
+      const tgt = e.target as HTMLElement | null;
+      if (!tgt || !panel.contains(tgt)) return;
+      if (!(tgt instanceof HTMLInputElement) && !(tgt instanceof HTMLTextAreaElement)) return;
+      if (tgt.value.length !== 1) return;
+      const fields = panel.querySelectorAll<HTMLElement>("input,select,textarea");
+      const idx = Array.prototype.indexOf.call(fields, tgt);
+      for (let i = idx + 1; i < fields.length; i++) {
+        const f = fields[i];
+        if (f instanceof HTMLInputElement && f.value === "" && f.type !== "hidden") { f.focus(); return; }
+        if (f instanceof HTMLTextAreaElement && f.value === "") { f.focus(); return; }
+      }
+    };
+    document.addEventListener("input", onInput);
     const t = setTimeout(() => {
       const panel = panelRef.current;
       if (!panel) return;
@@ -169,11 +187,12 @@ export function Modal({
     document.body.style.overflow = "hidden";
     return () => {
       document.removeEventListener("keydown", onKey);
+      document.removeEventListener("input", onInput);
       document.body.style.overflow = "";
       clearTimeout(t);
       restoreRef.current?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
   return (
