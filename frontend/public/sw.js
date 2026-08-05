@@ -1,7 +1,8 @@
 /* حلم — minimal app-shell service worker.
-   Static assets: cache-first. Navigations: network-first with offline fallback.
-   API calls are NEVER cached (live data + auth). */
-const VERSION = "pulse-v4";
+   Static assets: network-first with cached fallback (hashed URLs mean the
+   latest deploy always wins online). Navigations: network-first with offline
+   fallback. API calls are NEVER cached (live data + auth). */
+const VERSION = "pulse-v5";
 const SHELL = ["/", "/index.html", "/manifest.webmanifest", "/favicon.svg"];
 
 self.addEventListener("install", (e) => {
@@ -32,13 +33,13 @@ self.addEventListener("fetch", (e) => {
   }
   if (url.origin === location.origin && (url.pathname.startsWith("/assets/") || url.pathname.startsWith("/icons/") || SHELL.includes(url.pathname))) {
     e.respondWith(
-      caches.match(e.request).then(
-        (hit) => hit || fetch(e.request).then((res) => {
+      fetch(e.request)
+        .then((res) => {
           const copy = res.clone();
           caches.open(VERSION).then((c) => c.put(e.request, copy));
           return res;
         })
-      )
+        .catch(() => caches.match(e.request))
     );
   }
 });
