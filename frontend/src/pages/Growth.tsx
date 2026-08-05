@@ -170,7 +170,7 @@ export default function Growth() {
                     </div>
                     <span className="kpi-num rounded-full bg-paper-200 px-2.5 py-1 text-[11px] text-ink-600" dir="ltr">{p.campaignCount} 🔗</span>
                   </div>
-                  <div className="mt-2 text-xs text-ink-500">{tr("gr_coop")}: <span className="kpi-num text-ink-700" dir="ltr">${Number(p.coopBudgetUsd).toLocaleString()}</span></div>
+                  <div className="mt-2 text-xs text-ink-500">{tr("gr_coop")}: <span className="kpi-num text-ink-700" dir="ltr">${Number(p.coopBudgetUsd || 0).toLocaleString()}</span></div>
                   {w && (
                     <div className="mt-3 flex gap-2 text-xs">
                       <button onClick={() => { setLinkForm({ campaignId: "", sharePct: 50 }); setLinkM(p); }} className="rounded-lg bg-amber-500/15 px-2.5 py-1 font-medium text-amber-700">🔗 {tr("gr_linkCampaign")}</button>
@@ -206,7 +206,7 @@ export default function Growth() {
                   <div className="flex items-center gap-3 text-[11px] text-ink-500" dir="ltr">
                     {s.impressions ? <span>👁 {Number(s.impressions).toLocaleString()}</span> : null}
                     {s.clicks ? <span>👆 {Number(s.clicks).toLocaleString()}</span> : null}
-                    <span className="kpi-num text-sm font-bold text-ink-900">${Number(s.amountUsd).toLocaleString()}</span>
+                    <span className="kpi-num text-sm font-bold text-ink-900">${Number(s.amountUsd || 0).toLocaleString()}</span>
                   </div>
                 </div>
               ))}

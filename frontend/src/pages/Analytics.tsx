@@ -44,7 +44,7 @@ function fmtVal(v: number | null | undefined, unit: string, lang: Lang) {
 function PulseDial({ value }: { value: number }) {
   const { tr } = useI18n();
   const r = 64, c = 2 * Math.PI * r, frac = 0.75, span = c * frac;
-  const filled = span * Math.max(0, Math.min(100, value)) / 100;
+  const filled = span * Math.max(0, Math.min(100, Number.isFinite(value) ? value : 0)) / 100;
   return (
     <div className="flex flex-col items-center">
       <svg viewBox="0 0 160 160" className="h-44 w-44">
@@ -54,7 +54,7 @@ function PulseDial({ value }: { value: number }) {
           <circle cx="80" cy="80" r={r} fill="none" stroke={strokeOf(value)} strokeWidth="10"
             strokeDasharray={`${filled} ${c}`} strokeLinecap="round" className="transition-all duration-700" />
         </g>
-        <text x="80" y="78" textAnchor="middle" className="kpi-num" fontSize="34" fill="currentColor">{Math.round(value)}</text>
+        <text x="80" y="78" textAnchor="middle" className="kpi-num" fontSize="34" fill="currentColor">{Number.isFinite(value) ? Math.round(value) : 0}</text>
         <text x="80" y="96" textAnchor="middle" fontSize="9" fill="#8a8172">/ 100</text>
         <polyline points="34,128 52,128 60,116 68,140 76,120 84,128 126,128" fill="none"
           stroke={strokeOf(value)} strokeWidth="2" strokeLinejoin="round" opacity="0.85" />
