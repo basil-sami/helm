@@ -24,9 +24,22 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
   </React.StrictMode>
 );
 
-// PWA: offline shell + installability (production only)
+// PWA: app-shell support (production only). Assets are network-first,
+// so a new deploy is picked up immediately; old caches are purged on update.
 if ("serviceWorker" in navigator && import.meta.env.PROD) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch(() => {});
+    navigator.serviceWorker.register("/sw.js").then((reg) => {
+      reg.update();
+      reg.addEventListener("updatefound", () => {
+        const nw = reg.installing;
+        if (!nw) return;
+        nw.addEventListener("statechange", () => {
+          if (nw.state === "activated" && navigator.serviceWorker.controller && !sessionStorage.getItem("swReloaded")) {
+            sessionStorage.setItem("swReloaded", "1");
+            location.reload();
+          }
+        });
+      });
+    }).catch(() => {});
   });
 }
