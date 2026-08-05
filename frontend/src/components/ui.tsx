@@ -160,9 +160,11 @@ export function Modal({
     const t = setTimeout(() => {
       const panel = panelRef.current;
       if (!panel) return;
-      const input = panel.querySelector<HTMLElement>("input,select,textarea");
-      if (input) input.focus();
-      else panel.querySelector<HTMLElement>("button")?.focus();
+      const fields = panel.querySelectorAll<HTMLElement>("input,select,textarea");
+      for (const f of fields) {
+        if (f instanceof HTMLInputElement && f.value === "" && f.type !== "hidden") { f.focus(); return; }
+        if (f instanceof HTMLTextAreaElement && f.value === "") { f.focus(); return; }
+      }
     }, 30);
     document.body.style.overflow = "hidden";
     return () => {
