@@ -24,22 +24,25 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
   </React.StrictMode>
 );
 
-// PWA: app-shell support (production only). Assets are network-first,
-// so a new deploy is picked up immediately; old caches are purged on update.
+// Hard cache reset: unregister any service worker left by older deployments,
+// delete every cache, and reload once so the current build always runs.
+// This permanently eliminates stale-bundle issues (SW/PWA registration is
+// intentionally removed — the app is network-first now).
 if ("serviceWorker" in navigator && import.meta.env.PROD) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").then((reg) => {
-      reg.update();
-      reg.addEventListener("updatefound", () => {
-        const nw = reg.installing;
-        if (!nw) return;
-        nw.addEventListener("statechange", () => {
-          if (nw.state === "activated" && navigator.serviceWorker.controller && !sessionStorage.getItem("swReloaded")) {
-            sessionStorage.setItem("swReloaded", "1");
-            location.reload();
-          }
-        });
-      });
-    }).catch(() => {});
+    navigator.serviceWorker.getRegistrations()
+      .then((regs) => {
+        if (!regs.length) return;
+        return Promise.all(regs.map((r) => r.unregister()))
+          .then(() => "caches" in window ? caches.keys() : [])
+          .then((ks) => Promise.all(ks.map((k) => caches.delete(k))))
+          .then(() => {
+            if (!sessionStorage.getItem("swPurged")) {
+              sessionStorage.setItem("swPurged", "1");
+              location.reload();
+            }
+          });
+      })
+      .catch(() => {});
   });
 }
