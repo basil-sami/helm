@@ -3,7 +3,7 @@ import crypto from "crypto";
 import QRCode from "qrcode";
 import { crudRouter } from "../crud.js";
 import { all, get, run } from "../db.js";
-import { requireAuth, requirePerm, requireAdmin } from "../auth.js";
+import { requireAuth, requirePerm } from "../auth.js";
 import { notify } from "../notify.js";
 import { logAudit } from "../audit.js";
 
@@ -143,8 +143,9 @@ promotionsExtraRouter.post("/:id/undo", requirePerm("planning"), async (req, res
   } catch (e) { next(e); }
 });
 
-// Activate/deactivate: admin-only, since it gates whether a promo can be redeemed.
-promotionsExtraRouter.post("/:id/toggle", requireAdmin, async (req, res, next) => {
+// Activation follows planning write permission; admins are not the only operators
+// who should be able to pause or resume a promotion.
+promotionsExtraRouter.post("/:id/toggle", requirePerm("planning"), async (req, res, next) => {
   try {
     const p = await get(`SELECT * FROM promotions WHERE id = $1`, [req.params.id]);
     if (!p) return res.status(404).json({ error: "Not found" });
@@ -176,9 +177,13 @@ referralsRouter.post("/", requirePerm("planning"), async (req, res, next) => {
   try {
     const { referrerCustomerId, targetUrl } = req.body || {};
     if (!referrerCustomerId || !targetUrl) return res.status(400).json({ error: "referrerCustomerId and targetUrl are required" });
+    if (!/^https?:\/\/.+/.test(targetUrl)) return res.status(400).json({ error: "targetUrl must be an http(s) URL" });
     const cust = await get(`SELECT * FROM customers WHERE id = $1`, [referrerCustomerId]);
     if (!cust) return res.status(400).json({ error: "Unknown customer" });
     const code = await mintLink(targetUrl, null, "REFERRAL", "ref");
+    const destination = new URL(targetUrl);
+    destination.searchParams.set("ref", code);
+    await run(`UPDATE tracked_links SET url = $2 WHERE code = $1`, [code, destination.toString()]);
     const row = await get(
       `INSERT INTO referrals ("referrerCustomerId", code) VALUES ($1,$2) RETURNING *`, [cust.id, code]);
     logAudit(req, "referrals.create", "referrals", row.id, { code });

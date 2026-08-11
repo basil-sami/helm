@@ -81,7 +81,7 @@ export default function Inbox() {
       <div className="flex flex-wrap gap-1.5 text-xs">
         {["OPEN", "REPLIED", "CONVERTED", "ARCHIVED", "ALL"].map((s) => (
           <button key={s} onClick={() => setFilter(s)}
-            className={`rounded-full px-3 py-1 font-medium transition ${filter === s ? "bg-ink-900 text-paper-50" : "bg-paper-200 text-ink-600 hover:bg-paper-300"}`}>
+            className={`rounded-full px-3 py-1 font-medium transition ${filter === s ? "tab-active" : "bg-paper-200 text-ink-600 hover:bg-paper-300"}`}>
             {s === "ALL" ? tr("ix_all") : tr(`ix_s_${s}`)}
           </button>
         ))}

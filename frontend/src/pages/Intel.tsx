@@ -8,7 +8,7 @@ import { Themes } from "./IntelThemes";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../lib/api";
 import ExportButton from "../components/ExportButton";
-import { fmtDate, fmtNum } from "../lib/format";
+import { fmtDate, fmtNum, safeNum } from "../lib/format";
 
 interface Topic {
   id: string; label: string; query: string; lang: string; region: string;
@@ -172,12 +172,12 @@ export default function Intel() {
 
       {/* Topics */}
       <div className="flex flex-wrap gap-2">
-        <button onClick={() => setSelected(null)} className={`pill ${!selected ? "bg-ink-900 text-paper" : "bg-paper-200 text-ink-600"}`}>{tr("all")}</button>
+        <button onClick={() => setSelected(null)} className={`pill ${!selected ? "tab-active" : "bg-paper-200 text-ink-600"}`}>{tr("all")}</button>
         {list.map((t) => (
           <button key={t.id} onClick={() => setSelected(t.id)}
-            className={`group inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm ${selected === t.id ? "bg-ink-900 text-paper" : "bg-white border border-paper-200 text-ink-700"}`}>
+            className={`group inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm ${selected === t.id ? "tab-active" : "bg-white border border-paper-200 text-ink-700"}`}>
             <span>{t.label}</span>
-            <span className={`text-xs ${selected === t.id ? "text-paper-200/70" : "text-ink-400"}`}>{t.signalCount || 0}</span>
+            <span className={`text-xs ${selected === t.id ? "text-amber-700" : "text-ink-400"}`}>{t.signalCount || 0}</span>
           </button>
         ))}
       </div>
@@ -267,7 +267,7 @@ export default function Intel() {
                   return (
                     <button key={s} type="button"
                       onClick={() => setEditing({ ...editing, sources: on ? (editing.sources || []).filter((x) => x !== s) : [...(editing.sources || []), s] })}
-                      className={`pill ${on ? "bg-ink-900 text-paper" : "bg-paper-200 text-ink-600"}`}>{el(s)}</button>
+                      className={`pill ${on ? "tab-active" : "bg-paper-200 text-ink-600"}`}>{el(s)}</button>
                   );
                 })}
               </div>
@@ -417,7 +417,7 @@ function SourceRegistry({ canManage }: { canManage: boolean }) {
                     <span className="truncate text-ink-700">{p.label}</span>
                     <span className="flex shrink-0 items-center gap-2" dir="ltr">
                       {ruled(p) > 0 && (
-                        <span className="kpi-num font-bold text-ink-900">{Math.round((p.confirmed / ruled(p)) * 100)}%</span>
+                        <span className="kpi-num font-bold text-ink-900">{ruled(p) > 0 ? Math.round((safeNum(p.confirmed) / ruled(p)) * 100) : 0}%</span>
                       )}
                       <span className="kpi-num text-[10px] text-ink-400">
                         ✓{p.confirmed} ✕{p.rejected}{p.pending ? ` ⏳${p.pending}` : ""}

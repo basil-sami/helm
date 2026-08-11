@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../context/I18nContext";
 import { applyAccent } from "../lib/theme";
 import PulseMark from "../components/PulseMark";
@@ -32,20 +32,23 @@ export function PublicFormRenderer({ form, src, onDone }: { form: PubForm; src?:
   const { lang, tr } = useI18n();
   const [values, setValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  const submittingRef = useRef(false);
   const [err, setErr] = useState("");
   const [done, setDone] = useState(false);
 
   const submit = async () => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setBusy(true); setErr("");
     try {
       const res = await fetch(`/api/public/forms/${encodeURIComponent(form.slug)}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...values, src, _hp: "" }),
+        body: JSON.stringify({ ...values, src, ref: new URLSearchParams(window.location.search).get("ref") || undefined, _hp: "" }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Error");
       setDone(true); onDone?.();
-    } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+    } catch (e) { setErr((e as Error).message); } finally { submittingRef.current = false; setBusy(false); }
   };
 
   if (done) {
