@@ -102,6 +102,8 @@ export default function Tasks() {
       </div>
 
       {loading ? <div className="py-16 text-center text-ink-500">{tr("loading")}</div> : (
+        <>
+        <p className="text-xs text-ink-500">{tr("taskStatusHint")}</p>
         <KanbanBoard<Task>
           columns={STATUS_COLS.map((s) => ({ id: s.id, title: el(s.id), accent: s.accent }))}
           items={tasks}
@@ -119,13 +121,17 @@ export default function Tasks() {
                 </div>
                 <div className="mt-1.5 text-xs text-ink-500">{t.assigneeName || tr("unassigned")}{t.campaignName ? ` · ${t.campaignName}` : ""}</div>
                 {t.dueDate && <div className={`mt-1 text-xs ${overdue ? "text-clay-600 font-medium" : "text-ink-500"}`}>{fmtDate(t.dueDate, lang)}</div>}
-                <div className="mt-2 flex justify-end border-t border-paper-200 pt-2">
+                <div className="mt-2 flex items-center justify-between border-t border-paper-200 pt-2">
+                  <select aria-label={tr("status")} className="input w-auto py-1 text-[11px]" value={t.status} onChange={(e) => move(t, e.target.value)}>
+                    {STATUSES.map((s) => <option key={s} value={s}>{el(s)}</option>)}
+                  </select>
                   <button onClick={() => remove(t.id)} className="text-[11px] text-clay-600 hover:underline">{tr("delete")}</button>
                 </div>
               </>
             );
           }}
         />
+        </>
       )}
 
       <Modal open={!!editing} onClose={() => setEditing(null)} title={editing?.id ? tr("edit") : tr("add")}

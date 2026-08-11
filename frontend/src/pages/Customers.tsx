@@ -58,6 +58,7 @@ export default function Customers() {
         <div>
           <h1 className="text-xl font-bold text-ink-900">{tr("cu_title")}</h1>
           <p className="text-sm text-ink-500">{tr("cu_sub")}</p>
+          <p className="mt-1 text-xs text-ink-400">{tr("cu_manageHint")}</p>
         </div>
         {fb && fb.count > 0 && (
           <div className="rounded-xl border border-paper-200 bg-white px-4 py-2 text-sm">

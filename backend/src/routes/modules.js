@@ -115,8 +115,12 @@ export const leadsRouter = crudRouter({
   },
   fields: ["company", "contactName", "phone", "email", "source", "businessUnit", "stage", "valueUsd", "valueSdg", "notes", "campaignId", "ownerId", "productId", "rateAtEntry", "lostReason", "departmentId"],
   touchUpdatedAt: true,
-  listSql: `SELECT l.*, u.name AS "ownerName", c.name AS "campaignName" FROM leads l LEFT JOIN users u ON u.id = l."ownerId" LEFT JOIN campaigns c ON c.id = l."campaignId" ORDER BY l."updatedAt" DESC`,
-  getSql: `SELECT l.*, u.name AS "ownerName", c.name AS "campaignName" FROM leads l LEFT JOIN users u ON u.id = l."ownerId" LEFT JOIN campaigns c ON c.id = l."campaignId" WHERE l.id = $1`,
+  listSql: `SELECT l.*, u.name AS "ownerName", c.name AS "campaignName", cu.id AS "customerId"
+            FROM leads l LEFT JOIN users u ON u.id = l."ownerId" LEFT JOIN campaigns c ON c.id = l."campaignId"
+            LEFT JOIN customers cu ON cu."leadId" = l.id ORDER BY l."updatedAt" DESC`,
+  getSql: `SELECT l.*, u.name AS "ownerName", c.name AS "campaignName", cu.id AS "customerId"
+           FROM leads l LEFT JOIN users u ON u.id = l."ownerId" LEFT JOIN campaigns c ON c.id = l."campaignId"
+           LEFT JOIN customers cu ON cu."leadId" = l.id WHERE l.id = $1`,
   validate: (d) => inSet(d.stage, ENUMS.leadStage, "stage"),
 });
 
