@@ -1,0 +1,41 @@
+{
+  "name": "pulse-backend",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Pulse (\u0646\u0628\u0636) \u2014 The Marketing Operating Platform (API, Postgres/Supabase)",
+  "engines": {
+    "node": ">=18.18"
+  },
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "db:apply": "node scripts/apply-db.js",
+    "seed": "node scripts/apply-db.js --seed",
+    "seed:demo": "node scripts/apply-db.js --demo",
+    "test": "node tests/verify-all.mjs",
+    "docs:census": "node scripts/census.js",
+    "docs:check": "node scripts/census.js --check",
+    "lint:ar": "node scripts/lint-ar.js",
+    "secrets:migrate": "node scripts/migrate-secrets.js",
+    "secrets:audit": "node scripts/migrate-secrets.js --audit",
+    "secrets:rotate": "node scripts/migrate-secrets.js --rotate",
+    "soc2:evidence": "node scripts/soc2-evidence.js",
+    "continuity:check": "node scripts/continuity-check.js",
+    "continuity:drill": "node scripts/continuity-drill.mjs"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "nodemailer": "^9.0.3",
+    "pg": "^8.13.1",
+    "qrcode": "^1.5.4",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.4"
+  }
+}

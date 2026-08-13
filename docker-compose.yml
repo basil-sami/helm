@@ -1,0 +1,26 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: pulse-db
+    environment:
+      - POSTGRES_USER=pulse
+      - POSTGRES_PASSWORD=pulse
+      - POSTGRES_DB=pulse
+    volumes:
+      - ./data/pg:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  pulse:
+    build: .
+    container_name: pulse
+    depends_on: [db]
+    ports:
+      - "4000:4000"
+    environment:
+      - NODE_ENV=production
+      - PORT=4000
+      - DATABASE_URL=postgresql://pulse:pulse@db:5432/pulse
+      - PGSSL=disable
+      # Change this secret for any real deployment:
+      - JWT_SECRET=change-this-secret-in-production
+    restart: unless-stopped
