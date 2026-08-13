@@ -91,7 +91,7 @@ r.post("/:id/verify/send", requirePerm("leads", "write"), async (req, res, next)
     if (!row.subjectEmail) return res.status(400).json({ error: "This request has no email address to confirm to" });
     const token = crypto.randomBytes(24).toString("base64url");
     await run(`UPDATE erasure_requests SET "verifyToken" = $2, "updatedAt" = now() WHERE id = $1`, [row.id, hashToken(token)]);
-    const link = `${(process.env.PUBLIC_BASE_URL || process.env.PUBLIC_URL || "").replace(/\/$/, "")}/api/privacy/confirm/${row.id}/${token}`;
+    const link = `${(process.env.PUBLIC_BASE_URL || process.env.PUBLIC_URL || "").replace(/\/$/, "")}/privacy/confirm/${row.id}/${token}`;
     await sendMail({
       to: row.subjectEmail,
       subject: row.kind === "EXPORT" ? "Confirm your data request" : "Confirm your erasure request",
@@ -99,7 +99,7 @@ r.post("/:id/verify/send", requirePerm("leads", "write"), async (req, res, next)
              <p>If you did not make this request, ignore this message and nothing will change.</p>`,
     }).catch(() => {});
     logAudit(req, "erasure.verifySent", "erasure_requests", row.id, {});
-    res.json({ ok: true, sentTo: row.subjectEmail, confirmPath: `/api/privacy/confirm/${row.id}/${token}` });
+    res.json({ ok: true, sentTo: row.subjectEmail, confirmPath: `/privacy/confirm/${row.id}/${token}` });
   } catch (e) { next(e); }
 });
 
@@ -238,6 +238,9 @@ export const privacyPublicRouter = Router();
 
 privacyPublicRouter.get("/confirm/:id/:token", async (req, res, next) => {
   try {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(req.params.id)) {
+      return res.status(404).json({ error: "Invalid or expired confirmation link" });
+    }
     const row = await get(`SELECT * FROM erasure_requests WHERE id = $1`, [req.params.id]);
     if (!row || !row.verifyToken) return res.status(404).json({ error: "Invalid or expired confirmation link" });
     if (row.verifyToken !== hashToken(req.params.token)) return res.status(404).json({ error: "Invalid or expired confirmation link" });

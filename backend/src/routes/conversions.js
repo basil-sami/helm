@@ -102,14 +102,18 @@ leadLoopRouter.post("/:id/assign", requirePerm("leads", "write"), async (req, re
   try {
     const lead = await get(`SELECT * FROM leads WHERE id = $1`, [req.params.id]);
     if (!lead) return res.status(404).json({ error: "Lead not found" });
-    const ownerId = req.body?.ownerId || req.user.id;
+    const hasOwner = Object.prototype.hasOwnProperty.call(req.body || {}, "ownerId");
+    const ownerId = hasOwner ? (req.body.ownerId || null) : req.user.id;
+    if (ownerId && !(await get(`SELECT 1 FROM users WHERE id = $1 AND active = true`, [ownerId]))) {
+      return res.status(400).json({ error: "Owner must be an active user" });
+    }
     const hours = Number(req.body?.slaHours) || Number((await get(`SELECT "followUpSlaHours" v FROM settings WHERE id = 1`).catch(() => null))?.v) || 48;
     const row = await get(
-      `UPDATE leads SET "ownerId" = $2, "followUpDueAt" = now() + ($3 || ' hours')::interval,
-         "slaBreached" = false, "updatedAt" = now() WHERE id = $1 RETURNING *`,
+      `UPDATE leads SET "ownerId" = $2, "followUpDueAt" = CASE WHEN $2::uuid IS NULL THEN NULL ELSE now() + ($3 || ' hours')::interval END,
+          "slaBreached" = false, "updatedAt" = now() WHERE id = $1 RETURNING *`,
       [lead.id, ownerId, String(hours)]);
     logActivity(req, lead.id, "NOTE", null, { via: "ASSIGN", ownerId, slaHours: hours });
-    if (ownerId !== req.user.id) {
+    if (ownerId && ownerId !== req.user.id) {
       notify([ownerId], "LEAD_ASSIGNED", { company: lead.company, slaHours: hours }, `/leads/${lead.id}`).catch(() => {});
     }
     res.json(row);

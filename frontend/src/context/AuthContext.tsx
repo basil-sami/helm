@@ -35,7 +35,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = tokenStore.get();
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const callbackToken = hash.get("token");
+    if (callbackToken) {
+      tokenStore.set(callbackToken);
+      window.history.replaceState({}, "", window.location.pathname + window.location.search);
+    }
+    const token = callbackToken || tokenStore.get();
     if (!token) {
       setLoading(false);
       return;

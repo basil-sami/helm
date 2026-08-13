@@ -24,6 +24,7 @@ const NAV: { to: string; key: string; icon: string; mod?: string; flag?: string 
   { to: "/audience", key: "nav_audience", icon: "persona", mod: "campaigns" },
   { to: "/links", key: "nav_links", icon: "link", mod: "campaigns" },
   { to: "/calendar", key: "nav_calendar", icon: "calendar" },
+  { to: "/operations", key: "nav_operations", icon: "zap", mod: "__operations" },
   { to: "/publish", key: "nav_publish", icon: "send", mod: "publish", flag: "publish" },
   { to: "/leads", key: "nav_leads", icon: "users", mod: "leads" },
   { to: "/customers", key: "nav_customers", icon: "handshake", mod: "leads" },
@@ -35,6 +36,7 @@ const NAV: { to: string; key: string; icon: string; mod?: string; flag?: string 
   { to: "/media", key: "nav_media", icon: "megaphone", mod: "social", flag: "media" },
   { to: "/media-plans", key: "nav_mediaplans", icon: "qr", mod: "media", flag: "media" },
   { to: "/listening", key: "nav_listening", icon: "pulse", mod: "__listening", flag: "listening" },
+  { to: "/listening-control", key: "nav_listening_control", icon: "pulse-line", mod: "intel", flag: "listening" },
   { to: "/intel", key: "nav_intel", icon: "radar", mod: "intel", flag: "intel" },
   { to: "/web", key: "nav_web", icon: "globe", mod: "intel", flag: "intel" },
   { to: "/studio", key: "nav_studio", icon: "palette", mod: "studio", flag: "studio" },
@@ -47,6 +49,7 @@ const NAV: { to: string; key: string; icon: string; mod?: string; flag?: string 
   { to: "/forms", key: "nav_forms", icon: "form", mod: "automate", flag: "automate" },
   { to: "/pages", key: "nav_pages", icon: "layout", mod: "automate", flag: "automate" },
   { to: "/surveys", key: "nav_surveys", icon: "poll", mod: "research", flag: "research" },
+  { to: "/governance", key: "nav_governance", icon: "shield", mod: "__governance" },
 ];
 
 function Icon({ name }: { name: string }) {
@@ -142,6 +145,8 @@ export default function Layout({ children }: { children: ReactNode }) {
     if (i.flag && !moduleOn(i.flag)) return false; // client's plan hides the territory
     if (!i.mod) return true;
     if (i.mod === "__listening") return can("intel", "read") || can("social", "read");
+    if (i.mod === "__operations") return can("leads", "read") || can("campaigns", "read") || can("content", "read");
+    if (i.mod === "__governance") return isAdmin || can("leads", "read");
     return can(i.mod, "read");
   });
   const nav = isAdmin
@@ -152,7 +157,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   useEffect(() => { setDrawer(false); }, [loc.pathname]);
   const preferred = ["/calendar", "/tasks", "/leads", "/listening", "/campaigns"];
   const tabs = [nav[0], ...preferred.map((p) => nav.find((n) => n.to === p)).filter(Boolean).slice(0, 3)] as typeof nav;
-  const isActive = (to: string) => (to === "/" ? loc.pathname === "/" : loc.pathname.startsWith(to));
+  const isActive = (to: string) => (to === "/" ? loc.pathname === "/" : loc.pathname === to || loc.pathname.startsWith(`${to}/`));
 
   return (
     <div className="flex h-screen overflow-hidden bg-paper">
@@ -168,7 +173,7 @@ export default function Layout({ children }: { children: ReactNode }) {
 
         <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
           {nav.map((item) => {
-            const active = item.to === "/" ? loc.pathname === "/" : loc.pathname.startsWith(item.to);
+            const active = isActive(item.to);
             return (
               <NavLink key={item.to} to={item.to} className={`nav-link ${active ? "nav-link-active" : ""}`}>
                 <Icon name={item.icon} />
@@ -206,7 +211,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         <header className="flex h-16 shrink-0 items-center justify-between border-b border-paper-200 bg-white/70 px-4 backdrop-blur md:px-6">
           <div className="text-sm text-ink-500">
             <span className="font-medium text-ink-800">
-              {tr(nav.find((n) => (n.to === "/" ? loc.pathname === "/" : loc.pathname.startsWith(n.to)))?.key || "nav_dashboard")}
+              {tr(nav.find((n) => isActive(n.to))?.key || "nav_dashboard")}
             </span>
           </div>
           <div className="flex items-center gap-2">

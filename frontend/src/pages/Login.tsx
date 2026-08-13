@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useI18n } from "../context/I18nContext";
 import { useBranding } from "../context/BrandingContext";
 import { t } from "../locales/dict";
 import PulseMark, { EcgLoader } from "../components/PulseMark";
+import { api } from "../lib/api";
 
 export default function Login() {
   const { login } = useAuth();
@@ -15,6 +16,9 @@ export default function Login() {
   const [needOtp, setNeedOtp] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [sso, setSso] = useState<{ enabled: boolean; required: boolean; name?: string } | null>(null);
+
+  useEffect(() => { api.get<{ enabled: boolean; required: boolean; name?: string }>("/auth/sso/config").then(setSso).catch(() => {}); }, []);
 
   const org = (lang === "ar" ? branding.orgNameAr || branding.orgName : branding.orgName) || "";
 
@@ -82,6 +86,14 @@ export default function Login() {
           </div>
 
           <div className="space-y-4">
+            {sso?.enabled && (
+              <>
+                <a href="/api/auth/sso/start" className="btn-ghost block w-full text-center">
+                  {lang === "ar" ? `الدخول عبر ${sso.name || "SSO"}` : `Continue with ${sso.name || "SSO"}`}
+                </a>
+                 <div className="flex items-center gap-3 text-xs text-ink-400"><span className="h-px flex-1 bg-paper-300" /><span>{sso.required ? (lang === "ar" ? "أو حساب الطوارئ" : "or break-glass account") : (lang === "ar" ? "أو حساب محلي" : "or local account")}</span><span className="h-px flex-1 bg-paper-300" /></div>
+              </>
+            )}
             <label className="block">
               <span className="label">{tr("email")}</span>
               <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} dir="ltr" />

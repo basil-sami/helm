@@ -51,6 +51,11 @@ import WebAnalytics from "./pages/WebAnalytics";
 import Inbox from "./pages/Inbox";
 import Library from "./pages/Library";
 import System from "./pages/System";
+import CampaignRoom from "./pages/CampaignRoom";
+import Operations from "./pages/Operations";
+import ListeningControl from "./pages/ListeningControl";
+import Governance from "./pages/Governance";
+import PrivacyConfirm from "./pages/PrivacyConfirm";
 import SecurityModal from "./components/SecurityModal";
 import { EcgLoader } from "./components/PulseMark";
 
@@ -89,6 +94,10 @@ export default function App() {
   if (loc.pathname.startsWith("/l/")) return <LandingPublic slug={loc.pathname.slice(3)} />;
   if (loc.pathname.startsWith("/s/")) return <SurveyPublic slug={loc.pathname.slice(3)} />;
   if (loc.pathname.startsWith("/b/")) return <BioPublic slug={loc.pathname.slice(3)} />;
+  if (loc.pathname.startsWith("/privacy/confirm/")) {
+    const [, , , id, token] = loc.pathname.split("/");
+    return <PrivacyConfirm id={id || ""} token={token || ""} />;
+  }
 
   if (loading || !ready) {
     return (
@@ -123,10 +132,13 @@ export default function App() {
         {moduleOn("planning") && <Route path="/planning" element={<Planning />} />}
         {moduleOn("brain") && <Route path="/brain" element={<Brain />} />}
         <Route path="/campaigns" element={<Campaigns />} />
+        <Route path="/campaigns/:id" element={<CampaignRoom />} />
         <Route path="/products" element={<Products />} />
         <Route path="/audience" element={<Audience />} />
         <Route path="/links" element={<Links />} />
         <Route path="/calendar" element={<Calendar />} />
+        <Route path="/operations" element={<Operations />} />
+        <Route path="/imports" element={<Operations />} />
         {moduleOn("publish") && <Route path="/publish" element={<Publish />} />}
         {moduleOn("automate") && <Route path="/automate" element={<Automate />} />}
         {moduleOn("reach") && <Route path="/reach" element={<Reach />} />}
@@ -138,6 +150,7 @@ export default function App() {
         {moduleOn("social") && <Route path="/inbox" element={<Inbox />} />}
         {moduleOn("content") && <Route path="/library" element={<Library />} />}
         <Route path="/leads" element={<Leads />} />
+        <Route path="/leads/:id" element={<Leads />} />
         <Route path="/customers" element={<Customers />} />
         {moduleOn("events") && <Route path="/events" element={<Events />} />}
         <Route path="/budget" element={<Budget />} />
@@ -145,6 +158,7 @@ export default function App() {
         {moduleOn("social") && <Route path="/social" element={<Social />} />}
         {moduleOn("media") && <Route path="/media" element={<Media />} />}
         {moduleOn("listening") && <Route path="/listening" element={<Listening />} />}
+        {moduleOn("listening") && <Route path="/listening-control" element={<ListeningControl />} />}
         {moduleOn("intel") && <Route path="/intel" element={<Intel />} />}
         {moduleOn("studio") && <Route path="/studio" element={<Studio />} />}
         {moduleOn("agency") && <Route path="/agency" element={<Agency />} />}
@@ -154,6 +168,7 @@ export default function App() {
         {moduleOn("research") && <Route path="/surveys" element={<Surveys />} />}
         <Route path="/approvals" element={<Approvals />} />
         <Route path="/report" element={<Report />} />
+        <Route path="/governance" element={<Governance />} />
         {isAdmin && <Route path="/users" element={<Users />} />}
         {isAdmin && <Route path="/settings" element={<Settings />} />}
         {isAdmin && <Route path="/system" element={<System />} />}

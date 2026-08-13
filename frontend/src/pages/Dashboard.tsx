@@ -18,6 +18,8 @@ interface Dash {
   contentDue: { id: string; title: string; titleAr?: string; status: string; scheduledAt?: string; campaignName?: string }[];
   setting: { usdToSdgRate: number };
 }
+interface RoleHome { role: string; total: number; cards: { key: string; count?: number; overdue?: number; stale?: number; oldestHours?: number; value?: number | null; delta?: number; anomalies?: number; link: string }[] }
+interface Checklist { done: number; total: number; complete: boolean; steps: { key: string; label: string; labelAr: string; done: boolean; link: string }[] }
 
 const STAGE_ORDER = ["NEW", "QUALIFIED", "PROPOSAL", "NEGOTIATION", "WON", "LOST"];
 
@@ -34,9 +36,11 @@ function Kpi({ label, value, sub, accent }: { label: string; value: string; sub?
 
 export default function Dashboard() {
   const { lang, tr, el } = useI18n();
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const navigate = useNavigate();
   const { data, loading } = useFetch<Dash>("/dashboard");
+  const { data: home } = useFetch<RoleHome>("/home");
+  const { data: checklist } = useFetch<Checklist>("/home/checklist");
 
   if (loading || !data) {
     return (
@@ -68,6 +72,30 @@ export default function Dashboard() {
             : `Current rate: 1 USD = ${fmtNum(data.setting.usdToSdgRate, lang)} SDG`}
         </p>
       </div>
+
+      {!!home?.cards.length && (
+        <Card>
+          <SectionTitle>{lang === "ar" ? "ما يحتاج انتباهك اليوم" : "What needs your attention"}</SectionTitle>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {home.cards.map((card) => (
+              <button key={card.key} onClick={() => navigate(card.link)} className="rounded-xl border border-paper-200 bg-paper-100/50 p-3 text-start hover:border-amber-500/40">
+                <div className="text-xs text-ink-500">{card.key.replace(/([A-Z])/g, " $1")}</div>
+                <div className="kpi-num mt-1 text-2xl text-ink-900">{card.value ?? card.count ?? 0}</div>
+                {(card.overdue || card.stale || card.anomalies || card.oldestHours) ? <div className="mt-1 text-[11px] text-clay-600">{card.overdue ? `${card.overdue} overdue` : card.stale ? `${card.stale} stale` : card.anomalies ? `${card.anomalies} anomalies` : `${card.oldestHours}h oldest`}</div> : null}
+              </button>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {isAdmin && checklist && !checklist.complete && (
+        <Card>
+          <SectionTitle action={<span className="kpi-num text-xs text-ink-500">{checklist.done}/{checklist.total}</span>}>{lang === "ar" ? "إعداد أول حملة" : "First campaign setup"}</SectionTitle>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {checklist.steps.map((step) => <button key={step.key} onClick={() => navigate(step.link)} className={`flex items-center gap-2 rounded-lg border p-2 text-start text-xs ${step.done ? "border-moss-500/20 bg-moss-500/5 text-moss-700" : "border-paper-200 text-ink-600 hover:border-amber-500/40"}`}><span>{step.done ? "✓" : "○"}</span>{lang === "ar" ? step.labelAr : step.label}</button>)}
+          </div>
+        </Card>
+      )}
 
       {/* Today's briefing — actionable, per the intelligence loop */}
       {(() => {

@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Card, SectionTitle, Field, Modal, StatusPill, Empty, SkeletonRows, useFetch } from "../components/ui";
+import { Card, SectionTitle, Field, Modal, Select, StatusPill, Empty, SkeletonRows, useFetch } from "../components/ui";
 import { useI18n } from "../context/I18nContext";
 import { api } from "../lib/api";
 import { fmtDate } from "../lib/format";
+import { useAuth } from "../context/AuthContext";
 
 // ── APPROVALS — one inbox for every sign-off in Pulse ────────────────
 
@@ -14,8 +15,10 @@ interface Approval { id: string; entity: string; entityId: string; stage: string
 
 const ENTITY_LINK: Record<string, string> = {
   invoices: "/agency", deliverables: "/agency", asset_versions: "/studio",
-  scheduled_posts: "/publish", content: "/calendar",
+  scheduled_posts: "/publish", content_items: "/calendar",
 };
+interface UserRow { id: string; name: string }
+interface Delegation { id: string; approverId: string; approverName?: string; delegateId: string; delegateName?: string; fromDate: string; toDate: string; reason?: string; active: boolean }
 
 // W4·UX — the thing being approved, shown where the decision happens.
 function PreviewBlock({ p, lang }: { p: Preview; lang: "ar" | "en" }) {
@@ -41,8 +44,13 @@ function PreviewBlock({ p, lang }: { p: Preview; lang: "ar" | "en" }) {
 
 export default function Approvals() {
   const { lang, tr } = useI18n();
+  const { can, isAdmin } = useAuth();
   const { data, reload } = useFetch<Approval[]>("/approvals");
+  const { data: delegations, reload: reloadDelegations } = useFetch<Delegation[]>("/delegations");
+  const { data: users } = useFetch<UserRow[]>("/users");
   const [deciding, setDeciding] = useState<{ ap: Approval; status: "APPROVED" | "REJECTED"; note: string } | null>(null);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [delegation, setDelegation] = useState({ approverId: "", delegateId: "", fromDate: "", toDate: "", reason: "" });
   const [err, setErr] = useState("");
   const pending = (data || []).filter((a) => a.status === "PENDING");
   const decided = (data || []).filter((a) => a.status !== "PENDING").slice(0, 30);
@@ -56,16 +64,25 @@ export default function Approvals() {
       setDeciding(null); reload();
     } catch (e) { setErr((e as Error).message); }
   };
+  const bulk = async (status: "APPROVED" | "REJECTED") => {
+    try { const out = await api.post<{ decided: number }>("/approvals/bulk-decide", { ids: selected, status }); setSelected([]); reload(); setErr(""); if (!out.decided) setErr("No selected approvals could be decided."); }
+    catch (e) { setErr((e as Error).message); }
+  };
+  const createDelegation = async () => {
+    try { await api.post("/delegations", { ...delegation, approverId: delegation.approverId || undefined }); setDelegation({ approverId: "", delegateId: "", fromDate: "", toDate: "", reason: "" }); reloadDelegations(); }
+    catch (e) { setErr((e as Error).message); }
+  };
 
   return (
     <div className="space-y-4">
       <Card>
-        <SectionTitle>{tr("ap_title")}</SectionTitle>
+        <SectionTitle action={selected.length ? <div className="flex gap-2"><button onClick={() => bulk("APPROVED")} className="btn-ghost text-xs text-moss-700">{tr("ap_approve")} {selected.length}</button><button onClick={() => bulk("REJECTED")} className="btn-ghost text-xs text-clay-600">{tr("ap_reject")} {selected.length}</button></div> : undefined}>{tr("ap_title")}</SectionTitle>
         <p className="-mt-1 mb-3 text-sm text-ink-500">{tr("ap_sub")}</p>
         {!data ? <SkeletonRows rows={3} cols={3} /> : pending.length === 0 ? <Empty text={tr("ap_clear")} /> : (
           <div className="space-y-2">
             {pending.map((a) => (
               <div key={a.id} className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-500/30 bg-amber-500/[.04] px-3 py-2.5">
+                <input type="checkbox" aria-label={entityLabel(a.entity)} checked={selected.includes(a.id)} onChange={() => setSelected((old) => old.includes(a.id) ? old.filter((id) => id !== a.id) : [...old, a.id])} />
                 <div className="min-w-0 flex-1">
                   <Link to={ENTITY_LINK[a.entity] || "/"} className="text-sm font-medium text-ink-800 hover:underline">{entityLabel(a.entity)}</Link>
                   <div className="text-xs text-ink-500">
@@ -83,6 +100,20 @@ export default function Approvals() {
           </div>
         )}
       </Card>
+
+      {can("campaigns", "read") && <Card>
+        <SectionTitle>{lang === "ar" ? "تفويض الموافقات" : "Approval delegation"}</SectionTitle>
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
+          {isAdmin ? <Select value={delegation.approverId} onChange={(approverId) => setDelegation({ ...delegation, approverId })} placeholder={lang === "ar" ? "أنا (الافتراضي)" : "Me (default)"} options={(users || []).map((u) => ({ value: u.id, label: u.name }))} /> : <div />}
+          <Select value={delegation.delegateId} onChange={(delegateId) => setDelegation({ ...delegation, delegateId })} placeholder={lang === "ar" ? "المفوَّض" : "Delegate"} options={(users || []).map((u) => ({ value: u.id, label: u.name }))} />
+          <input className="input" type="date" value={delegation.fromDate} onChange={(e) => setDelegation({ ...delegation, fromDate: e.target.value })} />
+          <input className="input" type="date" value={delegation.toDate} onChange={(e) => setDelegation({ ...delegation, toDate: e.target.value })} />
+          <input className="input" placeholder={tr("notes")} value={delegation.reason} onChange={(e) => setDelegation({ ...delegation, reason: e.target.value })} />
+          {can("campaigns") && <button onClick={createDelegation} disabled={!delegation.delegateId || !delegation.fromDate || !delegation.toDate} className="btn-amber">{tr("save")}</button>}
+        </div>
+        {!!delegations?.length && <div className="mt-4 space-y-2">{delegations.map((d) => <div key={d.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-paper-200 p-2 text-xs"><span>{d.approverName} → {d.delegateName} · {fmtDate(d.fromDate, lang)} → {fmtDate(d.toDate, lang)}</span>{d.active && <button onClick={async () => { await api.del(`/delegations/${d.id}`); reloadDelegations(); }} className="text-clay-600">{lang === "ar" ? "إلغاء التفويض" : "Revoke"}</button>}</div>)}</div>}
+        {err && <div className="mt-3 rounded-lg bg-clay-500/10 px-3 py-2 text-sm text-clay-600">{err}</div>}
+      </Card>}
 
       <Card>
         <SectionTitle>{tr("ap_history")}</SectionTitle>

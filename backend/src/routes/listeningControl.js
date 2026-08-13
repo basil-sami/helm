@@ -174,14 +174,19 @@ r.patch("/watches/:id", write, async (req, res, next) => {
     const t = await get(`SELECT * FROM osint_topics WHERE id = $1`, [req.params.id]);
     if (!t) return res.status(404).json({ error: "Watch not found" });
     const { campaignId, assigneeId, paused } = req.body || {};
-    if (campaignId !== undefined && campaignId !== null) {
-      const c = await get(`SELECT id FROM campaigns WHERE id = $1`, [campaignId]);
+    const nextCampaignId = campaignId === "" ? null : campaignId;
+    const nextAssigneeId = assigneeId === "" ? null : assigneeId;
+    if (nextCampaignId !== undefined && nextCampaignId !== null) {
+      const c = await get(`SELECT id FROM campaigns WHERE id = $1`, [nextCampaignId]);
       if (!c) return res.status(400).json({ error: "No such campaign" });
     }
-    await run(
-      `UPDATE osint_topics SET "campaignId" = COALESCE($2, "campaignId"), "assigneeId" = COALESCE($3, "assigneeId"),
-         paused = COALESCE($4, paused) WHERE id = $1`,
-      [t.id, campaignId ?? null, assigneeId ?? null, paused === undefined ? null : !!paused]);
+    const sets = [], params = [t.id];
+    const push = (column, value) => { params.push(value); sets.push(`"${column}" = $${params.length}`); };
+    if (campaignId !== undefined) push("campaignId", nextCampaignId);
+    if (assigneeId !== undefined) push("assigneeId", nextAssigneeId);
+    if (paused !== undefined) push("paused", !!paused);
+    if (!sets.length) return res.status(400).json({ error: "Set campaignId, assigneeId or paused" });
+    await run(`UPDATE osint_topics SET ${sets.join(", ")} WHERE id = $1`, params);
     if (paused !== undefined && !!paused !== t.paused) {
       await recordChange({ kind: "WATCH_PAUSE", topicId: t.id, field: "paused", from: t.paused, to: !!paused, userId: req.user.id });
     }

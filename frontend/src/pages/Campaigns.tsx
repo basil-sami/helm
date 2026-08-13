@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useFetch, StatusPill, Field, Select, Modal, Money } from "../components/ui";
 import { DataTable } from "../components/DataTable";
 import { useToast } from "../components/Toast";
@@ -102,14 +103,20 @@ export default function Campaigns() {
     try {
       const payload = {
         name: editing.name, nameAr: editing.nameAr, objective: editing.objective,
-        status: editing.status, channel: editing.channel,
+        channel: editing.channel,
         startDate: editing.startDate, endDate: editing.endDate,
         budgetUsd: editing.budgetUsd, budgetSdg: editing.budgetSdg,
         businessUnit: editing.businessUnit, ownerId: editing.ownerId || null,
       };
-      if (editing.id) await api.patch(`/campaigns/${editing.id}`, payload);
+      if (editing.id) {
+        const previous = data?.find((c) => c.id === editing.id);
+        await api.patch(`/campaigns/${editing.id}`, payload);
+        if (previous && editing.status && editing.status !== previous.status) {
+          await api.post(`/campaigns/${editing.id}/transition`, { to: editing.status });
+        }
+      }
       else {
-        const created = await api.post<Campaign>("/campaigns", payload);
+        const created = await api.post<Campaign>("/campaigns", { ...payload, status: "PLANNING" });
         setEditing({ ...editing, ...created });
         reload();
         toast.push(tr("saved"), "success");
@@ -160,7 +167,7 @@ export default function Campaigns() {
             render: (c) => (
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="font-medium text-ink-800">{lang === "ar" && c.nameAr ? c.nameAr : c.name}</span>
+                   <Link to={`/campaigns/${c.id}`} className="font-medium text-ink-800 hover:text-amber-700 hover:underline">{lang === "ar" && c.nameAr ? c.nameAr : c.name}</Link>
                   {!!c.leadCount && (
                     <span className="rounded-full bg-steel-500/12 px-2 py-0.5 text-[11px] text-steel-600">{c.leadCount} {tr("camp_leads")}</span>
                   )}

@@ -20,7 +20,7 @@ usersRouter.use(requireAuth);
 usersRouter.get("/", async (req, res, next) => {
   try {
     if (req.user?.permissions?.admin) {
-      return res.json(await all(`SELECT id, name, email, role, "titleAr", active, "morningEmail", "departmentId", "createdAt" FROM users ORDER BY "createdAt" ASC`));
+      return res.json(await all(`SELECT id, name, email, role, "titleAr", active, "morningEmail", "breakGlass", "departmentId", "createdAt" FROM users ORDER BY "createdAt" ASC`));
     }
     // Non-admins get a minimal directory (enough for assignee/owner pickers) — no emails.
     res.json(await all(`SELECT id, name, role, "titleAr", active FROM users WHERE active = true ORDER BY name ASC`));
@@ -58,6 +58,8 @@ usersRouter.post("/", requireAdmin, async (req, res, next) => {
 
 // Update user — Head only. Optional password reset.
 usersRouter.patch("/:id", requireAdmin, async (req, res, next) => {
+  const target = await get(`SELECT * FROM users WHERE id = $1`, [req.params.id]);
+  if (!target) return res.status(404).json({ error: "User not found" });
   const sets = [], params = [];
   const push = (col, val) => { params.push(val); sets.push(`"${col}" = $${params.length}`); };
   if (req.body.name !== undefined) push("name", req.body.name);
@@ -69,28 +71,22 @@ usersRouter.patch("/:id", requireAdmin, async (req, res, next) => {
   if (req.body.active !== undefined) push("active", !!req.body.active);
   if (req.body.morningEmail !== undefined) push("morningEmail", !!req.body.morningEmail);
   if (req.body.departmentId !== undefined) push("departmentId", req.body.departmentId || null);
-  // SEC·B: exactly one break-glass administrator. The point of the account
-  // is that an identity-provider outage cannot lock an organisation out,
-  // so it must be an admin, must be active, and must be unique.
-  if (req.body.breakGlass !== undefined) {
-    if (req.body.breakGlass) {
-      const target = await get(`SELECT u.*, r.permissions FROM users u LEFT JOIN roles r ON r.key = u.role WHERE u.id = $1`,
-        [req.params.id]);
-      if (!target) return res.status(404).json({ error: "User not found" });
-      const perms = typeof target.permissions === "string" ? JSON.parse(target.permissions) : (target.permissions || {});
-      if (!perms.admin) return res.status(400).json({ error: "The break-glass account must be an administrator" });
-      if (!target.active) return res.status(400).json({ error: "The break-glass account must be active" });
-      await run(`UPDATE users SET "breakGlass" = false WHERE "breakGlass" = true AND id <> $1`, [req.params.id]);
-    } else {
-      const conn = await get(`SELECT 1 FROM sso_connections WHERE "ssoRequired" = true AND active = true`).catch(() => null);
-      const others = await get(`SELECT COUNT(*)::int c FROM users WHERE "breakGlass" = true AND active = true AND id <> $1`,
-        [req.params.id]);
-      if (conn && !Number(others?.c)) {
-        return res.status(400).json({ error: "Cannot remove the last break-glass account while SSO is required" });
-      }
-    }
-    push("breakGlass", !!req.body.breakGlass);
+  // SEC·B: validate the resulting account, not only its current row, so a
+  // combined role/active update cannot turn break-glass into a locked door.
+  const nextBreakGlass = req.body.breakGlass === undefined ? !!target.breakGlass : !!req.body.breakGlass;
+  const nextRole = req.body.role === undefined ? target.role : req.body.role;
+  const nextActive = req.body.active === undefined ? !!target.active : !!req.body.active;
+  if (nextBreakGlass) {
+    const role = await get(`SELECT permissions FROM roles WHERE key = $1`, [nextRole]).catch(() => null);
+    const permissions = typeof role?.permissions === "string" ? JSON.parse(role.permissions) : (role?.permissions || DEFAULT_ROLE_PERMS[nextRole] || {});
+    if (!permissions.admin) return res.status(400).json({ error: "The break-glass account must be an administrator" });
+    if (!nextActive) return res.status(400).json({ error: "The break-glass account must be active" });
+  } else if (target.breakGlass) {
+    const conn = await get(`SELECT 1 FROM sso_connections WHERE "ssoRequired" = true AND active = true`).catch(() => null);
+    const others = await get(`SELECT COUNT(*)::int c FROM users WHERE "breakGlass" = true AND active = true AND id <> $1`, [req.params.id]);
+    if (conn && !Number(others?.c)) return res.status(400).json({ error: "Cannot remove the last break-glass account while SSO is required" });
   }
+  if (req.body.breakGlass !== undefined) push("breakGlass", nextBreakGlass);
   if (req.body.password) {
     if (typeof req.body.password !== "string" || req.body.password.length < 8) {
       return res.status(400).json({ error: "Password must be at least 8 characters" });
@@ -103,8 +99,11 @@ usersRouter.patch("/:id", requireAdmin, async (req, res, next) => {
   try {
     params.push(req.params.id);
     await run(`UPDATE users SET ${sets.join(", ")} WHERE id = $${params.length}`, params);
+    if (nextBreakGlass && (!target.breakGlass || req.body.breakGlass === true)) {
+      await run(`UPDATE users SET "breakGlass" = false WHERE "breakGlass" = true AND id <> $1`, [req.params.id]);
+    }
     logAudit(req, "users.update", "users", req.params.id);
-    res.json(await get(`SELECT id, name, email, role, "titleAr", active, "morningEmail", "createdAt" FROM users WHERE id = $1`, [req.params.id]));
+    res.json(await get(`SELECT id, name, email, role, "titleAr", active, "morningEmail", "breakGlass", "createdAt" FROM users WHERE id = $1`, [req.params.id]));
   } catch (e) { next(e); }
 });
 
@@ -112,6 +111,12 @@ usersRouter.patch("/:id", requireAdmin, async (req, res, next) => {
 usersRouter.delete("/:id", requireAdmin, async (req, res, next) => {
   if (req.params.id === req.user.id) return res.status(400).json({ error: "You cannot deactivate yourself" });
   try {
+    const target = await get(`SELECT "breakGlass" FROM users WHERE id = $1`, [req.params.id]);
+    if (target?.breakGlass) {
+      const conn = await get(`SELECT 1 FROM sso_connections WHERE "ssoRequired" = true AND active = true`).catch(() => null);
+      const others = await get(`SELECT COUNT(*)::int c FROM users WHERE "breakGlass" = true AND active = true AND id <> $1`, [req.params.id]);
+      if (conn && !Number(others?.c)) return res.status(400).json({ error: "Cannot deactivate the last break-glass account while SSO is required" });
+    }
     await run(`UPDATE users SET active = false WHERE id = $1`, [req.params.id]);
     logAudit(req, "users.deactivate", "users", req.params.id);
     res.status(204).end();

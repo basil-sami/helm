@@ -3,10 +3,9 @@ import { Router } from "express";
 import { fireEvent, recomputeLeadScore } from "../automate-engine.js";
 import { notify } from "../notify.js";
 import { logActivity } from "../leadlog.js";
-import { get, run } from "../db.js";
+import { get, run, transaction } from "../db.js";
 import { requireAuth, requirePerm } from "../auth.js";
 import { requestApproval } from "../approvals.js";
-import { transitionError } from "../campaign.js";
 import { definitionError } from "../dataimport.js";
 
 const ENUMS = {
@@ -27,19 +26,12 @@ export const campaignsRouter = crudRouter({
   module: "campaigns",
   touchUpdatedAt: true,
   validateUpdate: async (data, prev) => {
-    // W4·A: the transition matrix is the single door. A status written
-    // through plain CRUD walks exactly the same rules as /transition —
-    // otherwise the matrix would be advisory, which is the same as absent.
     if (data.status !== undefined && prev && data.status !== prev.status) {
-      const err = transitionError(prev.status, data.status);
-      if (err) return err;
-    }
-    if (data.status === "ACTIVE" && prev && prev.status !== "ACTIVE") {
-      const brief = await get(`SELECT 1 FROM campaign_briefs WHERE "campaignId" = $1`, [prev.id]);
-      if (!brief) return "A campaign brief is required before activation (open the campaign → Brief)";
+      return "Campaign status changes must use the campaign transition endpoint";
     }
     return null;
   },
+  validateCreate: async (data) => data.status && data.status !== "PLANNING" ? "New campaigns must start in PLANNING" : null,
   fields: ["name", "nameAr", "objective", "status", "channel", "startDate", "endDate", "budgetUsd", "budgetSdg", "businessUnit", "ownerId", "departmentId", "retro", "retroAr"],
   listSql: `SELECT c.*, u.name AS "ownerName", u.role AS "ownerRole",
               (SELECT COUNT(*)::int FROM leads l WHERE l."campaignId" = c.id) AS "leadCount"
@@ -63,8 +55,13 @@ contentExtraRouter.post("/:id/request-approval", requirePerm("content"), async (
     if (["APPROVED", "PUBLISHED"].includes(ci.status)) {
       return res.status(409).json({ error: "Already approved" });
     }
-    await run(`UPDATE content_items SET status = 'REVIEW' WHERE id = $1`, [ci.id]);
-    await requestApproval({ entity: "content_items", entityId: ci.id, requesterId: req.user.id });
+    const approvalId = await transaction(async (tx) => {
+      const changed = await tx.run(`UPDATE content_items SET status = 'REVIEW' WHERE id = $1 AND status = $2`, [ci.id, ci.status]);
+      if (!changed.rowCount) throw new Error("Content status changed before the approval request completed");
+      return requestApproval({ entity: "content_items", entityId: ci.id, requesterId: req.user.id, db: tx, notifyRequest: false });
+    });
+    const approval = await get(`SELECT "approverId" FROM approvals WHERE id = $1`, [approvalId]);
+    if (approval?.approverId) notify([approval.approverId], "APPROVAL_REQUESTED", { entity: "content_items" }, "/approvals").catch(() => {});
     res.json(await get(`SELECT * FROM content_items WHERE id = $1`, [ci.id]));
   } catch (e) { next(e); }
 });
@@ -74,10 +71,14 @@ export const contentRouter = crudRouter({
   module: "content",
   validateUpdate: async (data, prev) => {
     if (data.status === undefined || !prev || data.status === prev.status) return null;
+    if (prev.status === "REVIEW") return "Content in review must be approved or rejected through the approval inbox";
+    if (data.status === "REVIEW") return "Content must enter review through the request-approval endpoint";
+    if (data.status === "APPROVED") return "Content must be approved through the approval inbox";
     const jump = C_ORDER.indexOf(data.status) - C_ORDER.indexOf(prev.status);
     if (jump > 1) return `Invalid transition ${prev.status} → ${data.status} (one step forward at a time)`;
     return null;
   },
+  validateCreate: async (data) => ["REVIEW", "APPROVED", "PUBLISHED"].includes(data.status) ? "New content must enter the approval workflow through request-approval" : null,
   fields: ["title", "titleAr", "channel", "status", "scheduledAt", "notes", "campaignId", "authorId", "personaId", "productId", "pillar", "departmentId"],
   listSql: `SELECT ci.*, c.name AS "campaignName", u.name AS "authorName"
             FROM content_items ci LEFT JOIN campaigns c ON c.id = ci."campaignId"

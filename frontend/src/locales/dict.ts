@@ -72,6 +72,9 @@ export const t: Dict = {
   nav_budget: { ar: "الميزانية", en: "Budget & KPIs" },
   nav_tasks: { ar: "المهام", en: "Tasks" },
   nav_settings: { ar: "الإعدادات", en: "Settings" },
+  nav_operations: { ar: "مركز العمليات", en: "Operations" },
+  nav_listening_control: { ar: "تحكم الرصد", en: "Listening Control" },
+  nav_governance: { ar: "الحوكمة والخصوصية", en: "Governance" },
 
   // Auth
   login_title: { ar: "تسجيل الدخول", en: "Sign in" },

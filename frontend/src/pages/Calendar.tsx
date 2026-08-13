@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { useFetch, Card, Field, Select, Modal, SectionTitle } from "../components/ui";
+import { useFetch, Card, Field, Select, Modal, SectionTitle, StatusPill } from "../components/ui";
 import { useToast } from "../components/Toast";
 import { useI18n } from "../context/I18nContext";
 import { api } from "../lib/api";
@@ -14,8 +14,15 @@ interface Content {
 interface CampaignRow { id: string; name: string; nameAr?: string; status?: string; startDate?: string; endDate?: string }
 interface EventRow { id: string; name: string; nameAr?: string; status?: string; startDate?: string; endDate?: string }
 interface UserRow { id: string; name: string }
+interface Feed {
+  content: (Omit<Content, "scheduledAt"> & { startDate?: string })[];
+  campaigns: CampaignRow[];
+  events: EventRow[];
+  posts: { id: string; title?: string; platform?: string; status: string; startDate?: string; campaignName?: string }[];
+  seasonal: { id: string; name: string; nameAr?: string; startDate: string; endDate?: string; prepFrom?: string; calendar: string }[];
+}
 
-type Entry = { kind: "content" | "event" | "campStart" | "campEnd"; id: string; label: string; open: () => void };
+type Entry = { kind: "content" | "event" | "campStart" | "campEnd" | "post" | "seasonal"; id: string; label: string; open: () => void };
 
 const STATUSES = ["IDEA", "IN_PROGRESS", "REVIEW", "APPROVED", "PUBLISHED"];
 const CHANNELS = ["SOCIAL", "PAID", "EVENT", "PR", "EMAIL", "WEB", "BTL"];
@@ -30,18 +37,21 @@ export default function Calendar() {
   const { lang, tr, el } = useI18n();
   const toast = useToast();
   const navigate = useNavigate();
-  const { data, loading, reload } = useFetch<Content[]>("/content");
-  const { data: campaigns } = useFetch<CampaignRow[]>("/campaigns");
+  const [cursor, setCursor] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
+  const rangeStart = toDateInput(new Date(cursor.getFullYear(), cursor.getMonth(), 1).toISOString());
+  const rangeEnd = toDateInput(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).toISOString());
+  const { data: feed, loading, reload } = useFetch<Feed>(`/calendar/feed?from=${rangeStart}&to=${rangeEnd}`, [rangeStart, rangeEnd]);
+  const { data: campaignPicker } = useFetch<CampaignRow[]>("/campaigns/picker");
   const { data: personasList } = useFetch<{ id: string; name: string; nameAr?: string }[]>("/personas");
   const { data: productsList } = useFetch<{ id: string; name: string; nameAr?: string }[]>("/products");
-  const { data: events } = useFetch<EventRow[]>("/events");
   const { data: users } = useFetch<UserRow[]>("/users");
-  const [layers, setLayers] = useState({ content: true, campaigns: true, events: true });
-  const [cursor, setCursor] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
+  const [layers, setLayers] = useState({ content: true, campaigns: true, events: true, posts: true, seasonal: true });
   const [editing, setEditing] = useState<Partial<Content> | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const items = data || [];
+  const items: Content[] = (feed?.content || []).map((item) => ({ ...item, scheduledAt: item.startDate }));
+  const campaigns = feed?.campaigns || [];
+  const events = feed?.events || [];
   const monthLabel = cursor.toLocaleDateString(lang === "ar" ? "ar-EG" : "en-US", { month: "long", year: "numeric" });
 
   const cells = useMemo(() => {
@@ -74,7 +84,7 @@ export default function Calendar() {
         out.push({
           kind: "content", id: `c-${it.id}`,
           label: lang === "ar" && it.titleAr ? it.titleAr : it.title,
-          open: () => setEditing({ ...it, scheduledAt: toDateInput(it.scheduledAt) }),
+           open: () => api.get<Content>(`/content/${it.id}`).then((full) => setEditing({ ...full, scheduledAt: toDateInput(full.scheduledAt) })).catch((e) => toast.push((e as Error).message, "error")),
         });
       }
     }
@@ -87,6 +97,16 @@ export default function Calendar() {
       for (const c of campaigns || []) {
         if (sameDay(c.startDate, date)) out.push({ kind: "campStart", id: `cs-${c.id}`, label: nameOf(c), open: () => navigate("/campaigns") });
         else if (sameDay(c.endDate, date)) out.push({ kind: "campEnd", id: `ce-${c.id}`, label: nameOf(c), open: () => navigate("/campaigns") });
+      }
+    }
+    if (layers.posts) {
+      for (const post of (feed?.posts || []).filter((p) => sameDay(p.startDate, date))) {
+        out.push({ kind: "post", id: `p-${post.id}`, label: `${post.platform || "Post"} · ${post.title || post.status}`, open: () => navigate("/publish") });
+      }
+    }
+    if (layers.seasonal) {
+      for (const season of (feed?.seasonal || []).filter((e) => withinDay(e.startDate, e.endDate, date))) {
+        out.push({ kind: "seasonal", id: `s-${season.id}`, label: lang === "ar" && season.nameAr ? season.nameAr : season.name, open: () => navigate("/operations") });
       }
     }
     return out;
@@ -110,12 +130,21 @@ export default function Calendar() {
     setSaving(true);
     try {
       const payload = {
-        title: editing.title, titleAr: editing.titleAr, channel: editing.channel, status: editing.status,
+        title: editing.title, titleAr: editing.titleAr, channel: editing.channel,
         scheduledAt: editing.scheduledAt, notes: editing.notes, campaignId: editing.campaignId || null, authorId: editing.authorId || null,
         personaId: editing.personaId || null, productId: editing.productId || null, pillar: editing.pillar || null,
       };
-      if (editing.id) await api.patch(`/content/${editing.id}`, payload);
-      else await api.post("/content", payload);
+      if (editing.id) {
+        const previous = items.find((item) => item.id === editing.id);
+        await api.patch(`/content/${editing.id}`, payload);
+        if (editing.status && editing.status !== previous?.status) {
+          if (editing.status === "REVIEW") await api.post(`/content/${editing.id}/request-approval`, {});
+          else await api.patch(`/content/${editing.id}`, { status: editing.status });
+        }
+      } else {
+        const created = await api.post<Content>("/content", { ...payload, status: editing.status === "REVIEW" ? "IDEA" : (editing.status || "IDEA") });
+        if (editing.status === "REVIEW") await api.post(`/content/${created.id}/request-approval`, {});
+      }
       setEditing(null);
       reload();
     } catch (e) { toast.push((e as Error).message, "error"); }
@@ -150,11 +179,13 @@ export default function Calendar() {
           <div className="min-w-40 text-center font-semibold text-ink-800">{monthLabel}</div>
           <button onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))} className="btn-ghost px-2.5">›</button>
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           {([
             ["content", "bg-amber-500", tr("nav_calendar")],
             ["campaigns", "bg-steel-500", tr("nav_campaigns")],
-            ["events", "bg-violet-500", tr("nav_events")],
+             ["events", "bg-violet-500", tr("nav_events")],
+             ["posts", "bg-moss-500", lang === "ar" ? "النشر" : "Publish queue"],
+             ["seasonal", "bg-clay-500", lang === "ar" ? "المواسم" : "Seasonal"],
           ] as const).map(([k, dot, label]) => (
             <button key={k} onClick={() => setLayers({ ...layers, [k]: !layers[k] })}
               className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition ${layers[k] ? "border-paper-300 bg-white text-ink-700" : "border-transparent bg-paper-200/60 text-ink-400"}`}>
@@ -199,6 +230,8 @@ export default function Calendar() {
                           className={`block w-full truncate rounded px-1.5 py-1 text-start text-[11px] transition ${
                             en.kind === "content" ? "cursor-move bg-paper-100 text-ink-700 hover:bg-amber-50"
                             : en.kind === "event" ? "bg-violet-500/12 text-violet-600 hover:bg-violet-500/20"
+                            : en.kind === "post" ? "bg-moss-500/12 text-moss-700 hover:bg-moss-500/20"
+                            : en.kind === "seasonal" ? "bg-clay-500/12 text-clay-700 hover:bg-clay-500/20"
                             : "bg-steel-500/12 font-medium text-steel-600 hover:bg-steel-500/20"}`}>
                           {en.kind === "content" && <span className="me-1 inline-block h-1.5 w-1.5 rounded-full bg-amber-500 align-middle" />}
                           {en.kind === "campStart" && <span className="me-0.5">▸</span>}
@@ -255,10 +288,10 @@ export default function Calendar() {
             <div className="col-span-2"><Field label={`${tr("title")} (EN)`}><input className="input" value={editing.title || ""} onChange={(e) => setEditing({ ...editing, title: e.target.value })} /></Field></div>
             <div className="col-span-2"><Field label={`${tr("title")} (AR)`}><input className="input" value={editing.titleAr || ""} onChange={(e) => setEditing({ ...editing, titleAr: e.target.value })} /></Field></div>
             <Field label={tr("channel")}><Select value={editing.channel || "SOCIAL"} onChange={(v) => setEditing({ ...editing, channel: v })} options={CHANNELS.map((s) => ({ value: s, label: el(s) }))} /></Field>
-            <Field label={tr("status")}><Select value={editing.status || "IDEA"} onChange={(v) => setEditing({ ...editing, status: v })} options={STATUSES.map((s) => ({ value: s, label: el(s) }))} /></Field>
+             <Field label={tr("status")}>{["APPROVED", "PUBLISHED"].includes(editing.status || "") ? <div className="input flex items-center"><StatusPill value={editing.status} /></div> : <Select value={editing.status || "IDEA"} onChange={(v) => setEditing({ ...editing, status: v })} options={STATUSES.filter((s) => s !== "APPROVED" && s !== "PUBLISHED").map((s) => ({ value: s, label: el(s) }))} />}</Field>
             <Field label={tr("date")}><input type="date" className="input" value={editing.scheduledAt || ""} onChange={(e) => setEditing({ ...editing, scheduledAt: e.target.value })} /></Field>
             <Field label={tr("author")}><Select value={editing.authorId || ""} onChange={(v) => setEditing({ ...editing, authorId: v })} placeholder={tr("unassigned")} options={(users || []).map((u) => ({ value: u.id, label: u.name }))} /></Field>
-            <div className="col-span-2"><Field label={tr("campaign")}><Select value={editing.campaignId || ""} onChange={(v) => setEditing({ ...editing, campaignId: v })} placeholder={tr("none")} options={(campaigns || []).map((c) => ({ value: c.id, label: c.name }))} /></Field></div>
+             <div className="col-span-2"><Field label={tr("campaign")}><Select value={editing.campaignId || ""} onChange={(v) => setEditing({ ...editing, campaignId: v })} placeholder={tr("none")} options={(campaignPicker || []).map((c) => ({ value: c.id, label: c.name }))} /></Field></div>
             <Field label={tr("au_persona")}><Select value={editing.personaId || ""} onChange={(v) => setEditing({ ...editing, personaId: v })} placeholder={tr("none")} options={(personasList || []).map((x) => ({ value: x.id, label: lang === "ar" && x.nameAr ? x.nameAr : x.name }))} /></Field>
             <Field label={tr("product")}><Select value={editing.productId || ""} onChange={(v) => setEditing({ ...editing, productId: v })} placeholder={tr("none")} options={(productsList || []).map((x) => ({ value: x.id, label: lang === "ar" && x.nameAr ? x.nameAr : x.name }))} /></Field>
             <div className="col-span-2"><Field label={tr("pillar")}><input className="input" value={editing.pillar || ""} onChange={(e) => setEditing({ ...editing, pillar: e.target.value })} /></Field></div>

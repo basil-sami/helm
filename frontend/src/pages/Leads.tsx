@@ -126,10 +126,18 @@ export default function Leads() {
         company: editing.company, contactName: editing.contactName, phone: editing.phone, email: editing.email,
         source: editing.source, businessUnit: editing.businessUnit, stage: editing.stage, lostReason: editing.lostReason,
         valueUsd: editing.valueUsd, valueSdg: editing.valueSdg, notes: editing.notes,
-        campaignId: editing.campaignId || null, ownerId: editing.ownerId || null,
+        campaignId: editing.campaignId || null,
       };
-      if (editing.id) await api.patch(`/leads/${editing.id}`, payload);
-      else await api.post("/leads", payload);
+      if (editing.id) {
+        const previous = leads.find((lead) => lead.id === editing.id);
+        await api.patch(`/leads/${editing.id}`, payload);
+        if (editing.ownerId !== previous?.ownerId) {
+          await api.post(`/leads/${editing.id}/assign`, { ownerId: editing.ownerId || null });
+        }
+      } else {
+        const created = await api.post<Lead>("/leads", payload);
+        if (editing.ownerId) await api.post(`/leads/${created.id}/assign`, { ownerId: editing.ownerId });
+      }
       setEditing(null);
       reload();
       toast.push(tr("saved"), "success");

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { all, get, run } from "./db.js";
+import { all, get, transaction } from "./db.js";
 import { requireAuth, hasPerm } from "./auth.js";
 import { logAudit } from "./audit.js";
 import { notify } from "./notify.js";
@@ -13,21 +13,30 @@ import { notify } from "./notify.js";
 // by adding one entry to ENTITY_RULES.
 
 /** Create a PENDING approval (idempotent per entity+id+stage). Returns the approval id. */
-export async function requestApproval({ entity, entityId, stage = "APPROVAL", requesterId = null, note = null }) {
-  const existing = await get(
+export async function requestApproval({ entity, entityId, stage = "APPROVAL", requesterId = null, note = null, db = { get }, notifyRequest = true }) {
+  const existing = await db.get(
     `SELECT id FROM approvals WHERE entity = $1 AND "entityId" = $2 AND stage = $3 AND status = 'PENDING'`,
     [entity, entityId, stage]
   );
   if (existing) return existing.id;
-  const r = await get(
-    `INSERT INTO approvals (entity, "entityId", stage, "requesterId", note) VALUES ($1,$2,$3,$4,$5) RETURNING id`,
-    [entity, entityId, stage, requesterId, note]
+  const module = ENTITY_RULES[entity]?.module;
+  const approver = requesterId && module ? await db.get(
+    `SELECT h.id FROM users u JOIN departments d ON d.id = u."departmentId"
+      JOIN users h ON h.id = d."headId" AND h.active = true LEFT JOIN roles r ON r.key = h.role
+      WHERE u.id = $1 AND (h.role = 'HEAD' OR COALESCE((r.permissions->>'admin')::boolean, false)
+        OR r.permissions->>$2 = 'write')`, [requesterId, module]).catch(() => null) : null;
+  let fallback = approver || await db.get(
+    `SELECT u.id FROM users u LEFT JOIN roles r ON r.key = u.role
+      WHERE u.active AND (u.role = 'HEAD' OR COALESCE((r.permissions->>'admin')::boolean, false))
+      ORDER BY u."createdAt" ASC LIMIT 1`).catch(() => null);
+  if (!fallback) fallback = await db.get(`SELECT id FROM users WHERE active = true AND role = 'HEAD' ORDER BY "createdAt" ASC LIMIT 1`).catch(() => null);
+  const r = await db.get(
+    `INSERT INTO approvals (entity, "entityId", stage, "requesterId", "approverId", note)
+     VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+    [entity, entityId, stage, requesterId, fallback?.id || null, note]
   );
-  // Approvers = admins for v1; deciding also allowed to module writers (below).
   try {
-    const admins = (await all(`SELECT u.id FROM users u JOIN roles r ON r.key = u.role
-                               WHERE u.active AND (r.permissions->>'admin')::boolean IS TRUE`)).map((u) => u.id);
-    await notify(admins, "APPROVAL_REQUESTED", { entity }, "/approvals");
+    if (notifyRequest && fallback?.id) await notify([fallback.id], "APPROVAL_REQUESTED", { entity }, "/approvals");
   } catch { /* notification must never block the request */ }
   return r.id;
 }
@@ -36,11 +45,12 @@ export async function requestApproval({ entity, entityId, stage = "APPROVAL", re
 const ENTITY_RULES = {
   invoices: {
     module: "agency",
-    async onDecide(ap, decision, req) {
+    async onDecide(ap, decision, req, db) {
+      const { get, run } = db;
       if (decision !== "APPROVED") return; // a rejected invoice simply stays RECEIVED
       const inv = await get(`SELECT * FROM invoices WHERE id = $1`, [ap.entityId]);
-      if (!inv || inv.status !== "RECEIVED") return;
-      await run(`UPDATE invoices SET status = 'APPROVED' WHERE id = $1`, [inv.id]);
+      if (!inv || inv.status !== "RECEIVED") throw new Error("Invoice is no longer awaiting approval");
+      await run(`UPDATE invoices SET status = 'APPROVED' WHERE id = $1 AND status = 'RECEIVED'`, [inv.id]);
       // Agency cost flows into ROMI: approval writes the SPENT budget entry.
       const vendor = await get(`SELECT name FROM vendors WHERE id = $1`, [inv.vendorId]);
       const rate = Number(inv.rateAtEntry) || null;
@@ -50,52 +60,61 @@ const ENTITY_RULES = {
          VALUES ($1, 'SPENT', 'BTL', $2, $3, now(), $4, $5)`,
         [`Invoice ${inv.number} — ${vendor?.name || "vendor"}`, usd, rate ? usd * rate : 0, inv.campaignId, rate]
       );
-      logAudit(req, "invoices.approve", "invoices", inv.id, { budgetReleased: usd });
     },
   },
   asset_versions: {
     module: "studio",
-    async onDecide(ap, decision, req) {
+    async onDecide(ap, decision, req, db) {
+      const { run } = db;
       if (decision === "APPROVED") {
-        await run(`UPDATE asset_versions SET status = 'APPROVED', "approvedById" = $2, "approvedAt" = now() WHERE id = $1`,
+        const out = await run(`UPDATE asset_versions SET status = 'APPROVED', "approvedById" = $2, "approvedAt" = now() WHERE id = $1 AND status = 'REVIEW'`,
           [ap.entityId, req.user.id]);
+        if (!out.rowCount) throw new Error("Asset version is no longer awaiting approval");
       } else {
-        await run(`UPDATE asset_versions SET status = 'DRAFT' WHERE id = $1 AND status = 'REVIEW'`, [ap.entityId]);
+        const out = await run(`UPDATE asset_versions SET status = 'DRAFT' WHERE id = $1 AND status = 'REVIEW'`, [ap.entityId]);
+        if (!out.rowCount) throw new Error("Asset version is no longer awaiting approval");
       }
     },
   },
   scheduled_posts: {
     module: "publish",
-    async onDecide(ap, decision, _req) {
+    async onDecide(ap, decision, _req, db) {
+      const { run } = db;
       // Approval releases the slot to READY; rejection sends it back to
       // the drafting table. Both only from AWAITING_APPROVAL — a
       // withdrawn or already-moved slot is left untouched.
       if (decision === "APPROVED") {
-        await run(`UPDATE scheduled_posts SET status = 'READY', "updatedAt" = now()
+        const out = await run(`UPDATE scheduled_posts SET status = 'READY', "updatedAt" = now()
                    WHERE id = $1 AND status = 'AWAITING_APPROVAL'`, [ap.entityId]);
+        if (!out.rowCount) throw new Error("Scheduled post is no longer awaiting approval");
       } else {
-        await run(`UPDATE scheduled_posts SET status = 'DRAFT', "updatedAt" = now()
+        const out = await run(`UPDATE scheduled_posts SET status = 'DRAFT', "updatedAt" = now()
                    WHERE id = $1 AND status = 'AWAITING_APPROVAL'`, [ap.entityId]);
+        if (!out.rowCount) throw new Error("Scheduled post is no longer awaiting approval");
       }
     },
   },
   content_items: {
     module: "content",
-    async onDecide(ap, decision, _req) {
+    async onDecide(ap, decision, _req, db) {
+      const { run } = db;
       // W4·UX2 — the composer's quick-draft path. Approval stamps the
       // item APPROVED so the publish gate opens; rejection returns it to
       // IDEA. Both only from REVIEW — an item someone already walked
       // elsewhere on the calendar is left untouched.
       if (decision === "APPROVED") {
-        await run(`UPDATE content_items SET status = 'APPROVED' WHERE id = $1 AND status = 'REVIEW'`, [ap.entityId]);
+        const out = await run(`UPDATE content_items SET status = 'APPROVED' WHERE id = $1 AND status = 'REVIEW'`, [ap.entityId]);
+        if (!out.rowCount) throw new Error("Content item is no longer awaiting approval");
       } else {
-        await run(`UPDATE content_items SET status = 'IDEA' WHERE id = $1 AND status = 'REVIEW'`, [ap.entityId]);
+        const out = await run(`UPDATE content_items SET status = 'IDEA' WHERE id = $1 AND status = 'REVIEW'`, [ap.entityId]);
+        if (!out.rowCount) throw new Error("Content item is no longer awaiting approval");
       }
     },
   },
   deliverables: {
     module: "agency",
-    async onDecide(ap, decision, req) {
+    async onDecide(ap, decision, req, db) {
+      const { get, run } = db;
       const d = await get(`SELECT * FROM deliverables WHERE id = $1`, [ap.entityId]);
       if (!d) return;
       if (decision === "APPROVED") {
@@ -106,7 +125,7 @@ const ENTITY_RULES = {
       }
       if (ap.note) {
         await run(`INSERT INTO deliverable_comments ("deliverableId", author, "authorName", body) VALUES ($1,'INTERNAL',$2,$3)`,
-          [d.id, req.user.name, ap.note]).catch(() => {});
+          [d.id, req.user.name, ap.note]);
       }
     },
   },
@@ -218,27 +237,33 @@ async function decideOne(id, decision, req) {
   if (ap.status !== "PENDING") return { ok: false, status: 409, error: "Already decided" };
 
   const rule = ENTITY_RULES[ap.entity];
-  let allowed = req.user.permissions?.admin || (rule && hasPerm(req.user.permissions, rule.module, "write"));
+  const moduleWriter = rule && hasPerm(req.user.permissions, rule.module, "write");
+  let allowed = !!req.user.permissions?.admin;
   // W4·D: a delegate may decide in the approver's place while the
   // delegation window is open — the approver's authority, borrowed, not
   // widened. The delegate still needs the module permission.
-  if (!allowed && ap.approverId) {
+  if (!allowed && ap.approverId && moduleWriter) {
     const { effectiveApprovers } = await import("./calendar.js");
     const standing = await effectiveApprovers(ap.approverId);
-    if (standing.includes(req.user.id) && rule && hasPerm(req.user.permissions, rule.module, "write")) allowed = true;
+    if (standing.includes(req.user.id)) allowed = true;
   }
+  // Pre-assignment approvals from older deployments retain their existing
+  // module-writer decision path rather than becoming stranded.
+  if (!allowed && !ap.approverId && moduleWriter) allowed = true;
   if (!allowed) return { ok: false, status: 403, error: "Insufficient permissions" };
 
   const note = req.body?.note ? String(req.body.note).slice(0, 2000) : null;
-  await run(
-    `UPDATE approvals SET status = $2, "approverId" = COALESCE("approverId", $3), "decidedById" = $3,
-       note = COALESCE($4, note), "decidedAt" = now() WHERE id = $1`,
-    [ap.id, decision, req.user.id, note]
-  );
-  if (rule?.onDecide) {
-    try { await rule.onDecide({ ...ap, note: note ?? ap.note }, decision, req); }
-    catch (e) { console.error("approval side-effect failed", e); }
-  }
+  const changed = await transaction(async (tx) => {
+    const row = await tx.get(
+      `UPDATE approvals SET status = $2, "approverId" = COALESCE("approverId", $3), "decidedById" = $3,
+         note = COALESCE($4, note), "decidedAt" = now() WHERE id = $1 AND status = 'PENDING' RETURNING id`,
+      [ap.id, decision, req.user.id, note]
+    );
+    if (!row) return false;
+    if (rule?.onDecide) await rule.onDecide({ ...ap, note: note ?? ap.note }, decision, req, tx);
+    return true;
+  });
+  if (!changed) return { ok: false, status: 409, error: "Already decided" };
   if (ap.requesterId) notify([ap.requesterId], `APPROVAL_${decision}`, { entity: ap.entity }, "/approvals").catch(() => {});
   logAudit(req, `approvals.${decision.toLowerCase()}`, ap.entity, ap.entityId);
   return { ok: true, row: await get(`SELECT * FROM approvals WHERE id = $1`, [ap.id]) };

@@ -6,7 +6,7 @@ import { api } from "../lib/api";
 
 interface UserRow {
   id: string; name: string; email: string; role: string;
-  titleAr?: string; active: boolean; morningEmail?: boolean; createdAt?: string;
+  titleAr?: string; active: boolean; morningEmail?: boolean; breakGlass?: boolean; createdAt?: string;
 }
 interface RoleRow {
   id: string; key: string; label: string; labelAr?: string | null;
@@ -67,6 +67,7 @@ export default function Users() {
       if (editing.id) {
         const payload: Record<string, unknown> = {
           name: editing.name, role: editing.role, titleAr: editing.titleAr, active: editing.active,
+          breakGlass: editing.breakGlass,
         };
         if (editing.password) payload.password = editing.password;
         await api.patch(`/users/${editing.id}`, payload);
@@ -80,7 +81,8 @@ export default function Users() {
       reload();
       reloadRoles(); // userCount changed
     } catch (e) {
-      const msg = (e as { status?: number })?.status === 409 ? tr("usr_emailInUse") : tr("loginError");
+      const err = e as Error & { status?: number };
+      const msg = err.status === 409 ? tr("usr_emailInUse") : (err.message || tr("saveError"));
       setError(msg);
     } finally { setSaving(false); }
   };
@@ -161,7 +163,8 @@ export default function Users() {
                 {users.map((u) => (
                   <tr key={u.id} className={`hover:bg-paper-100/60 ${!u.active ? "opacity-50" : ""}`}>
                     <td className="px-4 py-3">
-                      <div className="font-medium text-ink-800">{u.name}{u.id === user?.id && <span className="ms-2 text-xs text-amber-600">({lang === "ar" ? "أنت" : "you"})</span>}</div>
+                       <div className="font-medium text-ink-800">{u.name}{u.id === user?.id && <span className="ms-2 text-xs text-amber-600">({lang === "ar" ? "أنت" : "you"})</span>}</div>
+                       {u.breakGlass && <div className="mt-1 text-[10px] font-medium uppercase tracking-wide text-clay-600">Break-glass</div>}
                       {u.titleAr && <div className="text-xs text-ink-500">{u.titleAr}</div>}
                     </td>
                     <td className="px-4 py-3 font-mono text-xs text-ink-600" dir="ltr">{u.email}</td>
@@ -248,7 +251,8 @@ export default function Users() {
               <Select value={editing.role || "DIGITAL"} onChange={(v) => setEditing({ ...editing, role: v })}
                 options={roleList.map((r) => ({ value: r.key, label: lang === "ar" && r.labelAr ? r.labelAr : r.label }))} />
             </Field>
-            <p className="-mt-2 text-xs text-ink-400">{tr("role_helper")}</p>
+             <p className="-mt-2 text-xs text-ink-400">{tr("role_helper")}</p>
+             {editing.id && <label className="flex items-center gap-2 rounded-lg border border-paper-200 p-3 text-sm text-ink-700"><input type="checkbox" checked={!!editing.breakGlass} onChange={(e) => setEditing({ ...editing, breakGlass: e.target.checked })} />{lang === "ar" ? "حساب طوارئ محلي عند تعطل SSO" : "Local break-glass account for SSO outages"}</label>}
             <Field label={editing.id ? tr("usr_passwordReset") : tr("usr_password")}>
               <input className="input" dir="ltr" type="password" value={editing.password || ""}
                 onChange={(e) => setEditing({ ...editing, password: e.target.value })} />

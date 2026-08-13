@@ -143,13 +143,12 @@ export async function retroFacts(campaignId) {
 }
 
 /** Marks a campaign closed and stores the retro facts snapshot on the brief. */
-export async function closeCampaign(campaignId, learnings) {
-  await run(`UPDATE campaigns SET "closedAt" = now(), "updatedAt" = now() WHERE id = $1 AND "closedAt" IS NULL`, [campaignId]);
+export async function closeCampaign(campaignId, learnings, db = { run }) {
+  await db.run(`UPDATE campaigns SET "closedAt" = now(), "updatedAt" = now() WHERE id = $1 AND "closedAt" IS NULL`, [campaignId]);
   if (learnings) {
-    await run(
+    await db.run(
       `INSERT INTO campaign_briefs ("campaignId", learnings, "closedAt") VALUES ($1, $2, now())
        ON CONFLICT ("campaignId") DO UPDATE SET learnings = EXCLUDED.learnings, "closedAt" = now()`,
-      [campaignId, learnings]).catch(() => {});
+      [campaignId, learnings]);
   }
-  return retroFacts(campaignId);
 }

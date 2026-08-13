@@ -33,4 +33,27 @@ export async function run(text, params = []) {
   return query(text, params);
 }
 
+export async function transaction(fn) {
+  const base = client();
+  const connection = typeof base.connect === "function" ? await base.connect() : base;
+  const txQuery = (text, params = []) => connection.query(text, params.map((v) => (v === undefined ? null : v)));
+  const tx = {
+    query: txQuery,
+    all: async (text, params = []) => (await txQuery(text, params)).rows,
+    get: async (text, params = []) => (await txQuery(text, params)).rows[0] || null,
+    run: txQuery,
+  };
+  try {
+    await txQuery("BEGIN");
+    const result = await fn(tx);
+    await txQuery("COMMIT");
+    return result;
+  } catch (e) {
+    await txQuery("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    connection.release?.();
+  }
+}
+
 export const now = () => new Date().toISOString();

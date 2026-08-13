@@ -83,20 +83,19 @@ export async function calendarFeed(fromISO, toISO) {
   const [content, events, campaigns, posts, seasonal] = await Promise.all([
     safe(`SELECT ci.id, ci.title, ci."titleAr", ci.channel, ci.status, ci."scheduledAt" AS "startDate",
                  c.name AS "campaignName", ci."campaignId"
-            FROM content_items ci LEFT JOIN campaigns c ON c.id = ci."campaignId"
-           WHERE ci."scheduledAt" BETWEEN $1 AND $2`),
+             FROM content_items ci LEFT JOIN campaigns c ON c.id = ci."campaignId"
+            WHERE ci."scheduledAt" >= $1::date AND ci."scheduledAt" < $2::date + interval '1 day'`),
     safe(`SELECT id, name, "nameAr", status, "startDate", "endDate" FROM events
-           WHERE "startDate" BETWEEN $1 AND $2`),
+            WHERE "startDate" <= $2::date AND COALESCE("endDate", "startDate") >= $1::date`),
     safe(`SELECT id, name, "nameAr", status, "startDate", "endDate" FROM campaigns
-           WHERE ("startDate" BETWEEN $1 AND $2) OR ("endDate" BETWEEN $1 AND $2)
-              OR ("startDate" <= $1 AND "endDate" >= $2)`),
+            WHERE "startDate" <= $2::date AND COALESCE("endDate", "startDate") >= $1::date`),
     safe(`SELECT sp.id, sp.status, sp."scheduledAt" AS "startDate", sp."campaignId",
                  cv.platform, ci.title, c.name AS "campaignName"
             FROM scheduled_posts sp
             LEFT JOIN content_variants cv ON cv.id = sp."variantId"
             LEFT JOIN content_items ci ON ci.id = cv."contentId"
             LEFT JOIN campaigns c ON c.id = sp."campaignId"
-           WHERE sp."scheduledAt" BETWEEN $1 AND $2`),
+            WHERE sp."scheduledAt" >= $1::date AND sp."scheduledAt" < $2::date + interval '1 day'`),
     seasonalOccurrences(fromISO, toISO),
   ]);
   return {

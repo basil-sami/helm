@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { all, get, run } from "../db.js";
+import { all, get, run, transaction } from "../db.js";
 import { requireAuth, requirePerm } from "../auth.js";
 import { logAudit } from "../audit.js";
 import { warRoom, retroFacts, closeCampaign, CAMPAIGN_FLOW, CAMPAIGN_LINKS, transitionError } from "../campaign.js";
@@ -38,7 +38,7 @@ r.get("/:id/room", readOnly, async (req, res) => {
 });
 
 /** POST /api/campaigns/:id/transition — the matrix, enforced in one door. */
-r.post("/:id/transition", writeOnly, async (req, res) => {
+r.post("/:id/transition", writeOnly, async (req, res, next) => {
   const { to, learnings } = req.body || {};
   const prev = await get(`SELECT * FROM campaigns WHERE id = $1`, [req.params.id]);
   if (!prev) return res.status(404).json({ error: "Campaign not found" });
@@ -54,9 +54,20 @@ r.post("/:id/transition", writeOnly, async (req, res) => {
     if (!brief) return res.status(400).json({ error: "A campaign brief is required before activation (open the campaign → Brief)" });
   }
 
-  await run(`UPDATE campaigns SET status = $2, "updatedAt" = now() WHERE id = $1`, [prev.id, to]);
   let retro = null;
-  if (to === "COMPLETED") retro = await closeCampaign(prev.id, learnings);
+  if (to === "COMPLETED") {
+    try {
+      await transaction(async (tx) => {
+        const changed = await tx.run(`UPDATE campaigns SET status = $2, "updatedAt" = now() WHERE id = $1 AND status = $3`, [prev.id, to, prev.status]);
+        if (!changed.rowCount) throw new Error("Campaign status changed before this transition completed");
+        await closeCampaign(prev.id, learnings, tx);
+      });
+    } catch (e) { return next(e); }
+    retro = await retroFacts(prev.id);
+  } else {
+    const changed = await run(`UPDATE campaigns SET status = $2, "updatedAt" = now() WHERE id = $1 AND status = $3`, [prev.id, to, prev.status]);
+    if (!changed.rowCount) return res.status(409).json({ error: "Campaign status changed before this transition completed" });
+  }
   logAudit(req, "campaigns.transition", "campaigns", prev.id, { from: prev.status, to });
   res.json({ ok: true, from: prev.status, to, allowedNext: CAMPAIGN_FLOW[to] || [], retro });
 });
