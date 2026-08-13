@@ -1,10 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useFetch, Card, Field, Select, Modal, SectionTitle, SkeletonCards } from "../components/ui";
 import { useToast } from "../components/Toast";
 import { useI18n } from "../context/I18nContext";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../lib/api";
-import { fmtMoney, fmtNum, fmtDate } from "../lib/format";
+import { fmtMoney, fmtNum, fmtDate, safeNum } from "../lib/format";
 import AnalyticsBoards from "./AnalyticsBoards";
 import { TargetArrivals, BudgetScenario } from "./Forecast";
 import MediaMix from "./MediaMix";
@@ -34,6 +34,7 @@ const strokeOf = (v: number) => (v >= 70 ? "#5f7a4e" : v >= 40 ? "#c98a2b" : "#b
 type Lang = "ar" | "en";
 function fmtVal(v: number | null | undefined, unit: string, lang: Lang) {
   if (v === null || v === undefined) return "—";
+  v = safeNum(v);
   if (unit === "usd") return fmtMoney(v, "USD", lang);
   if (unit === "pct") return `${Math.round(v * 10) / 10}%`;
   if (unit === "days" || unit === "hours" || unit === "score") return String(Math.round(v * 10) / 10);
@@ -44,9 +45,9 @@ function fmtVal(v: number | null | undefined, unit: string, lang: Lang) {
 function PulseDial({ value }: { value: number }) {
   const { tr } = useI18n();
   const r = 64, c = 2 * Math.PI * r, frac = 0.75, span = c * frac;
-  const filled = span * Math.max(0, Math.min(100, value)) / 100;
+  const filled = span * Math.max(0, Math.min(100, Number.isFinite(value) ? value : 0)) / 100;
   return (
-    <div className="flex flex-col items-center">
+      <div className="flex flex-col items-center">
       <svg viewBox="0 0 160 160" className="h-44 w-44">
         <g transform="rotate(135 80 80)">
           <circle cx="80" cy="80" r={r} fill="none" stroke="var(--paper-300, #e6ded2)" strokeWidth="10"
@@ -54,12 +55,18 @@ function PulseDial({ value }: { value: number }) {
           <circle cx="80" cy="80" r={r} fill="none" stroke={strokeOf(value)} strokeWidth="10"
             strokeDasharray={`${filled} ${c}`} strokeLinecap="round" className="transition-all duration-700" />
         </g>
-        <text x="80" y="78" textAnchor="middle" className="kpi-num" fontSize="34" fill="currentColor">{Math.round(value)}</text>
+        <text x="80" y="78" textAnchor="middle" className="kpi-num" fontSize="34" fill="currentColor">{Number.isFinite(value) ? Math.round(value) : 0}</text>
         <text x="80" y="96" textAnchor="middle" fontSize="9" fill="#8a8172">/ 100</text>
         <polyline points="34,128 52,128 60,116 68,140 76,120 84,128 126,128" fill="none"
           stroke={strokeOf(value)} strokeWidth="2" strokeLinejoin="round" opacity="0.85" />
       </svg>
-      <div className="mt-1 text-sm font-semibold text-ink-800">{tr("an_index")}</div>
+       <div className="mt-1 text-sm font-semibold text-ink-800">{tr("an_index")}</div>
+       <p className="mt-1 max-w-52 text-center text-[11px] leading-relaxed text-ink-500">{tr("an_pulseGuide")}</p>
+      <div className="mt-1 flex items-center gap-1.5 text-[10px] text-ink-500" title={tr("an_pulseScale")}>
+        <span className="inline-block h-2 w-2 rounded-full" style={{ background: "#b0563f" }} /><span>0–39</span>
+        <span className="inline-block h-2 w-2 rounded-full" style={{ background: "#c98a2b" }} /><span>40–69</span>
+        <span className="inline-block h-2 w-2 rounded-full" style={{ background: "#5f7a4e" }} /><span>70–100</span>
+      </div>
     </div>
   );
 }
@@ -90,6 +97,11 @@ function DeltaChip({ pct, direction }: { pct: number; direction: string }) {
 // ── Overview tab ─────────────────────────────────────────────────────
 function OverviewTab() {
   const { tr, lang } = useI18n();
+  const { data: metrics } = useFetch<Metric[]>("/metrics");
+  const metricName = (key: string) => {
+    const m = metrics?.find((x) => x.key === key);
+    return m ? (lang === "ar" && m.nameAr ? m.nameAr : m.name) : key;
+  };
   const { data, loading } = useFetch<Overview>("/analytics/overview");
   const nameOf = (m: { name: string; nameAr?: string }) => (lang === "ar" && m.nameAr ? m.nameAr : m.name);
   if (loading || !data) return <SkeletonCards count={4} />;
@@ -97,16 +109,17 @@ function OverviewTab() {
     <div className="space-y-4">
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="flex items-center justify-center p-5"><PulseDial value={data.pulse.value} /></Card>
-        <Card className="p-4 lg:col-span-2">
-          <SectionTitle>{tr("an_areas")}</SectionTitle>
+         <Card className="p-4 lg:col-span-2">
+           <SectionTitle>{tr("an_areas")}</SectionTitle>
+           <p className="-mt-2 mb-2 text-xs text-ink-500">{tr("an_barsGuide")}</p>
           <div className="mt-2 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
             {data.areas.map((a) => (
               <div key={a.key} className="rounded-xl border border-paper-200 bg-paper-50 p-3">
                 <div className="text-[11px] text-ink-500">{nameOf(a)}</div>
-                <div className={`kpi-num text-2xl ${toneOf(a.value)}`}>{Math.round(a.value)}</div>
-                <div className="mt-2 space-y-1">
+                <div className={`kpi-num text-2xl ${toneOf(safeNum(a.value))}`}>{Math.round(safeNum(a.value))}</div>
+                <div className="mt-2 space-y-1" title={`${tr("an_barsHint")}`}>
                   {a.components.map((c) => (
-                    <div key={c.key} className="h-1.5 w-full overflow-hidden rounded-full bg-paper-200" title={`${c.key}: ${c.score}`}>
+                    <div key={c.key} className="h-1.5 w-full overflow-hidden rounded-full bg-paper-200" title={`${metricName(c.key)}: ${c.score}/100`}>
                       <div className="h-full rounded-full bg-amber-500/70" style={{ width: `${c.score}%` }} />
                     </div>
                   ))}
@@ -164,12 +177,16 @@ function OverviewTab() {
 // ── Explore tab ──────────────────────────────────────────────────────
 function ExploreTab({ metrics }: { metrics: Metric[] }) {
   const { tr, lang } = useI18n();
-  const [key, setKey] = useState("leads_new_30d");
+  const [key, setKey] = useState("");
   const [days, setDays] = useState(90);
-  const { data: series } = useFetch<{ date: string; value: number }[]>(`/metrics/${key}/series?days=${days}`, [key, days]);
-  const { data: live } = useFetch<{ value: number }>(`/metrics/${key}/value`, [key]);
-  const { data: slices } = useFetch<{ dims: Record<string, string>; value: number }[]>(`/metrics/${key}/slices`, [key]);
-  const m = metrics.find((x) => x.key === key);
+  useEffect(() => {
+    if (!key && metrics.length) setKey(metrics.find((m) => m.key === "leads_new_30d")?.key || metrics[0].key);
+  }, [key, metrics]);
+  const selectedKey = key || metrics[0]?.key || "";
+  const { data: series } = useFetch<{ date: string; value: number }[]>(selectedKey ? `/metrics/${selectedKey}/series?days=${days}` : "/metrics/none/series", [selectedKey, days]);
+  const { data: live } = useFetch<{ value: number }>(selectedKey ? `/metrics/${selectedKey}/value` : "/metrics/none/value", [selectedKey]);
+  const { data: slices } = useFetch<{ dims: Record<string, string>; value: number }[]>(selectedKey ? `/metrics/${selectedKey}/slices` : "/metrics/none/slices", [selectedKey]);
+  const m = metrics.find((x) => x.key === selectedKey);
   const nameOf = (x?: { name: string; nameAr?: string }) => (x ? (lang === "ar" && x.nameAr ? x.nameAr : x.name) : "");
   const groups = useMemo(() => {
     const g: Record<string, Metric[]> = {};
@@ -179,8 +196,9 @@ function ExploreTab({ metrics }: { metrics: Metric[] }) {
   return (
     <div className="grid gap-4 lg:grid-cols-3">
       <Card className="p-4">
+        <p className="mb-3 text-xs leading-relaxed text-ink-500">{tr("an_exploreGuide")}</p>
         <Field label={tr("an_metric")}>
-          <select className="input" value={key} onChange={(e) => setKey(e.target.value)}>
+          <select className="input" value={selectedKey} onChange={(e) => setKey(e.target.value)} disabled={!metrics.length}>
             {Object.entries(groups).map(([cat, ms]) => (
               <optgroup key={cat} label={cat}>
                 {ms.map((x) => <option key={x.key} value={x.key}>{nameOf(x)}</option>)}
@@ -191,7 +209,7 @@ function ExploreTab({ metrics }: { metrics: Metric[] }) {
         <div className="mt-3 flex gap-1">
           {[30, 90, 365].map((d) => (
             <button key={d} onClick={() => setDays(d)}
-              className={`rounded-lg px-3 py-1 text-xs font-semibold ${days === d ? "bg-ink-900 text-paper-50" : "bg-paper-200 text-ink-600 hover:bg-paper-300"}`} dir="ltr">
+              className={`rounded-lg px-3 py-1 text-xs font-semibold ${days === d ? "tab-active" : "bg-paper-200 text-ink-600 hover:bg-paper-300"}`} dir="ltr">
               {d}d
             </button>
           ))}
@@ -202,7 +220,7 @@ function ExploreTab({ metrics }: { metrics: Metric[] }) {
         </div>
       </Card>
       <Card className="p-4 lg:col-span-2">
-        <SectionTitle>{nameOf(m)}</SectionTitle>
+        <SectionTitle>{nameOf(m) || tr("an_metricEmpty")}</SectionTitle>
         {series && series.length > 1 ? <div className="mt-3"><Spark pts={series} /></div>
           : <p className="mt-3 text-sm text-ink-500">{tr("an_noSeries")}</p>}
         {slices && slices.length > 0 && (
@@ -257,7 +275,7 @@ function TargetsTab({ metrics, isAdmin }: { metrics: Metric[]; isAdmin: boolean 
           <ul className="mt-3 space-y-3">
             {pacing.map((t) => {
               const pctBar = Math.min(100, t.progressPct);
-              const expBar = t.target ? Math.min(100, Math.round((t.expected / t.target) * 100)) : 0;
+              const expBar = safeNum(t.target) > 0 ? Math.min(100, Math.round((safeNum(t.expected) / safeNum(t.target)) * 100)) : 0;
               const paceTone = t.pacePct >= 100 ? "text-moss-600" : t.pacePct >= 80 ? "text-amber-600" : "text-clay-600";
               return (
                 <li key={t.id}>
@@ -435,7 +453,7 @@ export default function Analytics() {
         <div className="flex flex-wrap gap-1">
           {tabs.map((t) => (
             <button key={t.id} onClick={() => setTab(t.id)}
-              className={`rounded-xl px-3 py-1.5 text-sm font-semibold transition ${tab === t.id ? "bg-ink-900 text-paper-50" : "bg-paper-200 text-ink-600 hover:bg-paper-300"}`}>
+              className={`rounded-xl px-3 py-1.5 text-sm font-semibold transition ${tab === t.id ? "tab-active" : "bg-paper-200 text-ink-600 hover:bg-paper-300"}`}>
               {t.label}
             </button>
           ))}
@@ -443,7 +461,7 @@ export default function Analytics() {
         {isAdmin && <button onClick={runDaily} disabled={running} className="btn-ghost text-xs">{tr("an_runDaily")}</button>}
       </div>
       {tab === "overview" && <OverviewTab />}
-      {tab === "explore" && <ExploreTab metrics={metrics || []} />}
+      {tab === "explore" && (!metrics ? <SkeletonCards count={2} /> : <ExploreTab metrics={metrics} />)}
       {tab === "boards" && <AnalyticsBoards />}
       {tab === "targets" && <TargetsTab metrics={metrics || []} isAdmin={isAdmin} />}
       {tab === "reports" && <ReportsTab isAdmin={isAdmin} />}

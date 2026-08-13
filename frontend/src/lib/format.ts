@@ -14,22 +14,40 @@ export function localCurrencyLabel(lang: Lang) {
   return lang === "ar" ? LOCAL_AR : LOCAL_CODE;
 }
 
-export function fmtMoney(amount: number, currency: "USD" | "SDG" | "LOCAL", lang: Lang): string {
+export function fmtMoney(amount: number | string | null | undefined, currency: "USD" | "SDG" | "LOCAL", lang: Lang): string {
   const locale = dataLocale(lang); // Bayan §3: data uses Western digits
+  const parsed = parseFloatValue(amount);
+  if (parsed === null) return "—";
   const n = new Intl.NumberFormat(locale, {
     maximumFractionDigits: 0,
-  }).format(amount || 0);
+  }).format(parsed);
   return currency === "USD" ? `$${n}` : `${n} ${lang === "ar" ? LOCAL_AR : LOCAL_CODE}`;
 }
 
 // Compact dual-currency display, e.g. "$12,000 · 30,000,000 SDG"
-export function fmtDual(usd: number, sdg: number, lang: Lang): string {
+export function fmtDual(usd: number | string | null | undefined, sdg: number | string | null | undefined, lang: Lang): string {
   return `${fmtMoney(usd, "USD", lang)} · ${fmtMoney(sdg, "SDG", lang)}`;
 }
 
-export function fmtNum(n: number, lang: Lang): string {
+export function fmtNum(n: number | string | null | undefined, lang: Lang): string {
   const locale = dataLocale(lang); // Bayan §3
-  return new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(n || 0);
+  const parsed = parseFloatValue(n);
+  return parsed === null ? "—" : new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(parsed);
+}
+
+export function parseFloatValue(value: unknown): number | null {
+  if (typeof value === "string") {
+    const text = value.trim();
+    if (!text) return null;
+    const parsed = Number.parseFloat(text);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function safeNum(n: unknown, fallback = 0): number {
+  return parseFloatValue(n) ?? fallback;
 }
 
 export function fmtDate(iso?: string | null, lang: Lang = "ar"): string {

@@ -27,6 +27,7 @@ captureRouter.get("/form", async (req, res) => {
   }
   const evName = event ? (lang === "ar" && event.nameAr ? event.nameAr : event.name) : null;
   const srcCode = typeof req.query.src === "string" && /^[a-z0-9-]{3,30}$/.test(req.query.src) ? req.query.src : null;
+  const refCode = typeof req.query.ref === "string" && /^[a-z0-9-]{3,30}$/.test(req.query.ref) ? req.query.ref : null;
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.send(`<!doctype html><html lang="${lang}" dir="${dir}"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -63,6 +64,7 @@ ${evName ? `<div class="ev">${esc(t.ev)}: <b>${esc(evName)}</b></div>` : ""}
 <label>${esc(t.email)}<input name="email" type="email" maxlength="160"></label>
 <label>${esc(t.notes)}<textarea name="notes" maxlength="1000" rows="3"></textarea></label>
 <div class="hp" aria-hidden="true"><label>Website<input name="website" tabindex="-1" autocomplete="off"></label></div>
+${refCode ? `<input type="hidden" name="ref" value="${esc(refCode)}">` : ""}
 <div class="err" id="e">${esc(t.err)}</div>
 <button id="b">${esc(t.send)}</button>
 </form></div>
@@ -99,6 +101,7 @@ captureRouter.post("/lead", captureLimiter, async (req, res, next) => {
       const link = await get(`SELECT code, "campaignId" FROM tracked_links WHERE code = $1`, [b.src]);
       if (link) { src = link.code; campaignId = link.campaignId; }
     }
+    const ref = typeof b.ref === "string" && /^[a-z0-9-]{3,30}$/.test(b.ref) ? b.ref : null;
     const lead = await get(
       `INSERT INTO leads (company, "contactName", phone, email, source, notes, "campaignId")
        VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, company`,
@@ -109,7 +112,11 @@ captureRouter.post("/lead", captureLimiter, async (req, res, next) => {
            VALUES ($1,$2,'CAPTURE') ON CONFLICT ("eventId","leadId") DO NOTHING`, [eventId, lead.id]).catch(() => {});
     }
     const pseudoReq = { user: { id: null, name: source === "EVENT" ? `Event: ${eventName}` : "Web form" } };
-    logActivity(pseudoReq, lead.id, "CAPTURE", notes, { via: source, event: eventName, src });
+    logActivity(pseudoReq, lead.id, "CAPTURE", notes, { via: source, event: eventName, src, ref });
+    if (ref) {
+      run(`UPDATE referrals SET "referredLeadId" = $1, "updatedAt" = now()
+           WHERE code = $2 AND "referredLeadId" IS NULL`, [lead.id, ref]).catch(() => {});
+    }
     notify(await usersWithModuleWrite("leads"), "LEAD_CAPTURED", { company: lead.company, via: source }, "/leads");
     res.status(201).json({ ok: true });
   } catch (e) { next(e); }
