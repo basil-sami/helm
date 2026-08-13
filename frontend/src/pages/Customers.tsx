@@ -23,16 +23,29 @@ export default function Customers() {
   const [saving, setSaving] = useState(false);
 
   const save = async () => {
-    if (!editing?.id) return;
+    if (!editing) return;
     setSaving(true);
     try {
-      await api.patch(`/customers/${editing.id}`, {
-        businessUnit: editing.businessUnit, status: editing.status, accountOwnerId: editing.accountOwnerId || null,
-        nextReviewAt: editing.nextReviewAt || null, totalValueUsd: editing.totalValueUsd, notes: editing.notes,
-      });
+      if (editing.id) {
+        await api.patch(`/customers/${editing.id}`, {
+          businessUnit: editing.businessUnit, status: editing.status, accountOwnerId: editing.accountOwnerId || null,
+          nextReviewAt: editing.nextReviewAt || null, totalValueUsd: editing.totalValueUsd, notes: editing.notes,
+        });
+      } else {
+        await api.post("/customers", {
+          company: editing.company, businessUnit: editing.businessUnit, status: editing.status || "ACTIVE",
+          accountOwnerId: editing.accountOwnerId || null, nextReviewAt: editing.nextReviewAt || null,
+          totalValueUsd: editing.totalValueUsd || 0, notes: editing.notes, productIds: "[]",
+        });
+      }
       setEditing(null); reload();
     } catch { toast.push(tr("saveError"), "error"); }
     finally { setSaving(false); }
+  };
+  const remove = async (c: Customer) => {
+    if (!confirm(tr("confirmDelete"))) return;
+    try { await api.del(`/customers/${c.id}`); reload(); toast.push(tr("deleted"), "success"); }
+    catch { toast.push(tr("deleteError"), "error"); }
   };
   const copyFb = (id: string) => {
     navigator.clipboard.writeText(`${location.origin}/api/capture/feedback-form?customer=${id}`).catch(() => {});
@@ -45,6 +58,7 @@ export default function Customers() {
         <div>
           <h1 className="text-xl font-bold text-ink-900">{tr("cu_title")}</h1>
           <p className="text-sm text-ink-500">{tr("cu_sub")}</p>
+          <p className="mt-1 text-xs text-ink-400">{tr("cu_manageHint")}</p>
         </div>
         {fb && fb.count > 0 && (
           <div className="rounded-xl border border-paper-200 bg-white px-4 py-2 text-sm">
@@ -52,6 +66,9 @@ export default function Customers() {
             <span className="kpi-num text-amber-700">★ {fb.avg}</span>
             <span className="ms-1 text-xs text-ink-400">({fb.count})</span>
           </div>
+        )}
+        {can("leads") && (
+          <button onClick={() => setEditing({ status: "ACTIVE", productIds: "[]" } as Partial<Customer>)} className="btn-amber">+ {tr("add")}</button>
         )}
       </div>
 
@@ -83,6 +100,7 @@ export default function Customers() {
                     <td className="px-4 py-3 text-end whitespace-nowrap">
                       <button onClick={() => copyFb(c.id)} className="text-xs text-steel-600 hover:underline">★ {tr("cu_fbLink")}</button>
                       {can("leads") && <button onClick={() => setEditing({ ...c, nextReviewAt: c.nextReviewAt ? toDateInput(c.nextReviewAt) : "" })} className="ms-3 text-xs text-steel-600 hover:underline">{tr("edit")}</button>}
+                      {can("leads") && <button onClick={() => remove(c)} className="ms-3 text-xs text-clay-600 hover:underline">{tr("delete")}</button>}
                     </td>
                   </tr>
                 );
@@ -92,11 +110,14 @@ export default function Customers() {
         )}
       </Card>
 
-      <Modal open={!!editing} onClose={() => setEditing(null)} title={editing?.company || ""}
+      <Modal open={!!editing} onClose={() => setEditing(null)} title={editing?.id ? editing.company || "" : tr("add")}
         footer={<><button onClick={() => setEditing(null)} className="btn-ghost">{tr("cancel")}</button>
           <button onClick={save} disabled={saving} className="btn-amber">{tr("save")}</button></>}>
         {editing && (
           <div className="grid grid-cols-2 gap-3">
+            {!editing.id && (
+              <div className="col-span-2"><Field label={tr("company")}><input className="input" value={editing.company || ""} onChange={(e) => setEditing({ ...editing, company: e.target.value })} /></Field></div>
+            )}
             <Field label={tr("status")}>
               <Select value={editing.status || "ACTIVE"} onChange={(v) => setEditing({ ...editing, status: v })}
                 options={[{ value: "ACTIVE", label: tr("ACTIVE_C") }, { value: "DORMANT", label: tr("DORMANT") }, { value: "CHURNED", label: tr("CHURNED") }]} />

@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
-import { useFetch, Card, Modal, SkeletonCards } from "../components/ui";
+import { useFetch, Card, Modal, Field, SkeletonCards } from "../components/ui";
 import { api } from "../lib/api";
 import { useI18n } from "../context/I18nContext";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../components/Toast";
+import { safeNum } from "../lib/format";
 
 // ═══ GROWTH — النمو: offers, word-of-mouth, channel, paid ════════════
 
@@ -43,7 +44,7 @@ export default function Growth() {
   const [spendM, setSpendM] = useState(false);
   const [spendForm, setSpendForm] = useState({ platform: "META", campaignId: "", amountUsd: "", impressions: "", clicks: "" });
 
-  const spendTotal = useMemo(() => (spend.data || []).reduce((a, s) => a + Number(s.amountUsd), 0), [spend.data]);
+  const spendTotal = useMemo(() => (spend.data || []).reduce((a, s) => a + safeNum(s.amountUsd), 0), [spend.data]);
 
   const savePromo = async () => {
     if (!promoM?.name || !promoM.code) return;
@@ -73,7 +74,7 @@ export default function Growth() {
       <div className="flex flex-wrap gap-1 rounded-2xl bg-paper-200 p-1">
         {TABS.map(([k, label, n]) => (
           <button key={k} onClick={() => setTab(k)}
-            className={`rounded-xl px-3.5 py-1.5 text-sm font-medium transition ${tab === k ? "bg-white text-ink-900 shadow-sm" : "text-ink-500 hover:text-ink-700"}`}>
+            className={`rounded-xl px-3.5 py-1.5 text-sm font-medium transition ${tab === k ? "tab-active" : "text-ink-500 hover:text-ink-700"}`}>
             {label}{typeof n === "number" ? <span className="kpi-num ms-1.5 text-[10px] text-ink-400">{n}</span> : null}
           </button>
         ))}
@@ -82,6 +83,7 @@ export default function Growth() {
       {/* ── PROMOTIONS ── */}
       {tab === "promos" && (promos.loading ? <SkeletonCards count={3} /> : (
         <div className="space-y-3">
+          <p className="text-xs text-ink-500">{tr("gr_promoGuide")}</p>
           {w && <button onClick={() => setPromoM({ kind: "DISCOUNT", active: true })} className="btn-amber">+ {tr("gr_addPromo")}</button>}
           {!promos.data?.length ? <Card className="p-8 text-center"><p className="text-sm text-ink-500">{tr("gr_noPromos")}</p></Card> : (
             <div className="grid gap-3 md:grid-cols-2">
@@ -104,10 +106,14 @@ export default function Growth() {
                   {w && (
                     <div className="mt-3 flex gap-2 text-xs">
                       <button onClick={async () => { try { await api.post(`/promotions/${p.id}/redeem`, {}); promos.reload(); } catch (e) { toast.push((e as Error).message, "error"); } }}
-                        className="rounded-lg bg-amber-500/15 px-2.5 py-1 font-medium text-amber-700 hover:bg-amber-500/25" disabled={!p.active}>✓ {tr("gr_redeem")}</button>
+                        className="rounded-lg bg-amber-500/15 px-2.5 py-1 font-medium text-amber-700 hover:bg-amber-500/25" disabled={!p.active}>{p.active ? `✓ ${tr("gr_redeem")}` : tr("gr_inactive")}</button>
+                      <button onClick={async () => { try { await api.post(`/promotions/${p.id}/undo`, {}); promos.reload(); } catch (e) { toast.push((e as Error).message, "error"); } }}
+                        className="rounded-lg bg-paper-200 px-2.5 py-1 text-ink-600 hover:bg-paper-300" disabled={!p.redemptions}>↩ {tr("gr_undo")}</button>
                       <button onClick={() => setPromoM(p)} className="rounded-lg bg-paper-200 px-2.5 py-1 text-ink-600 hover:bg-paper-300">{tr("edit")}</button>
-                      <button onClick={async () => { await api.patch(`/promotions/${p.id}`, { active: !p.active }); promos.reload(); }}
-                        className="rounded-lg bg-paper-200 px-2.5 py-1 text-ink-600 hover:bg-paper-300">{p.active ? tr("gr_deactivate") : tr("gr_activate")}</button>
+                      {w && (
+                        <button title={tr("gr_toggleTip")} onClick={async () => { try { await api.post(`/promotions/${p.id}/toggle`, {}); promos.reload(); } catch (e) { toast.push((e as Error).message, "error"); } }}
+                          className="rounded-lg bg-paper-200 px-2.5 py-1 text-ink-600 hover:bg-paper-300">{p.active ? tr("gr_deactivate") : tr("gr_activate")}</button>
+                      )}
                     </div>
                   )}
                 </Card>
@@ -120,6 +126,7 @@ export default function Growth() {
       {/* ── REFERRALS ── */}
       {tab === "refs" && (refs.loading ? <SkeletonCards count={3} /> : (
         <div className="space-y-3">
+          <p className="text-xs text-ink-500">{tr("gr_refGuide")}</p>
           {w && <button onClick={() => { setRefForm({ referrerCustomerId: "", targetUrl: "" }); setRefM(true); }} className="btn-amber">+ {tr("gr_addRef")}</button>}
           {!refs.data?.length ? <Card className="p-8 text-center"><p className="text-sm font-medium text-ink-700">{tr("gr_noRefs")}</p><p className="mt-1 text-xs text-ink-400">{tr("gr_refsHint")}</p></Card> : (
             <Card className="divide-y divide-paper-200 p-0">
@@ -154,6 +161,7 @@ export default function Growth() {
       {/* ── PARTNERS ── */}
       {tab === "partners" && (partners.loading ? <SkeletonCards count={3} /> : (
         <div className="space-y-3">
+          <p className="text-xs text-ink-500">{tr("gr_partnerGuide")}</p>
           {w && <button onClick={() => setPartnerM({ kind: "DISTRIBUTOR", active: true, coopBudgetUsd: 0 })} className="btn-amber">+ {tr("gr_addPartner")}</button>}
           {!partners.data?.length ? <Card className="p-8 text-center"><p className="text-sm text-ink-500">{tr("gr_noPartners")}</p></Card> : (
             <div className="grid gap-3 md:grid-cols-2">
@@ -166,7 +174,7 @@ export default function Growth() {
                     </div>
                     <span className="kpi-num rounded-full bg-paper-200 px-2.5 py-1 text-[11px] text-ink-600" dir="ltr">{p.campaignCount} 🔗</span>
                   </div>
-                  <div className="mt-2 text-xs text-ink-500">{tr("gr_coop")}: <span className="kpi-num text-ink-700" dir="ltr">${Number(p.coopBudgetUsd).toLocaleString()}</span></div>
+                  <div className="mt-2 text-xs text-ink-500">{tr("gr_coop")}: <span className="kpi-num text-ink-700" dir="ltr">${Number(p.coopBudgetUsd || 0).toLocaleString()}</span></div>
                   {w && (
                     <div className="mt-3 flex gap-2 text-xs">
                       <button onClick={() => { setLinkForm({ campaignId: "", sharePct: 50 }); setLinkM(p); }} className="rounded-lg bg-amber-500/15 px-2.5 py-1 font-medium text-amber-700">🔗 {tr("gr_linkCampaign")}</button>
@@ -183,6 +191,7 @@ export default function Growth() {
       {/* ── AD SPEND ── */}
       {tab === "spend" && (spend.loading ? <SkeletonCards count={3} /> : (
         <div className="space-y-3">
+          <p className="text-xs text-ink-500">{tr("gr_spendGuide")}</p>
           <div className="flex flex-wrap items-center justify-between gap-2">
             {w && <button onClick={() => { setSpendForm({ platform: "META", campaignId: "", amountUsd: "", impressions: "", clicks: "" }); setSpendM(true); }} className="btn-amber">+ {tr("gr_addSpend")}</button>}
             <div className="text-sm text-ink-500">{tr("gr_total")}: <span className="kpi-num font-bold text-ink-900" dir="ltr">${spendTotal.toLocaleString()}</span></div>
@@ -202,7 +211,7 @@ export default function Growth() {
                   <div className="flex items-center gap-3 text-[11px] text-ink-500" dir="ltr">
                     {s.impressions ? <span>👁 {Number(s.impressions).toLocaleString()}</span> : null}
                     {s.clicks ? <span>👆 {Number(s.clicks).toLocaleString()}</span> : null}
-                    <span className="kpi-num text-sm font-bold text-ink-900">${Number(s.amountUsd).toLocaleString()}</span>
+                    <span className="kpi-num text-sm font-bold text-ink-900">${Number(s.amountUsd || 0).toLocaleString()}</span>
                   </div>
                 </div>
               ))}
@@ -270,7 +279,7 @@ export default function Growth() {
               </select>
               <input className="input" placeholder={tr("gr_region")} value={partnerM.region || ""} onChange={(e) => setPartnerM({ ...partnerM, region: e.target.value })} />
             </div>
-            <input className="input kpi-num" type="number" placeholder={tr("gr_coop")} value={partnerM.coopBudgetUsd ?? ""} onChange={(e) => setPartnerM({ ...partnerM, coopBudgetUsd: Number(e.target.value) })} dir="ltr" />
+            <Field label={`${tr("gr_coop")} (USD)`}><input className="input kpi-num" type="number" placeholder={tr("gr_coop")} value={partnerM.coopBudgetUsd ?? ""} onChange={(e) => setPartnerM({ ...partnerM, coopBudgetUsd: Number(e.target.value) })} dir="ltr" /></Field>
             <button className="btn-amber w-full" disabled={!partnerM.name}
               onClick={async () => {
                 try {
@@ -305,18 +314,22 @@ export default function Growth() {
         <Modal open title={tr("gr_addSpend")} onClose={() => setSpendM(false)}>
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
-              <select className="input" value={spendForm.platform} onChange={(e) => setSpendForm({ ...spendForm, platform: e.target.value })}>
-                {PLATFORMS.map((p) => <option key={p}>{p}</option>)}
-              </select>
-              <select className="input" value={spendForm.campaignId} onChange={(e) => setSpendForm({ ...spendForm, campaignId: e.target.value })}>
-                <option value="">{tr("gr_noCampaign")}</option>
-                {(campaigns.data || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+              <Field label={tr("platform")}>
+                <select className="input" value={spendForm.platform} onChange={(e) => setSpendForm({ ...spendForm, platform: e.target.value })}>
+                  {PLATFORMS.map((p) => <option key={p}>{p}</option>)}
+                </select>
+              </Field>
+              <Field label={tr("gr_campaign")}>
+                <select className="input" value={spendForm.campaignId} onChange={(e) => setSpendForm({ ...spendForm, campaignId: e.target.value })}>
+                  <option value="">{tr("gr_noCampaign")}</option>
+                  {(campaigns.data || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </Field>
             </div>
-            <input className="input kpi-num" type="number" placeholder={tr("gr_amount")} value={spendForm.amountUsd} onChange={(e) => setSpendForm({ ...spendForm, amountUsd: e.target.value })} dir="ltr" />
+            <Field label={tr("gr_amount")}><input className="input kpi-num" type="number" placeholder={tr("gr_amount")} value={spendForm.amountUsd} onChange={(e) => setSpendForm({ ...spendForm, amountUsd: e.target.value })} dir="ltr" /></Field>
             <div className="grid grid-cols-2 gap-3">
-              <input className="input kpi-num" type="number" placeholder={tr("gr_impressions")} value={spendForm.impressions} onChange={(e) => setSpendForm({ ...spendForm, impressions: e.target.value })} dir="ltr" />
-              <input className="input kpi-num" type="number" placeholder={tr("gr_clicks")} value={spendForm.clicks} onChange={(e) => setSpendForm({ ...spendForm, clicks: e.target.value })} dir="ltr" />
+              <Field label={tr("gr_impressions")}><input className="input kpi-num" type="number" placeholder={tr("gr_impressions")} value={spendForm.impressions} onChange={(e) => setSpendForm({ ...spendForm, impressions: e.target.value })} dir="ltr" /></Field>
+              <Field label={tr("gr_clicks")}><input className="input kpi-num" type="number" placeholder={tr("gr_clicks")} value={spendForm.clicks} onChange={(e) => setSpendForm({ ...spendForm, clicks: e.target.value })} dir="ltr" /></Field>
             </div>
             <button className="btn-amber w-full" disabled={!spendForm.amountUsd}
               onClick={async () => {

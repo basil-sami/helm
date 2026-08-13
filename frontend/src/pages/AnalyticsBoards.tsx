@@ -93,10 +93,12 @@ export default function AnalyticsBoards() {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <SectionTitle>{tr("an_funnel")}</SectionTitle>
+          <p className="mb-2 text-xs text-ink-500">{tr("an_funnelGuide")}</p>
           <Funnel data={data.funnel} el={el} />
         </Card>
         <Card>
           <SectionTitle>{tr("an_valueByStage")}</SectionTitle>
+          <p className="mb-2 text-xs text-ink-500">{tr("an_valueGuide")}</p>
           <HBars accent="steel" format={m} data={data.pipeline.valueByStage.map((v) => ({ label: el(v.stage), value: v.usd, sub: `${v.count}` }))} />
         </Card>
       </div>
@@ -105,10 +107,12 @@ export default function AnalyticsBoards() {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <SectionTitle>{tr("an_channels")}</SectionTitle>
+          <p className="mb-2 text-xs text-ink-500">{tr("an_channelsGuide")}</p>
           <HBars accent="teal" format={m} data={data.channels.map((c) => ({ label: el(c.channel), value: c.spent, sub: `${tr("an_plan")} ${m(c.planned)}` }))} />
         </Card>
         <Card>
           <SectionTitle>{tr("an_sources")}</SectionTitle>
+          <p className="mb-2 text-xs text-ink-500">{tr("an_sourcesGuide")}</p>
           <HBars accent="violet" format={m} data={data.pipeline.sourceAttribution.map((x) => ({ label: x.source === "OSINT" ? tr("nav_intel") : x.source, value: x.usd, sub: `${x.count}` }))} />
         </Card>
       </div>
@@ -117,10 +121,12 @@ export default function AnalyticsBoards() {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <SectionTitle>{tr("an_leadsTrend")}</SectionTitle>
+          <p className="mb-2 text-xs text-ink-500">{tr("an_trendsGuide")}</p>
           <AreaTrend accent="amber" data={data.trends.map((t) => ({ month: t.month, value: t.leads }))} />
         </Card>
         <Card>
           <SectionTitle>{tr("an_spendTrend")}</SectionTitle>
+          <p className="mb-2 text-xs text-ink-500">{tr("an_trendsGuide")}</p>
           <AreaTrend accent="steel" format={m} data={data.trends.map((t) => ({ month: t.month, value: t.spentUsd }))} />
         </Card>
       </div>
@@ -129,10 +135,12 @@ export default function AnalyticsBoards() {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <SectionTitle>{tr("an_content")}</SectionTitle>
+          <p className="mb-2 text-xs text-ink-500">{tr("an_contentGuide")}</p>
           <HBars accent="amber" data={data.contentByStatus.map((c) => ({ label: el(c.status), value: c.count }))} />
         </Card>
         <Card>
           <SectionTitle>{tr("an_sentiment")}</SectionTitle>
+          <p className="mb-2 text-xs text-ink-500">{tr("an_sentimentGuide")}</p>
           {data.sentiment.every((x) => x.count === 0)
             ? <p className="text-sm text-ink-500">{tr("noData")}</p>
             : <Donut segments={data.sentiment.map((x) => ({ label: el(x.label), value: x.count, color: SENTI_COLORS[x.label] }))} />}

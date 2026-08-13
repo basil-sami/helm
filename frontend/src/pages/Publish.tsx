@@ -538,7 +538,7 @@ export default function Publish() {
       <div className="flex gap-1">
         {([["queue", tr("pb_tabQueue")], ["bio", tr("pb_tabBio")]] as const).map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)}
-            className={`rounded-xl px-3 py-1.5 text-sm font-semibold transition ${tab === id ? "bg-ink-900 text-paper-50" : "bg-paper-200 text-ink-600 hover:bg-paper-300"}`}>
+            className={`rounded-xl px-3 py-1.5 text-sm font-semibold transition ${tab === id ? "tab-active" : "bg-paper-200 text-ink-600 hover:bg-paper-300"}`}>
             {label}
           </button>
         ))}

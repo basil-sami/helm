@@ -12,6 +12,26 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="نبض" />
     <title>نبض — Pulse · The Marketing Operating Platform</title>
+    <script>
+      (function () {
+        try {
+          if ("serviceWorker" in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function (rs) {
+              rs.forEach(function (r) { r.unregister(); });
+            });
+          }
+          if (window.caches) {
+            caches.keys().then(function (ks) {
+              return Promise.all(ks.map(function (k) { return caches.delete(k); }));
+            });
+          }
+          if (!sessionStorage.getItem("swNuked")) {
+            sessionStorage.setItem("swNuked", "1");
+            setTimeout(function () { location.reload(); }, 250);
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

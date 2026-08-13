@@ -141,7 +141,7 @@ publicFormsRouter.get("/:slug", async (req, res, next) => {
 
 /** Shared submit core so landing pages reuse the exact same pipeline. */
 export async function handleFormSubmit(form, body) {
-  const { _hp, src: rawSrc, ...raw } = body || {};
+  const { _hp, src: rawSrc, ref: rawRef, ...raw } = body || {};
   if (_hp) return { status: 200, json: { ok: true } }; // honeypot: pretend success, store nothing
   const defs = typeof form.fields === "string" ? JSON.parse(form.fields || "[]") : form.fields;
   const data = {};
@@ -160,6 +160,7 @@ export async function handleFormSubmit(form, body) {
     const link = await get(`SELECT "campaignId" FROM tracked_links WHERE code = $1`, [rawSrc]).catch(() => null);
     if (link?.campaignId) srcCampaignId = link.campaignId;
   }
+  const ref = typeof rawRef === "string" && /^[a-z0-9-]{3,40}$/.test(rawRef) ? rawRef : null;
   const campaignId = form.campaignId || srcCampaignId;
   const contact = await findOrCreateContact({
     name: data.name, email: data.email, phone: data.phone, company: data.company,
@@ -179,6 +180,7 @@ export async function handleFormSubmit(form, body) {
     logActivity({ user: { id: null, name: `Form: ${form.slug}` } }, lead.id, "CAPTURE", extras, { via: "FORM", form: form.slug, src });
     notify(await usersWithModuleWrite("leads"), "LEAD_CAPTURED", { company: lead.company, via: `form:${form.slug}` }, "/leads").catch(() => {});
     if (contact && !contact.leadId) run(`UPDATE contacts SET "leadId" = $2 WHERE id = $1`, [contact.id, leadId]).catch(() => {});
+    if (ref) run(`UPDATE referrals SET "referredLeadId" = $1, "updatedAt" = now() WHERE code = $2 AND "referredLeadId" IS NULL`, [leadId, ref]).catch(() => {});
   }
   await run(
     `INSERT INTO form_submissions ("formId", data, "leadId", "contactId", src) VALUES ($1,$2,$3,$4,$5)`,

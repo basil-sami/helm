@@ -462,7 +462,7 @@ export default function Reach() {
       <div className="flex flex-wrap gap-1">
         {([["camp", tr("rc_tabCamp")], ["health", tr("rc_tabHealth")], ["cov", tr("rc_tabCov")], ["comp", tr("rc_tabComp")]] as const).map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)}
-            className={`rounded-xl px-3 py-1.5 text-sm font-semibold transition ${tab === id ? "bg-ink-900 text-paper-50" : "bg-paper-200 text-ink-600 hover:bg-paper-300"}`}>
+            className={`rounded-xl px-3 py-1.5 text-sm font-semibold transition ${tab === id ? "tab-active" : "bg-paper-200 text-ink-600 hover:bg-paper-300"}`}>
             {label}
           </button>
         ))}
