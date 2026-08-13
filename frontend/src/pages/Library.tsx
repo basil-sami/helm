@@ -121,7 +121,7 @@ export default function Library() {
           {KINDS.map((k) => (
             <button key={k} onClick={() => setKind(k)}
               className={`rounded-full px-3 py-1 font-medium transition ${
-                kind === k ? "tab-active" : "bg-paper-200 text-ink-600 hover:bg-paper-300"}`}>
+                kind === k ? "bg-ink-900 text-paper-50" : "bg-paper-200 text-ink-600 hover:bg-paper-300"}`}>
               {k === "ALL" ? tr("lib_all") : `${GLYPH[k]} ${tr(`lib_k_${k}`)}`}
             </button>
           ))}

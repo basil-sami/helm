@@ -108,14 +108,7 @@ export default function Campaigns() {
         businessUnit: editing.businessUnit, ownerId: editing.ownerId || null,
       };
       if (editing.id) await api.patch(`/campaigns/${editing.id}`, payload);
-      else {
-        const created = await api.post<Campaign>("/campaigns", payload);
-        setEditing({ ...editing, ...created });
-        reload();
-        toast.push(tr("saved"), "success");
-        toast.push(tr("bf_now"), "success");
-        return;
-      }
+      else await api.post("/campaigns", payload);
       setEditing(null);
       reload();
       toast.push(tr("saved"), "success");
@@ -139,9 +132,9 @@ export default function Campaigns() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <button onClick={() => setFilter("")} className={`pill ${!filter ? "tab-active" : "bg-paper-200 text-ink-600"}`}>{tr("all")}</button>
+          <button onClick={() => setFilter("")} className={`pill ${!filter ? "bg-ink-900 text-paper" : "bg-paper-200 text-ink-600"}`}>{tr("all")}</button>
           {STATUSES.map((s) => (
-            <button key={s} onClick={() => setFilter(s)} className={`pill ${filter === s ? "tab-active" : "bg-paper-200 text-ink-600"}`}>{el(s)}</button>
+            <button key={s} onClick={() => setFilter(s)} className={`pill ${filter === s ? "bg-ink-900 text-paper" : "bg-paper-200 text-ink-600"}`}>{el(s)}</button>
           ))}
         </div>
         <div className="flex items-center gap-2"><ExportButton resource="campaigns" /><button onClick={() => setEditing(blank)} className="btn-amber">+ {tr("add")}</button></div>
@@ -204,8 +197,7 @@ export default function Campaigns() {
             <Field label={`${tr("budget")} (SDG)`}><input type="number" className="input" value={editing.budgetSdg ?? 0} onChange={(e) => setEditing({ ...editing, budgetSdg: Number(e.target.value) })} /></Field>
             <Field label={tr("businessUnit")}><input className="input" value={editing.businessUnit || ""} onChange={(e) => setEditing({ ...editing, businessUnit: e.target.value })} /></Field>
             <Field label={tr("owner")}><Select value={editing.ownerId || ""} onChange={(v) => setEditing({ ...editing, ownerId: v })} placeholder={tr("unassigned")} options={(users || []).map((u) => ({ value: u.id, label: u.name }))} /></Field>
-             {editing.id ? <div className="col-span-2"><BriefPanel campaignId={editing.id} /></div>
-               : <p className="col-span-2 rounded-lg bg-paper-100 p-3 text-xs text-ink-500">{tr("bf_afterSave")}</p>}
+            {editing.id && <div className="col-span-2"><BriefPanel campaignId={editing.id} /></div>}
           </div>
         )}
       </Modal>

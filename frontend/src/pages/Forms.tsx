@@ -29,7 +29,6 @@ export default function Forms() {
   const [viewing, setViewing] = useState<Form | null>(null);
   const [err, setErr] = useState("");
   const [copied, setCopied] = useState("");
-  const [saving, setSaving] = useState(false);
 
   const openEdit = (f?: Form) => setEditing(f
     ? { ...f, fieldsArr: parseFields(f.fields) }
@@ -38,8 +37,7 @@ export default function Forms() {
         { key: "phone", label: "Phone (WhatsApp)", labelAr: "الهاتف (واتساب)", type: "phone", required: true },
       ] });
   const save = async () => {
-    if (!editing?.name || !editing.fieldsArr?.length || saving) return;
-    setSaving(true);
+    if (!editing?.name || !editing.fieldsArr?.length) return;
     setErr("");
     const payload = { ...editing, fields: editing.fieldsArr };
     delete (payload as Record<string, unknown>).fieldsArr;
@@ -48,7 +46,6 @@ export default function Forms() {
       else await api.post("/forms", payload);
       setEditing(null); reload();
     } catch (e) { setErr((e as Error).message); }
-    finally { setSaving(false); }
   };
   const copyLink = async (f: Form) => {
     const url = `${window.location.origin}/f/${f.slug}`;
@@ -92,7 +89,7 @@ export default function Forms() {
 
       {/* Builder */}
       <Modal open={!!editing} onClose={() => setEditing(null)} title={editing?.id ? tr("edit") : tr("fm_new")}
-        footer={<><button onClick={() => setEditing(null)} className="btn-ghost">{tr("cancel")}</button><button onClick={save} disabled={saving} className="btn-amber">{tr("save")}</button></>}>
+        footer={<><button onClick={() => setEditing(null)} className="btn-ghost">{tr("cancel")}</button><button onClick={save} className="btn-amber">{tr("save")}</button></>}>
         {editing && (
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">

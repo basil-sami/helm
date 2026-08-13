@@ -140,14 +140,12 @@ export function Modal({
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const restoreRef = useRef<HTMLElement | null>(null);
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!open) return;
     restoreRef.current = document.activeElement as HTMLElement;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCloseRef.current();
+      if (e.key === "Escape") onClose();
       if (e.key === "Tab" && panelRef.current) {
         const f = panelRef.current.querySelectorAll<HTMLElement>(
           'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
@@ -160,13 +158,7 @@ export function Modal({
     };
     document.addEventListener("keydown", onKey);
     const t = setTimeout(() => {
-      const panel = panelRef.current;
-      if (!panel) return;
-      const fields = panel.querySelectorAll<HTMLElement>("input,select,textarea");
-      for (const f of fields) {
-        if (f instanceof HTMLInputElement && f.value === "" && f.type !== "hidden") { f.focus(); return; }
-        if (f instanceof HTMLTextAreaElement && f.value === "") { f.focus(); return; }
-      }
+      panelRef.current?.querySelector<HTMLElement>("input,select,textarea,button")?.focus();
     }, 30);
     document.body.style.overflow = "hidden";
     return () => {
@@ -175,7 +167,7 @@ export function Modal({
       clearTimeout(t);
       restoreRef.current?.focus?.();
     };
-  }, [open]);
+  }, [open, onClose]);
 
   if (!open) return null;
   return (

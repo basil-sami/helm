@@ -7,8 +7,8 @@ import { objectivesWithProgress } from "./planning.js";
 export const brainRouter = Router();
 brainRouter.use(requireAuth, requirePerm("brain", "read"));
 
-const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
-const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || "anthropic/claude-3.5-sonnet";
+const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
+const API = "https://api.anthropic.com/v1/messages";
 
 // Compact, grounded snapshot of the marketing state for the model to reason over.
 async function gatherContext() {
@@ -64,49 +64,38 @@ STYLE:
 - ${langLine}`;
 }
 
-async function brainConfig() {
-  if (process.env.ANTHROPIC_API_KEY) return { key: process.env.ANTHROPIC_API_KEY, provider: "anthropic", model: ANTHROPIC_MODEL };
-  if (process.env.OPENROUTER_API_KEY) return { key: process.env.OPENROUTER_API_KEY, provider: "openrouter", model: OPENROUTER_MODEL };
-  const s = await get(`SELECT integrations FROM settings WHERE id = 1`);
-  const ints = typeof s?.integrations === "string" ? JSON.parse(s.integrations || "{}") : (s?.integrations || {});
-  if (!ints?.ai?.apiKey) return null;
-  const provider = ints.ai.provider === "openrouter" ? "openrouter" : "anthropic";
-  return { key: ints.ai.apiKey, provider, model: ints.ai.model || (provider === "openrouter" ? OPENROUTER_MODEL : ANTHROPIC_MODEL) };
-}
-
 async function callClaude({ system, prompt, maxTokens = 1100 }) {
-  const cfg = await brainConfig();
-  if (!cfg) {
+  if (!process.env.ANTHROPIC_API_KEY) {
     return { configured: false };
   }
   let res;
   try {
-    const openRouter = cfg.provider === "openrouter";
-    res = await fetch(openRouter ? "https://openrouter.ai/api/v1/chat/completions" : "https://api.anthropic.com/v1/messages", {
+    res = await fetch(API, {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        ...(openRouter
-          ? { authorization: `Bearer ${cfg.key}`, "http-referer": "https://helm-inky-iota.vercel.app", "x-title": "Pulse AI CMO" }
-          : { "x-api-key": cfg.key, "anthropic-version": "2023-06-01" }),
+        "x-api-key": process.env.ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
       },
-      body: JSON.stringify(openRouter
-        ? { model: cfg.model, max_tokens: maxTokens, temperature: 0.4, messages: [{ role: "system", content: system }, { role: "user", content: prompt }] }
-        : { model: cfg.model, max_tokens: maxTokens, temperature: 0.4, system, messages: [{ role: "user", content: prompt }] }),
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: maxTokens,
+        temperature: 0.4,
+        system,
+        messages: [{ role: "user", content: prompt }],
+      }),
     });
   } catch {
-    return { configured: true, error: `Couldn't reach the ${cfg.provider} AI provider.` };
+    return { configured: true, error: "Couldn't reach the AI provider. Check network egress to api.anthropic.com." };
   }
   if (!res.ok) {
-    const hint = res.status === 401 ? ` — invalid ${cfg.provider} API key`
-      : res.status === 404 ? ` — model "${cfg.model}" not found; check the configured model`
+    const hint = res.status === 401 ? " — invalid ANTHROPIC_API_KEY"
+      : res.status === 404 ? ` — model "${MODEL}" not found; set ANTHROPIC_MODEL`
       : res.status === 429 ? " — rate limited; try again shortly" : "";
     return { configured: true, error: `AI provider error ${res.status}${hint}.` };
   }
   const data = await res.json();
-  const text = cfg.provider === "openrouter"
-    ? data.choices?.[0]?.message?.content || ""
-    : (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n").trim();
+  const text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n").trim();
   return { configured: true, answer: text || "(no response)" };
 }
 
@@ -137,7 +126,6 @@ brainRouter.post("/ask", async (req, res, next) => {
 });
 
 // Lets the UI show "configured / not configured" without making a model call.
-brainRouter.get("/status", async (_req, res) => {
-  const cfg = await brainConfig();
-  res.json({ configured: !!cfg, model: cfg?.model || null, provider: cfg?.provider || null });
+brainRouter.get("/status", (_req, res) => {
+  res.json({ configured: !!process.env.ANTHROPIC_API_KEY, model: process.env.ANTHROPIC_API_KEY ? MODEL : null });
 });

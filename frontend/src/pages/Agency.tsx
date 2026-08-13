@@ -3,7 +3,7 @@ import { Card, SectionTitle, Field, Select, Modal, StatusPill, Empty, SkeletonRo
 import { useAuth } from "../context/AuthContext";
 import { useI18n } from "../context/I18nContext";
 import { api } from "../lib/api";
-import { fmtDate, daysUntil, safeNum } from "../lib/format";
+import { fmtDate, daysUntil } from "../lib/format";
 
 // ── AGENCY — external vendor management ──────────────────────────────
 // Registry + scorecards · engagements · deliverables (revision rounds
@@ -159,7 +159,7 @@ function VendorDrawer({ vendor, engagements, canWrite, onNewEng }: { vendor: Ven
           <Stat label={tr("ag_avgRevisions")} value={String(sc.deliverables.avgRevisions)} />
           <Stat label={tr("ag_approvalRate")} value={sc.deliverables.approvalRate === null ? "—" : `${sc.deliverables.approvalRate}%`} />
           <Stat label={tr("ag_openDeliv")} value={String(sc.deliverables.open)} />
-          <Stat label={tr("ag_spend")} value={`$${Math.round(safeNum(sc.spend.approvedUsd)).toLocaleString()}`} />
+          <Stat label={tr("ag_spend")} value={`$${Math.round(sc.spend.approvedUsd).toLocaleString()}`} />
           <Stat label={tr("ag_engagements")} value={`${sc.engagements.active}/${sc.engagements.total}`} />
         </div>
       )}

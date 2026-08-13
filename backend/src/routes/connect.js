@@ -131,31 +131,6 @@ promotionsExtraRouter.post("/:id/redeem", requirePerm("planning"), async (req, r
   } catch (e) { next(e); }
 });
 
-// Undo a mistaken redemption: decrement (never below 0).
-promotionsExtraRouter.post("/:id/undo", requirePerm("planning"), async (req, res, next) => {
-  try {
-    const p = await get(`SELECT * FROM promotions WHERE id = $1`, [req.params.id]);
-    if (!p) return res.status(404).json({ error: "Not found" });
-    const row = await get(
-      `UPDATE promotions SET redemptions = GREATEST(redemptions - 1, 0), "updatedAt" = now() WHERE id = $1 RETURNING *`, [p.id]);
-    logAudit(req, "promo.undo", "promotions", p.id, { code: p.code });
-    res.json(row);
-  } catch (e) { next(e); }
-});
-
-// Activation follows planning write permission; admins are not the only operators
-// who should be able to pause or resume a promotion.
-promotionsExtraRouter.post("/:id/toggle", requirePerm("planning"), async (req, res, next) => {
-  try {
-    const p = await get(`SELECT * FROM promotions WHERE id = $1`, [req.params.id]);
-    if (!p) return res.status(404).json({ error: "Not found" });
-    const row = await get(
-      `UPDATE promotions SET active = NOT active, "updatedAt" = now() WHERE id = $1 RETURNING *`, [p.id]);
-    logAudit(req, "promo.toggle", "promotions", p.id, { code: p.code, active: row.active });
-    res.json(row);
-  } catch (e) { next(e); }
-});
-
 // ── Referrals: word-of-mouth, measured ───────────────────────────────
 export const referralsRouter = Router();
 referralsRouter.use(requireAuth);
@@ -177,13 +152,9 @@ referralsRouter.post("/", requirePerm("planning"), async (req, res, next) => {
   try {
     const { referrerCustomerId, targetUrl } = req.body || {};
     if (!referrerCustomerId || !targetUrl) return res.status(400).json({ error: "referrerCustomerId and targetUrl are required" });
-    if (!/^https?:\/\/.+/.test(targetUrl)) return res.status(400).json({ error: "targetUrl must be an http(s) URL" });
     const cust = await get(`SELECT * FROM customers WHERE id = $1`, [referrerCustomerId]);
     if (!cust) return res.status(400).json({ error: "Unknown customer" });
     const code = await mintLink(targetUrl, null, "REFERRAL", "ref");
-    const destination = new URL(targetUrl);
-    destination.searchParams.set("ref", code);
-    await run(`UPDATE tracked_links SET url = $2 WHERE code = $1`, [code, destination.toString()]);
     const row = await get(
       `INSERT INTO referrals ("referrerCustomerId", code) VALUES ($1,$2) RETURNING *`, [cust.id, code]);
     logAudit(req, "referrals.create", "referrals", row.id, { code });

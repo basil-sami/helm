@@ -108,42 +108,19 @@ export const leadsRouter = crudRouter({
       await recomputeLeadScore(id).catch(() => {});
       await fireEvent("lead.created",
         { leadId: id, company: data.company, source: data.source || "", stage: data.stage || "NEW" }, { leadId: id });
-      const ref = req.body?.ref;
-      if (typeof ref === "string" && /^[a-z0-9-]{3,30}$/.test(ref)) {
-        await run(`UPDATE referrals SET "referredLeadId" = $1, "updatedAt" = now()
-                    WHERE code = $2 AND "referredLeadId" IS NULL`, [id, ref]).catch(() => {});
-      }
       return;
     }
     if (data.stage !== undefined && prev && data.stage !== prev.stage) {
       await logActivity(req, id, "STAGE", null, { from: prev.stage, to: data.stage });
       await fireEvent("lead.stage_changed",
         { leadId: id, from: prev.stage, to: data.stage, company: prev.company, source: prev.source || "" }, { leadId: id });
-      if (data.stage === "WON") {
-        const existing = await get(`SELECT id FROM customers WHERE "leadId" = $1`, [id]).catch(() => null);
-        if (!existing) {
-          await run(
-            `INSERT INTO customers ("leadId", company, "businessUnit", "firstWonAt", "totalValueUsd", status, "accountOwnerId", "productIds")
-             VALUES ($1,$2,$3,now(),$4,'ACTIVE',$5,'[]'::jsonb)`,
-            [id, data.company || prev.company || "Unnamed", data.businessUnit || prev.businessUnit || null,
-             Number(data.valueUsd ?? prev.valueUsd ?? 0) || 0, data.ownerId || prev.ownerId || null]
-          ).catch(() => {});
-        }
-      }
     }
     if (action === "update") await recomputeLeadScore(id).catch(() => {});
-    if (action === "update" && data.company !== undefined && prev && data.company !== prev.company) {
-      await run(`UPDATE customers SET company = $1 WHERE "leadId" = $2`, [data.company, id]).catch(() => {});
-    };
   },
   fields: ["company", "contactName", "phone", "email", "source", "businessUnit", "stage", "valueUsd", "valueSdg", "notes", "campaignId", "ownerId", "productId", "rateAtEntry", "lostReason", "departmentId"],
   touchUpdatedAt: true,
-  listSql: `SELECT l.*, u.name AS "ownerName", c.name AS "campaignName", cu.id AS "customerId"
-            FROM leads l LEFT JOIN users u ON u.id = l."ownerId" LEFT JOIN campaigns c ON c.id = l."campaignId"
-            LEFT JOIN customers cu ON cu."leadId" = l.id ORDER BY l."updatedAt" DESC`,
-  getSql: `SELECT l.*, u.name AS "ownerName", c.name AS "campaignName", cu.id AS "customerId"
-           FROM leads l LEFT JOIN users u ON u.id = l."ownerId" LEFT JOIN campaigns c ON c.id = l."campaignId"
-           LEFT JOIN customers cu ON cu."leadId" = l.id WHERE l.id = $1`,
+  listSql: `SELECT l.*, u.name AS "ownerName", c.name AS "campaignName" FROM leads l LEFT JOIN users u ON u.id = l."ownerId" LEFT JOIN campaigns c ON c.id = l."campaignId" ORDER BY l."updatedAt" DESC`,
+  getSql: `SELECT l.*, u.name AS "ownerName", c.name AS "campaignName" FROM leads l LEFT JOIN users u ON u.id = l."ownerId" LEFT JOIN campaigns c ON c.id = l."campaignId" WHERE l.id = $1`,
   validate: (d) => inSet(d.stage, ENUMS.leadStage, "stage"),
 });
 

@@ -1534,6 +1534,275 @@ create index if not exists idx_leads_dept on leads ("departmentId");
 create index if not exists idx_campaigns_dept on campaigns ("departmentId");
 create index if not exists idx_tasks_dept on tasks ("departmentId");
 
+-- Wave 4: campaign spine, data foundation, value loop, calendar, templates,
+-- listening controls, SSO, and data-subject erasure. These statements mirror
+-- schema.sql and are intentionally idempotent for existing installations.
+
+alter table campaigns drop constraint if exists campaigns_status_check;
+alter table campaigns add constraint campaigns_status_check
+  check (status in ('PLANNING','ACTIVE','PAUSED','COMPLETED','ARCHIVED'));
+alter table campaigns add column if not exists "updatedAt" timestamptz not null default now();
+alter table campaigns add column if not exists "closedAt" timestamptz;
+alter table campaigns add column if not exists retro text;
+alter table campaigns add column if not exists "retroAr" text;
+
+alter table events             add column if not exists "campaignId" uuid references campaigns(id) on delete set null;
+alter table scheduled_posts    add column if not exists "campaignId" uuid references campaigns(id) on delete set null;
+alter table outreach_campaigns add column if not exists "campaignId" uuid references campaigns(id) on delete set null;
+alter table promotions         add column if not exists "campaignId" uuid references campaigns(id) on delete set null;
+alter table insights           add column if not exists "campaignId" uuid references campaigns(id) on delete set null;
+
+create index if not exists idx_events_campaign on events ("campaignId");
+create index if not exists idx_schedposts_campaign on scheduled_posts ("campaignId");
+create index if not exists idx_outreach_campaign on outreach_campaigns ("campaignId");
+create index if not exists idx_promotions_campaign on promotions ("campaignId");
+create index if not exists idx_insights_campaign on insights ("campaignId");
+create index if not exists idx_campaigns_status on campaigns (status);
+
+alter table segments add column if not exists definition jsonb;
+alter table segments add column if not exists "lastCount" integer;
+alter table segments add column if not exists "lastCountedAt" timestamptz;
+
+create table if not exists import_jobs (
+  id              uuid primary key default gen_random_uuid(),
+  entity          text not null default 'leads'
+                    check (entity in ('leads','contacts','conversions')),
+  status          text not null default 'UPLOADED'
+                    check (status in ('UPLOADED','MAPPED','VALIDATED','PREVIEWED','COMMITTED','FAILED','CANCELLED')),
+  filename        text,
+  raw             text,
+  header          jsonb not null default '[]',
+  mapping         jsonb not null default '{}',
+  "dedupeOn"      text not null default 'email'
+                    check ("dedupeOn" in ('email','phone','company','none')),
+  "mergeStrategy" text not null default 'skip'
+                    check ("mergeStrategy" in ('skip','update','merge')),
+  "consentBasis"  text,
+  "consentSource" text,
+  stats           jsonb not null default '{}',
+  errors          jsonb not null default '[]',
+  "createdById"   uuid references users(id) on delete set null,
+  "committedAt"   timestamptz,
+  "createdAt"     timestamptz not null default now(),
+  "updatedAt"     timestamptz not null default now()
+);
+create index if not exists idx_import_jobs_status on import_jobs (status, "createdAt" desc);
+
+alter table leads add column if not exists "followUpDueAt" timestamptz;
+alter table leads add column if not exists "firstContactedAt" timestamptz;
+alter table leads add column if not exists "slaBreached" boolean not null default false;
+create index if not exists idx_leads_followup on leads ("followUpDueAt") where "followUpDueAt" is not null;
+
+create table if not exists conversions (
+  id             uuid primary key default gen_random_uuid(),
+  "leadId"       uuid references leads(id) on delete set null,
+  "customerId"   uuid references customers(id) on delete set null,
+  "campaignId"   uuid references campaigns(id) on delete set null,
+  "valueAmount"  numeric(16,2) not null default 0,
+  currency       text not null default 'USD',
+  "valueUsd"     numeric(16,2) not null default 0,
+  "occurredOn"   date not null default CURRENT_DATE,
+  kind           text not null default 'SALE'
+                   check (kind in ('SALE','RENEWAL','UPSELL','OTHER')),
+  source         text not null default 'MANUAL'
+                   check (source in ('MANUAL','IMPORT','WORKFLOW')),
+  notes          text,
+  "createdById"  uuid references users(id) on delete set null,
+  "createdAt"    timestamptz not null default now()
+);
+create index if not exists idx_conversions_date on conversions ("occurredOn" desc);
+create index if not exists idx_conversions_campaign on conversions ("campaignId");
+
+alter table settings add column if not exists "followUpSlaHours" integer not null default 48;
+
+create table if not exists seasonal_packs (
+  id          uuid primary key default gen_random_uuid(),
+  key         text unique not null,
+  name        text not null,
+  "nameAr"    text,
+  region      text,
+  active      boolean not null default true,
+  "createdAt" timestamptz not null default now()
+);
+
+create table if not exists seasonal_events (
+  id             uuid primary key default gen_random_uuid(),
+  "packId"       uuid not null references seasonal_packs(id) on delete cascade,
+  key            text not null,
+  name           text not null,
+  "nameAr"       text,
+  kind           text not null default 'CULTURAL'
+                   check (kind in ('RELIGIOUS','NATIONAL','CULTURAL','COMMERCIAL','SEASON')),
+  calendar       text not null default 'GREGORIAN'
+                   check (calendar in ('GREGORIAN','HIJRI','EXPLICIT')),
+  month          integer check (month between 1 and 12),
+  day            integer check (day between 1 and 31),
+  "onDate"       date,
+  "durationDays" integer not null default 1,
+  "leadTimeDays" integer not null default 14,
+  notes          text,
+  "notesAr"      text,
+  active         boolean not null default true,
+  "createdAt"    timestamptz not null default now()
+);
+create index if not exists idx_seasonal_events_pack on seasonal_events ("packId", active);
+
+create table if not exists approval_delegations (
+  id           uuid primary key default gen_random_uuid(),
+  "approverId" uuid not null references users(id) on delete cascade,
+  "delegateId" uuid not null references users(id) on delete cascade,
+  "fromDate"   date not null,
+  "toDate"     date not null,
+  reason       text,
+  active       boolean not null default true,
+  "createdAt"  timestamptz not null default now(),
+  check ("approverId" <> "delegateId")
+);
+create index if not exists idx_delegations_window on approval_delegations ("approverId", "fromDate", "toDate");
+
+alter table approvals add column if not exists "escalatedAt" timestamptz;
+alter table approvals add column if not exists "decidedById" uuid references users(id) on delete set null;
+alter table settings add column if not exists "approvalSlaHours" integer not null default 48;
+
+alter table process_templates add column if not exists kind text not null default 'PROCESS'
+  check (kind in ('PROCESS','CAMPAIGN','WORKFLOW','SURVEY'));
+alter table process_templates add column if not exists definition jsonb not null default '{}';
+alter table process_templates add column if not exists description text;
+alter table process_templates add column if not exists "descriptionAr" text;
+create index if not exists idx_templates_kind on process_templates (kind, builtin desc);
+
+alter table osint_topics add column if not exists "campaignId" uuid references campaigns(id) on delete set null;
+alter table osint_topics add column if not exists paused boolean not null default false;
+alter table osint_topics add column if not exists "assigneeId" uuid references users(id) on delete set null;
+create index if not exists idx_topics_campaign on osint_topics ("campaignId");
+
+alter table osint_sources add column if not exists muted boolean not null default false;
+alter table osint_sources add column if not exists "gradeNote" text;
+alter table osint_sources add column if not exists "gradedById" uuid references users(id) on delete set null;
+alter table osint_sources add column if not exists "gradedAt" timestamptz;
+
+alter table osint_signals add column if not exists "assignedToId" uuid references users(id) on delete set null;
+create index if not exists idx_signals_assigned on osint_signals ("assignedToId") where "assignedToId" is not null;
+
+create table if not exists listening_changes (
+  id            uuid primary key default gen_random_uuid(),
+  kind          text not null
+                  check (kind in ('THRESHOLD','SOURCE_GRADE','SOURCE_BLOCK','SOURCE_MUTE',
+                                  'WATCH_TERMS','WATCH_PAUSE','ALERT_RULE','BAND','CORROBORATION')),
+  "topicId"     uuid references osint_topics(id) on delete set null,
+  "sourceId"    uuid references osint_sources(id) on delete set null,
+  field         text,
+  "fromValue"   text,
+  "toValue"     text,
+  replay        jsonb not null default '{}',
+  note          text,
+  "changedById" uuid references users(id) on delete set null,
+  "changedAt"   timestamptz not null default now()
+);
+create index if not exists idx_listening_changes_at on listening_changes ("changedAt" desc);
+
+create table if not exists listening_alert_rules (
+  id                 uuid primary key default gen_random_uuid(),
+  name               text not null,
+  "nameAr"           text,
+  kind               text not null default 'VOLUME_SPIKE'
+                       check (kind in ('VOLUME_SPIKE','NEGATIVE_BURST','GRADE_A_MENTION','EMERGING_TOPIC','CORROBORATED_ONLY')),
+  "topicId"          uuid references osint_topics(id) on delete cascade,
+  "entityId"         uuid references osint_entities(id) on delete cascade,
+  threshold          numeric(10,2) not null default 2,
+  "windowHours"      integer not null default 24,
+  severity           text not null default 'MEDIUM' check (severity in ('LOW','MEDIUM','HIGH')),
+  "corroboratedOnly" boolean not null default false,
+  "quietFrom"        integer check ("quietFrom" between 0 and 23),
+  "quietTo"          integer check ("quietTo" between 0 and 23),
+  recipients         jsonb not null default '[]',
+  channel            text not null default 'INAPP' check (channel in ('INAPP','EMAIL')),
+  active             boolean not null default true,
+  "lastFiredAt"      timestamptz,
+  "createdAt"        timestamptz not null default now()
+);
+create index if not exists idx_listening_rules_active on listening_alert_rules (active, kind);
+
+alter table settings add column if not exists "listeningPaused" boolean not null default false;
+alter table settings add column if not exists "reviewBandLow" numeric(4,2) not null default 0.35;
+alter table settings add column if not exists "reviewBandHigh" numeric(4,2) not null default 0.65;
+alter table settings add column if not exists "reviewSlaHours" integer not null default 48;
+
+create table if not exists sso_connections (
+  id                     uuid primary key default gen_random_uuid(),
+  kind                   text not null default 'OIDC' check (kind in ('OIDC')),
+  name                   text not null default 'Corporate SSO',
+  "issuerUrl"            text not null,
+  "clientId"             text not null,
+  "clientSecret"         text,
+  "emailDomains"         jsonb not null default '[]',
+  "roleMap"              jsonb not null default '{}',
+  "defaultRole"          text,
+  "jitEnabled"           boolean not null default false,
+  "ssoRequired"          boolean not null default false,
+  "requireVerifiedEmail" boolean not null default true,
+  discovery              jsonb not null default '{}',
+  "discoveryAt"          timestamptz,
+  jwks                   jsonb not null default '{}',
+  "jwksAt"               timestamptz,
+  active                 boolean not null default false,
+  "createdAt"            timestamptz not null default now(),
+  "updatedAt"            timestamptz not null default now()
+);
+
+create table if not exists auth_events (
+  id       uuid primary key default gen_random_uuid(),
+  "userId" uuid references users(id) on delete set null,
+  email    text,
+  method   text not null check (method in ('local','sso','break_glass','refresh')),
+  ok       boolean not null default false,
+  reason   text,
+  ip       text,
+  ua       text,
+  at       timestamptz not null default now()
+);
+create index if not exists idx_auth_events_at on auth_events (at desc);
+create index if not exists idx_auth_events_user on auth_events ("userId", at desc);
+
+alter table users add column if not exists "breakGlass" boolean not null default false;
+alter table users add column if not exists "ssoSubject" text;
+create unique index if not exists idx_users_sso_subject on users ("ssoSubject") where "ssoSubject" is not null;
+
+create table if not exists erasure_requests (
+  id              uuid primary key default gen_random_uuid(),
+  kind            text not null default 'ERASURE' check (kind in ('ERASURE','EXPORT')),
+  status          text not null default 'RECEIVED'
+                    check (status in ('RECEIVED','VERIFIED','DISCOVERED','PENDING_APPROVAL','EXECUTED','CONFIRMED','REJECTED')),
+  "subjectEmail"  text,
+  "subjectPhone"  text,
+  "subjectNote"   text,
+  "verifyToken"   text,
+  "verifiedAt"    timestamptz,
+  "verifiedBy"    text check ("verifiedBy" in ('SUBJECT','ADMIN')),
+  inventory       jsonb not null default '{}',
+  certificate     jsonb not null default '{}',
+  "rejectReason"  text check ("rejectReason" in ('IDENTITY_UNVERIFIED','LEGAL_HOLD','DUPLICATE','NOT_FOUND')),
+  "requestedById" uuid references users(id) on delete set null,
+  "approvedById"  uuid references users(id) on delete set null,
+  "executedAt"    timestamptz,
+  "confirmedAt"   timestamptz,
+  "createdAt"     timestamptz not null default now(),
+  "updatedAt"     timestamptz not null default now()
+);
+create index if not exists idx_erasure_status on erasure_requests (status, "createdAt" desc);
+
+create table if not exists erasure_log (
+  id           uuid primary key default gen_random_uuid(),
+  "requestId"  uuid not null references erasure_requests(id) on delete cascade,
+  "tableName"  text not null,
+  columns      jsonb not null default '[]',
+  "rowRefHash" text not null,
+  action       text not null check (action in ('ANONYMISE','REDACT_JSONB','RETAIN_LEGAL','EXPORT')),
+  "at"         timestamptz not null default now()
+);
+create index if not exists idx_erasure_log_request on erasure_log ("requestId");
+create index if not exists idx_erasure_log_ref on erasure_log ("rowRefHash");
+
 -- ── SEC·D · audit integrity (SOC 2 CC7.2 / CC4.1) ────────────────────
 -- The governance trail becomes tamper-evident: a hash chain over content
 -- and order, plus a trigger that makes the table append-only — UPDATE

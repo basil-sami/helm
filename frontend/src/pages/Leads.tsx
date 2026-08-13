@@ -15,7 +15,7 @@ interface Lead {
   productId?: string;
   id: string; company: string; contactName?: string; phone?: string; email?: string;
   source?: string; businessUnit?: string; stage: string; valueUsd: number; valueSdg: number; lostReason?: string; score?: number;
-  notes?: string; ownerId?: string; ownerName?: string; campaignId?: string; campaignName?: string; customerId?: string;
+  notes?: string; ownerId?: string; ownerName?: string; campaignId?: string; campaignName?: string;
 }
 interface UserRow { id: string; name: string }
 interface CampaignRow { id: string; name: string }
@@ -149,11 +149,6 @@ export default function Leads() {
     catch { toast.push(tr("deleteError"), "error"); }
   };
 
-  const convert = async (l: Lead) => {
-    try { await api.post(`/customers/convert/${l.id}`, {}); toast.push(tr("lead_converted"), "success"); }
-    catch (e) { toast.push((e as Error).message, "error"); }
-  };
-
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -169,8 +164,6 @@ export default function Leads() {
       </div>
 
       {loading ? <div className="py-16 text-center text-ink-500">{tr("loading")}</div> : (
-        <>
-        <p className="text-xs text-ink-500">{tr("leadStageHint")}</p>
         <KanbanBoard<Lead>
           columns={STAGE_COLS.map((s) => ({ id: s.id, title: el(s.id), accent: s.accent }))}
           items={leads}
@@ -183,9 +176,7 @@ export default function Leads() {
           renderCard={(l) => (
             <>
               <div className="flex items-start justify-between gap-1">
-                <button onClick={() => setEditing(l)} title={tr("edit")} className="group flex items-start gap-1 text-start font-medium text-ink-800 hover:text-amber-700">
-                  <span aria-hidden="true" className="mt-0.5 text-[10px] opacity-40 group-hover:opacity-100">✎</span>{l.company}
-                </button>
+                <button onClick={() => setEditing(l)} className="text-start font-medium text-ink-800 hover:text-amber-700">{l.company}</button>
                 {(l.score ?? 0) > 0 && (
                   <span className={`kpi-num shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-bold ${(l.score ?? 0) >= 70 ? "bg-clay-100 text-clay-700" : "bg-paper-200 text-ink-500"}`} dir="ltr" title={tr("au_scoreTip")}>
                     {(l.score ?? 0) >= 70 ? "🔥 " : ""}{l.score}
@@ -208,22 +199,12 @@ export default function Leads() {
                   )}
                 </div>
               )}
-              <div className="mt-2 flex items-center justify-between gap-2 border-t border-paper-200 pt-2">
-                <select aria-label={tr("stage")} className="input w-auto py-1 text-[11px]" value={l.stage} onChange={(e) => move(l, e.target.value)}>
-                  {STAGES.map((s) => <option key={s} value={s}>{el(s)}</option>)}
-                </select>
-                <div className="flex items-center gap-2">
-                {l.stage === "WON" && !l.customerId && (
-                  <button onClick={() => convert(l)} className="text-[11px] text-moss-600 hover:underline">{tr("lead_convert")}</button>
-                )}
-                {l.stage === "WON" && l.customerId && <span className="text-[11px] text-moss-600">✓ {tr("cu_title")}</span>}
+              <div className="mt-2 flex justify-end border-t border-paper-200 pt-2">
                 <button onClick={() => remove(l.id)} className="text-[11px] text-clay-600 hover:underline">{tr("delete")}</button>
-                </div>
               </div>
             </>
           )}
         />
-        </>
       )}
 
       <Modal open={!!editing} onClose={() => setEditing(null)} title={editing?.id ? tr("edit") : tr("add")}

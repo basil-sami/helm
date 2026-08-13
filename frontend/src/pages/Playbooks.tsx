@@ -45,7 +45,7 @@ export default function Playbooks() {
       <div className="flex flex-wrap gap-1.5 text-xs">
         {["ALL", ...CATS].map((c) => (
           <button key={c} onClick={() => setCat(c)}
-            className={`rounded-full px-3 py-1 font-medium transition ${cat === c ? "tab-active" : "bg-paper-200 text-ink-600 hover:bg-paper-300"}`}>
+            className={`rounded-full px-3 py-1 font-medium transition ${cat === c ? "bg-ink-900 text-paper-50" : "bg-paper-200 text-ink-600 hover:bg-paper-300"}`}>
             {c === "ALL" ? tr("pbk_all") : tr(`pbk_cat_${c}`)}
           </button>
         ))}

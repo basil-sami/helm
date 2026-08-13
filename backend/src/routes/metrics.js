@@ -29,17 +29,11 @@ metricsRouter.get("/", requirePerm("analytics", "read"), async (_req, res, next)
   } catch (e) { next(e); }
 });
 
-const valueCache = new Map();
-const VALUE_TTL_MS = 30 * 1000;
 metricsRouter.get("/:key/value", requirePerm("analytics", "read"), async (req, res, next) => {
   try {
     const row = await get(`SELECT key FROM metrics WHERE key = $1`, [req.params.key]);
     if (!row) return res.status(404).json({ error: "Unknown metric" });
-    const cached = valueCache.get(req.params.key);
-    if (cached && Date.now() - cached.at < VALUE_TTL_MS) return res.json(cached.payload);
-    const payload = await computeMetric(req.params.key);
-    valueCache.set(req.params.key, { at: Date.now(), payload });
-    res.json(payload);
+    res.json(await computeMetric(req.params.key));
   } catch (e) { next(e); }
 });
 

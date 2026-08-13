@@ -5,7 +5,7 @@ export default {
     extend: {
       colors: {
         ink: { 950: "#090C12", 900: "#0E1117", 800: "#161B22", 700: "#1F2630", 600: "#2B3441", 500: "#3A4654", 400: "#5C6878", 300: "#8A94A3" },
-        paper: { DEFAULT: "#F7F5F0", 50: "#FDFCFA", 100: "#FBF9F5", 200: "#EFECE3", 300: "#E2DED2" },
+        paper: { DEFAULT: "#F7F5F0", 100: "#FBF9F5", 200: "#EFECE3", 300: "#E2DED2" },
         // Nabd accent: reads per-client CSS variables (theme.ts) — Pulse amber is the default.
         amber: {
           DEFAULT: "rgb(var(--accent-500) / <alpha-value>)",

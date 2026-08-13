@@ -4,7 +4,6 @@ import { api } from "../lib/api";
 import { useI18n } from "../context/I18nContext";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../components/Toast";
-import { safeNum } from "../lib/format";
 
 // ═══ MEDIA PLANS — الإعلان الخارجي: billboards that report back ══════
 
@@ -66,8 +65,8 @@ export default function MediaPlans() {
                 </div>
                 <div className="mt-3 grid grid-cols-3 gap-2 text-center text-[11px] text-ink-500">
                   <div><div className="kpi-num text-sm font-bold text-ink-900" dir="ltr">{p.placementCount}</div>{tr("mp_placements")}</div>
-                  <div><div className="kpi-num text-sm font-bold text-ink-900" dir="ltr">${safeNum(p.spentUsd).toLocaleString()}</div>{tr("mp_spent")}</div>
-                  <div><div className="kpi-num text-sm font-bold text-ink-900" dir="ltr">${safeNum(p.budgetUsd).toLocaleString()}</div>{tr("mp_budget")}</div>
+                  <div><div className="kpi-num text-sm font-bold text-ink-900" dir="ltr">${Number(p.spentUsd).toLocaleString()}</div>{tr("mp_spent")}</div>
+                  <div><div className="kpi-num text-sm font-bold text-ink-900" dir="ltr">${Number(p.budgetUsd).toLocaleString()}</div>{tr("mp_budget")}</div>
                 </div>
               </div>
             </Card>
@@ -90,7 +89,7 @@ export default function MediaPlans() {
                     <div className="flex items-start justify-between gap-2">
                       <div>
                         <div className="text-sm font-medium text-ink-900">{m.label}</div>
-                        <div className="mt-0.5 text-[11px] text-ink-500">{m.location || "—"} · <span className="kpi-num" dir="ltr">${safeNum(m.costUsd).toLocaleString()}</span></div>
+                        <div className="mt-0.5 text-[11px] text-ink-500">{m.location || "—"} · <span className="kpi-num" dir="ltr">${Number(m.costUsd).toLocaleString()}</span></div>
                       </div>
                       <span className="kpi-num shrink-0 rounded-full bg-paper-200 px-2 py-0.5 text-[11px] text-ink-600" dir="ltr">📱 {m.scans || 0}</span>
                     </div>
