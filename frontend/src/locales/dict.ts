@@ -853,7 +853,6 @@ export const t: Dict = {
   gr_kind_ALLIANCE: { ar: "تحالف", en: "Alliance" },
   w_30d: { ar: "٣٠ يوم", en: "30 days" },
   w_365d: { ar: "سنة", en: "12 months" },
-  ap_e_scheduled_posts: { ar: "منشورات مجدولة", en: "Scheduled posts" },
   gr_deactivate: { ar: "إيقاف", en: "Deactivate" },
   gr_activate: { ar: "تفعيل", en: "Activate" },
   gr_pName: { ar: "اسم العرض", en: "Promotion name" },
