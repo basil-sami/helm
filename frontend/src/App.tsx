@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { lazy, Suspense } from "react";
 import { useAuth } from "./context/AuthContext";
 import { useI18n } from "./context/I18nContext";
 import { useBranding } from "./context/BrandingContext";
@@ -6,58 +7,59 @@ import Layout from "./components/Layout";
 import Login from "./pages/Login";
 import Setup from "./pages/Setup";
 import Onboarding from "./pages/Onboarding";
-import Dashboard from "./pages/Dashboard";
-import Analytics from "./pages/Analytics";
-import Planning from "./pages/Planning";
-import Listening from "./pages/Listening";
-import Brain from "./pages/Brain";
-import Campaigns from "./pages/Campaigns";
-import Calendar from "./pages/Calendar";
-import Leads from "./pages/Leads";
-import Events from "./pages/Events";
-import Budget from "./pages/Budget";
-import Tasks from "./pages/Tasks";
-import Social from "./pages/Social";
-import Intel from "./pages/Intel";
-import Users from "./pages/Users";
-import Settings from "./pages/Settings";
-import Products from "./pages/Products";
-import Audience from "./pages/Audience";
-import Links from "./pages/Links";
-import Customers from "./pages/Customers";
-import Media from "./pages/Media";
-import Report from "./pages/Report";
-import Studio from "./pages/Studio";
-import Agency from "./pages/Agency";
-import Approvals from "./pages/Approvals";
 import Portal from "./pages/Portal";
 import BrandCenter from "./pages/BrandCenter";
-import Contacts from "./pages/Contacts";
-import Forms from "./pages/Forms";
-import Pages from "./pages/Pages";
-import Surveys from "./pages/Surveys";
 import FormPublic from "./pages/FormPublic";
 import LandingPublic from "./pages/LandingPublic";
 import SurveyPublic from "./pages/SurveyPublic";
 import BioPublic from "./pages/BioPublic";
-import Publish from "./pages/Publish";
-import Automate from "./pages/Automate";
-import Reach from "./pages/Reach";
-import Morning from "./pages/Morning";
-import Growth from "./pages/Growth";
-import MediaPlans from "./pages/MediaPlans";
-import Playbooks from "./pages/Playbooks";
-import WebAnalytics from "./pages/WebAnalytics";
-import Inbox from "./pages/Inbox";
-import Library from "./pages/Library";
-import System from "./pages/System";
-import CampaignRoom from "./pages/CampaignRoom";
-import Operations from "./pages/Operations";
-import ListeningControl from "./pages/ListeningControl";
-import Governance from "./pages/Governance";
 import PrivacyConfirm from "./pages/PrivacyConfirm";
 import SecurityModal from "./components/SecurityModal";
 import { EcgLoader } from "./components/PulseMark";
+
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Analytics = lazy(() => import("./pages/Analytics"));
+const Planning = lazy(() => import("./pages/Planning"));
+const Listening = lazy(() => import("./pages/Listening"));
+const Brain = lazy(() => import("./pages/Brain"));
+const Campaigns = lazy(() => import("./pages/Campaigns"));
+const CampaignRoom = lazy(() => import("./pages/CampaignRoom"));
+const Calendar = lazy(() => import("./pages/Calendar"));
+const Operations = lazy(() => import("./pages/Operations"));
+const Leads = lazy(() => import("./pages/Leads"));
+const Events = lazy(() => import("./pages/Events"));
+const Budget = lazy(() => import("./pages/Budget"));
+const Tasks = lazy(() => import("./pages/Tasks"));
+const Social = lazy(() => import("./pages/Social"));
+const Intel = lazy(() => import("./pages/Intel"));
+const Users = lazy(() => import("./pages/Users"));
+const Settings = lazy(() => import("./pages/Settings"));
+const Products = lazy(() => import("./pages/Products"));
+const Audience = lazy(() => import("./pages/Audience"));
+const Links = lazy(() => import("./pages/Links"));
+const Customers = lazy(() => import("./pages/Customers"));
+const Media = lazy(() => import("./pages/Media"));
+const Report = lazy(() => import("./pages/Report"));
+const Studio = lazy(() => import("./pages/Studio"));
+const Agency = lazy(() => import("./pages/Agency"));
+const Approvals = lazy(() => import("./pages/Approvals"));
+const Contacts = lazy(() => import("./pages/Contacts"));
+const Forms = lazy(() => import("./pages/Forms"));
+const Pages = lazy(() => import("./pages/Pages"));
+const Surveys = lazy(() => import("./pages/Surveys"));
+const Publish = lazy(() => import("./pages/Publish"));
+const Automate = lazy(() => import("./pages/Automate"));
+const Reach = lazy(() => import("./pages/Reach"));
+const Morning = lazy(() => import("./pages/Morning"));
+const Growth = lazy(() => import("./pages/Growth"));
+const MediaPlans = lazy(() => import("./pages/MediaPlans"));
+const Playbooks = lazy(() => import("./pages/Playbooks"));
+const WebAnalytics = lazy(() => import("./pages/WebAnalytics"));
+const Inbox = lazy(() => import("./pages/Inbox"));
+const Library = lazy(() => import("./pages/Library"));
+const System = lazy(() => import("./pages/System"));
+const ListeningControl = lazy(() => import("./pages/ListeningControl"));
+const Governance = lazy(() => import("./pages/Governance"));
 
 
 // ── Wave 3·A · report browser faults the server never saw ────────────
@@ -126,7 +128,8 @@ export default function App() {
 
   return (
     <Layout>
-      <Routes>
+      <Suspense fallback={<div className="grid min-h-64 place-items-center"><EcgLoader label={tr("loading")} /></div>}>
+        <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/analytics" element={<Analytics />} />
         {moduleOn("planning") && <Route path="/planning" element={<Planning />} />}
@@ -173,7 +176,8 @@ export default function App() {
         {isAdmin && <Route path="/settings" element={<Settings />} />}
         {isAdmin && <Route path="/system" element={<System />} />}
         <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+        </Routes>
+      </Suspense>
     </Layout>
   );
 }
