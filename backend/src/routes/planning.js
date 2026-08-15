@@ -66,15 +66,16 @@ planningRouter.get("/objectives", requirePerm("planning", "read"), async (_req, 
 });
 
 planningRouter.post("/objectives", requirePerm("planning"), async (req, res, next) => {
-  const { label, labelAr, metric, targetValue, manualCurrent, startDate, endDate, businessUnit, ownerId } = req.body;
+  const { label, labelAr, metric, targetValue, manualCurrent, startDate, endDate, businessUnit, ownerId, campaignIds } = req.body;
   if (!label) return res.status(400).json({ error: "label is required" });
   if (metric && !METRICS.includes(metric)) return res.status(400).json({ error: "Invalid metric" });
   try {
     const row = await get(
-      `INSERT INTO objectives (label, "labelAr", metric, "targetValue", "manualCurrent", "startDate", "endDate", "businessUnit", "ownerId")
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      `INSERT INTO objectives (label, "labelAr", metric, "targetValue", "manualCurrent", "startDate", "endDate", "businessUnit", "ownerId", "campaignIds")
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
       [label, labelAr || null, metric || "CUSTOM", Number(targetValue) || 0, Number(manualCurrent) || 0,
-       startDate || null, endDate || null, businessUnit || null, ownerId || null]
+       startDate || null, endDate || null, businessUnit || null, ownerId || null,
+       JSON.stringify(Array.isArray(campaignIds) ? campaignIds : [])]
     );
     res.status(201).json(row);
   } catch (e) { next(e); }
@@ -85,6 +86,9 @@ planningRouter.patch("/objectives/:id", requirePerm("planning"), async (req, res
   const push = (col, val) => { params.push(val); sets.push(`"${col}" = $${params.length}`); };
   for (const f of ["label", "labelAr", "metric", "targetValue", "manualCurrent", "startDate", "endDate", "businessUnit", "ownerId", "status"]) {
     if (req.body[f] !== undefined) push(f, req.body[f] === "" ? null : req.body[f]);
+  }
+  if (req.body.campaignIds !== undefined) {
+    push("campaignIds", JSON.stringify(Array.isArray(req.body.campaignIds) ? req.body.campaignIds : []));
   }
   if (!sets.length) return res.status(400).json({ error: "No valid fields" });
   try {

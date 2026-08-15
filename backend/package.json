@@ -22,7 +22,9 @@
     "secrets:rotate": "node scripts/migrate-secrets.js --rotate",
     "soc2:evidence": "node scripts/soc2-evidence.js",
     "continuity:check": "node scripts/continuity-check.js",
-    "continuity:drill": "node scripts/continuity-drill.mjs"
+    "continuity:drill": "node scripts/continuity-drill.mjs",
+    "coverage:ui": "node scripts/coverage-ui.js",
+    "nav:check": "node scripts/nav-check.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

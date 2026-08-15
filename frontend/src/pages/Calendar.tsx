@@ -30,6 +30,7 @@ export default function Calendar() {
   const { lang, tr, el } = useI18n();
   const toast = useToast();
   const navigate = useNavigate();
+  const { data: seasonal } = useFetch<{ id: string; name: string; nameAr?: string; events: { id: string; name: string; nameAr?: string; month?: number; day?: number }[] }[]>("/seasonal");
   const { data, loading, reload } = useFetch<Content[]>("/content");
   const { data: campaigns } = useFetch<CampaignRow[]>("/campaigns");
   const { data: personasList } = useFetch<{ id: string; name: string; nameAr?: string }[]>("/personas");
@@ -144,6 +145,16 @@ export default function Calendar() {
 
   return (
     <div className="space-y-4">
+      {(seasonal || []).some((p) => p.events.length) && (
+        <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+          <span className="font-medium text-ink-500">🗓 {tr("cal_seasonal")}:</span>
+          {(seasonal || []).flatMap((p) => p.events).slice(0, 8).map((e) => (
+            <span key={e.id} className="rounded-full bg-paper-100 px-2.5 py-1 text-ink-700" dir="auto">
+              {lang === "ar" && e.nameAr ? e.nameAr : e.name}{e.month ? ` · ${e.day || ""}/${e.month}` : ""}
+            </span>
+          ))}
+        </div>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <button onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))} className="btn-ghost px-2.5">‹</button>

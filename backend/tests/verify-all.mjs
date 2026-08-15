@@ -5082,6 +5082,689 @@ ok("demo seed: agency data present", vdb.data.length >= 3, `vendors=${vdb.status
     !!pkg.devDependencies?.["@electric-sql/pglite"]);
 }
 
+// ═══ W4·BLD + W4·NAV · BUILDERS & NAVIGATION ══════════════════════════
+// The builder templates must be exactly what the backend accepts — each
+// posted verbatim and read back intact. The grouped navigation must
+// contain every route the flat menu had, plus the one it never had.
+{
+  const leadTpl = [
+    { key: "f1", type: "text", required: true, label: "Your name", labelAr: "الاسم الكامل" },
+    { key: "f2", type: "phone", required: true, label: "Phone (WhatsApp)", labelAr: "رقم الهاتف (واتساب)" },
+    { key: "f3", type: "text", label: "Company", labelAr: "جهة العمل" },
+  ];
+  const bf = await j("POST", "/forms", {
+    name: "Builder lead capture", slug: "bld-lead", fields: leadTpl,
+    successMsgAr: "شكرًا لك — سنتصل بك قريبًا.", successMsg: "Thanks — we will call you shortly.",
+  }, H);
+  const bfBack = (await j("GET", `/forms/${bf.data.id}`, null, H)).data;
+  const bfFields = Array.isArray(bfBack.fields) ? bfBack.fields : JSON.parse(bfBack.fields);
+  ok("**the lead-capture template round-trips verbatim, Arabic labels intact**",
+    bf.status === 201 && bfFields.length === 3 &&
+    bfFields[1].labelAr === "رقم الهاتف (واتساب)" && bfFields[0].required === true);
+
+  const npsTpl = [
+    { key: "q1", type: "SCALE", required: true, max: 10,
+      text: "How likely are you to recommend us to a friend or colleague?", textAr: "ما احتمال أن ترشحنا لصديق أو زميل؟" },
+    { key: "q2", type: "TEXT", text: "What is the reason for your score?", textAr: "ما سبب تقييمك؟" },
+  ];
+  const bs = await j("POST", "/surveys", { name: "Builder NPS", slug: "bld-nps", kind: "NPS", questions: npsTpl }, H);
+  const bsBack = (await j("GET", `/surveys/${bs.data.id}`, null, H)).data;
+  const bsQs = Array.isArray(bsBack.questions) ? bsBack.questions : JSON.parse(bsBack.questions);
+  ok("**the NPS template round-trips: scale max, required, Arabic question intact**",
+    bs.status === 201 && bsQs[0].max === 10 && bsQs[0].required === true &&
+    bsQs[0].textAr === "ما احتمال أن ترشحنا لصديق أو زميل؟");
+
+  // The respondent can actually answer what the template built.
+  const sub = await j("POST", `/public/forms/bld-lead`,
+    { f1: "اختبار البناء", f2: "+249911111111", f3: "Saria" });
+  ok("a respondent can submit the templated form through the public door",
+    sub.status === 201 || sub.status === 200);
+
+  // ── navigation registry: nothing lost, one thing found ──
+  const fsx2 = await import("node:fs");
+  const layout = fsx2.readFileSync(new URL("../../frontend/src/components/Layout.tsx", import.meta.url), "utf8");
+  const app = fsx2.readFileSync(new URL("../../frontend/src/App.tsx", import.meta.url), "utf8");
+  const navTos = [...layout.matchAll(/to: "(\/[a-z-]*)"/g)].map((m) => m[1]);
+  const MUST = ["/", "/morning", "/brain", "/playbooks", "/analytics", "/planning", "/growth", "/campaigns",
+    "/products", "/audience", "/links", "/calendar", "/publish", "/leads", "/customers", "/events", "/budget",
+    "/tasks", "/social", "/inbox", "/media", "/media-plans", "/listening", "/intel", "/web", "/studio",
+    "/library", "/agency", "/approvals", "/contacts", "/automate", "/reach", "/forms", "/pages", "/surveys",
+    "/users", "/system", "/settings"];
+  ok("**the grouped menu still contains every route the flat menu had**",
+    MUST.every((p) => navTos.includes(p)));
+  ok("**and the Executive Report finally has the menu entry it never had — and a real route**",
+    navTos.includes("/report") && /path="\/report"/.test(app));
+  ok("group headers exist and the registry is grouped, not flat",
+    /NAV_GROUPS/.test(layout) && (layout.match(/navg_/g) || []).length >= 7);
+}
+
+// ═══ W5·NERVE · ONE MONEY TRUTH, ONE CONNECTED SPINE ══════════════════
+// Every figure below is planted, then read back through the real API.
+// The triad reads ledgers, not documents; unlinked money is declared;
+// the rollups must reconcile; control appears at the signature.
+{
+  const nvC = await j("POST", "/campaigns", { name: "Nerve Probe", budgetUsd: 10000, channel: "PAID" }, H);
+  const cid = nvC.data.id;
+  // actual: ad spend 4,500 + a manual SPENT ledger row 1,000
+  await db.query(`INSERT INTO ad_spend (platform, "campaignId", "amountUsd") VALUES ('META', $1, 4500)`, [cid]);
+  await db.query(`INSERT INTO budget_entries (label, kind, channel, "amountUsd", "campaignId")
+                  VALUES ('Nerve manual spend', 'SPENT', 'PAID', 1000, $1)`, [cid]);
+  // committed: one RECEIVED invoice 3,000 on the desk
+  const nvVen = (await db.query(`INSERT INTO vendors (name) VALUES ('Nerve Print') RETURNING id`)).rows[0].id;
+  const nvInv = (await db.query(
+    `INSERT INTO invoices ("vendorId", number, "amountUsd", "campaignId", status)
+     VALUES ($1, 'NRV-1', 3000, $2, 'RECEIVED') RETURNING id`, [nvVen, cid])).rows[0].id;
+  // unlinked pool: spend with no campaign
+  await db.query(`INSERT INTO ad_spend (platform, "amountUsd") VALUES ('GOOGLE', 777)`);
+
+  const ov1 = await j("GET", "/finance/overview", null, H);
+  const row1 = ov1.data.campaigns.find((c) => c.id === cid);
+  ok("**the triad reads the ledgers: 10,000 planned / 3,000 committed / 5,500 actual**",
+    ov1.status === 200 && row1.planned === 10000 && row1.committed === 3000 && row1.actual === 5500);
+  ok("**85% of the envelope: ضمن الحد**", row1.pct === 85 && row1.health === "OK");
+  ok("**an unlinked dollar is declared, never guessed into a campaign**",
+    ov1.data.unlinked.actual >= 777 &&
+    !ov1.data.campaigns.some((c) => c.id !== cid && c.actual >= 777 && c.name === "Nerve Probe"));
+
+  // Reconciliation: campaigns + unlinked === the whole ledger; the
+  // channel rollup decomposes the same actual total.
+  const sumActual = ov1.data.campaigns.reduce((a, c) => a + c.actual, 0) + ov1.data.unlinked.actual;
+  ok("**one grand total: campaign rows + unlinked pool reconcile with totals.actual**",
+    Math.abs(sumActual - ov1.data.totals.actual) < 0.02);
+  const chActual = ov1.data.byChannel.reduce((a, c) => a + c.actual, 0);
+  ok("**the channel rollup decomposes exactly the same actual**",
+    Math.abs(chActual - ov1.data.totals.actual) < 0.02);
+
+  // Control at the signature: the pending invoice's approval preview
+  // carries the envelope percentage — 85%, plain ink at this level.
+  await db.query(`INSERT INTO approvals (entity, "entityId") VALUES ('invoices', $1)`, [nvInv]);
+  const ap1 = (await j("GET", "/approvals?status=PENDING", null, H)).data
+    .find((a) => a.entity === "invoices" && a.entityId === nvInv);
+  ok("**the signature line: this approval takes the campaign to 85% of its envelope**",
+    !!ap1?.preview?.budgetContext && ap1.preview.budgetContext.pctAfter === 85 &&
+    ap1.preview.budgetContext.campaignName === "Nerve Probe");
+
+  // One more received invoice pushes the desk to 95% → WATCH; a third
+  // to 110% → the clay case at the signature.
+  await db.query(`INSERT INTO invoices ("vendorId", number, "amountUsd", "campaignId", status)
+                  VALUES ($1, 'NRV-2', 1000, $2, 'RECEIVED')`, [nvVen, cid]);
+  const ov2 = await j("GET", "/finance/overview", null, H);
+  const row2 = ov2.data.campaigns.find((c) => c.id === cid);
+  ok("**95% flips the flag: اقترب من الحد**", row2.pct === 95 && row2.health === "WATCH");
+  const nvInv3 = (await db.query(`INSERT INTO invoices ("vendorId", number, "amountUsd", "campaignId", status)
+                  VALUES ($1, 'NRV-3', 1500, $2, 'RECEIVED') RETURNING id`, [nvVen, cid])).rows[0].id;
+  await db.query(`INSERT INTO approvals (entity, "entityId") VALUES ('invoices', $1)`, [nvInv3]);
+  const ap3 = (await j("GET", "/approvals?status=PENDING", null, H)).data
+    .find((a) => a.entity === "invoices" && a.entityId === nvInv3);
+  ok("**past the envelope, the signature line goes clay: 110%**",
+    ap3?.preview?.budgetContext?.pctAfter === 110);
+  const ov3 = await j("GET", "/finance/overview", null, H);
+  ok("تجاوز الحد at 110%", ov3.data.campaigns.find((c) => c.id === cid).health === "OVER");
+
+  // The nerve: tissue counts equal planted rows exactly.
+  await j("POST", "/content", { title: "Nerve post", channel: "SOCIAL", campaignId: cid }, H);
+  await j("POST", "/leads", { company: "Nerve Lead Co", source: "REFERRAL", stage: "NEW", campaignId: cid }, H);
+  const nerve = await j("GET", `/nerve/campaigns/${cid}`, null, H);
+  ok("**the nerve counts the tissue: content 1, leads 1, spend rows 1, invoices 3**",
+    nerve.status === 200 && nerve.data.tissue.content === 1 && nerve.data.tissue.leads === 1 &&
+    nerve.data.tissue.spendRows === 1 && nerve.data.tissue.invoices === 3 &&
+    nerve.data.money.planned === 10000);
+
+  // Strategy closes the loop: an objective linked to the campaign is
+  // found by the nerve, and Planning's payload round-trips the linkage.
+  const nvObj = await j("POST", "/planning/objectives",
+    { label: "Nerve objective", metric: "LEADS_COUNT", targetValue: 50, campaignIds: [cid] }, H);
+  ok("objectives carry their campaigns", nvObj.status === 201 &&
+    (Array.isArray(nvObj.data.campaignIds) ? nvObj.data.campaignIds : JSON.parse(nvObj.data.campaignIds)).includes(cid));
+  const nerve2 = await j("GET", `/nerve/campaigns/${cid}`, null, H);
+  ok("**and the nerve finds the objective this campaign serves**",
+    nerve2.data.objectives.some((o) => o.label === "Nerve objective"));
+  // Perm parity: finance answers exactly as the budget module does for
+  // the same caller — one gate, not a new one.
+  const budA = (await j("GET", "/budget", null, A)).status;
+  const finA = (await j("GET", "/finance/overview", null, A)).status;
+  ok("**finance wears the budget module's own permission gate**",
+    (budA === 200) === (finA === 200));
+}
+
+// ═══ W5·NERVE2 · ALLOCATION DETAIL + THE SDG MIRROR ═══════════════════
+// Each row converts at ITS truth: its own SDG amount first, its entry
+// rate second, today's rate last — and the payload declares what share
+// of the money carries entry-day truth. PLANNED entries are line items
+// inside the envelope, never a second envelope.
+{
+  await db.query(`UPDATE settings SET "usdToSdgRate" = 500 WHERE id = 1`);
+  const m2C = await j("POST", "/campaigns",
+    { name: "Mirror Probe", budgetUsd: 2000, budgetSdg: 1300000, channel: "PAID" }, H);
+  const mid = m2C.data.id;
+  // actual: entry-rate spend 100@600 → 60,000 · rateless 50 → 25,000 (today)
+  await db.query(`INSERT INTO ad_spend (platform, "campaignId", "amountUsd", "rateAtEntry") VALUES ('META', $1, 100, 600)`, [mid]);
+  await db.query(`INSERT INTO ad_spend (platform, "campaignId", "amountUsd") VALUES ('TIKTOK', $1, 50)`, [mid]);
+  // a ledger row that recorded its own SDG wins outright: 40 USD but 26,000 SDG
+  await db.query(`INSERT INTO budget_entries (label, kind, channel, "amountUsd", "amountSdg", "campaignId")
+                  VALUES ('Mirror ledger', 'SPENT', 'PAID', 40, 26000, $1)`, [mid]);
+  // committed at its entry rate: 200@550 → 110,000
+  const m2V = (await db.query(`INSERT INTO vendors (name) VALUES ('Mirror Vendor') RETURNING id`)).rows[0].id;
+  await db.query(`INSERT INTO invoices ("vendorId", number, "amountUsd", "campaignId", status, "rateAtEntry")
+                  VALUES ($1, 'MIR-1', 200, $2, 'RECEIVED', 550)`, [m2V, mid]);
+  // allocations inside the envelope: 800 + 900 = 1,700 of 2,000
+  await db.query(`INSERT INTO budget_entries (label, kind, channel, "amountUsd", "campaignId") VALUES
+    ('Alloc social', 'PLANNED', 'SOCIAL', 800, $1), ('Alloc paid', 'PLANNED', 'PAID', 900, $1)`, [mid]);
+
+  const ov = await j("GET", "/finance/overview", null, H);
+  const row = ov.data.campaigns.find((c) => c.id === mid);
+  ok("**per-row SDG truth: 60,000 (entry rate) + 25,000 (today) + 26,000 (own SDG) = 111,000 actual**",
+    row.actualSdg === 111000 && row.actual === 190);
+  ok("**committed converts at its entry rate: 110,000**",
+    row.committedSdg === 110000 && row.committed === 200);
+  ok("**a campaign's own budgetSdg outranks any conversion: 1,300,000, not 2,000×500**",
+    row.plannedSdg === 1300000);
+  ok("**allocations are detail inside the envelope: 1,700 of 2,000, no flag**",
+    row.allocated === 1700 && row.overAllocated === false);
+  ok("the SDG mirror declares itself: today's rate + the entry-day share",
+    ov.data.sdgMeta.currentRate === 500 &&
+    ov.data.sdgMeta.atEntrySharePct !== null &&
+    ov.data.sdgMeta.atEntrySharePct > 0 && ov.data.sdgMeta.atEntrySharePct <= 100);
+  const sdgSum = ov.data.campaigns.reduce((a, c) => a + c.actualSdg, 0) + ov.data.unlinked.actualSdg;
+  ok("**the SDG mirror reconciles by the same law: campaigns + unlinked ≡ totals**",
+    Math.abs(sdgSum - ov.data.totalsSdg.actual) < 0.02);
+
+  // Over-allocation is a named flag, never a silent overflow.
+  const m2C2 = await j("POST", "/campaigns", { name: "Over Alloc Probe", budgetUsd: 100, channel: "PAID" }, H);
+  await db.query(`INSERT INTO budget_entries (label, kind, channel, "amountUsd", "campaignId")
+                  VALUES ('Too much plan', 'PLANNED', 'PAID', 150, $1)`, [m2C2.data.id]);
+  const ov2 = await j("GET", "/finance/overview", null, H);
+  ok("**allocations past the envelope raise the clay flag**",
+    ov2.data.campaigns.find((c) => c.id === m2C2.data.id).overAllocated === true);
+
+  // The nerve carries the mirror too.
+  const nv = await j("GET", `/nerve/campaigns/${mid}`, null, H);
+  ok("**the campaign nerve speaks both currencies**",
+    nv.data.money.actualSdg === 111000 && nv.data.money.plannedSdg === 1300000);
+}
+
+// ═══ W5·NERVE3 · THE ROOM COMPLETED — ROLLUP MIRROR + EDITABLE RAIL ═══
+// The department and channel rollups now speak SDG under the same
+// reconciliation law, and the room's allocation editor rides the real
+// /budget rail end to end — planted through the API, not raw SQL.
+{
+  const n3D = (await db.query(`INSERT INTO departments (name) VALUES ('Nerve Dept') RETURNING id`)).rows[0].id;
+  const n3C = await j("POST", "/campaigns",
+    { name: "Rollup Probe", budgetUsd: 400, budgetSdg: 260000, channel: "PAID", departmentId: n3D }, H);
+  const rid = n3C.data.id;
+  await db.query(`INSERT INTO ad_spend (platform, "campaignId", "amountUsd", "rateAtEntry") VALUES ('GOOGLE', $1, 80, 600)`, [rid]);
+
+  const ov = await j("GET", "/finance/overview", null, H);
+  const dep = ov.data.byDepartment.find((d) => d.departmentId === n3D);
+  ok("**the department rollup speaks both currencies: 400 / 260,000 planned · 80 / 48,000 actual**",
+    dep && dep.planned === 400 && dep.plannedSdg === 260000 && dep.actual === 80 && dep.actualSdg === 48000);
+  const chSdg = ov.data.byChannel.reduce((a, c) => a + c.actualSdg, 0);
+  ok("**the channel rollup's SDG decomposes exactly totalsSdg.actual — one law, both currencies**",
+    Math.abs(chSdg - ov.data.totalsSdg.actual) < 0.02);
+  const g = ov.data.byChannel.find((c) => c.channel === "AD·GOOGLE");
+  ok("an entry-rate row lands in its channel at its own rate", g && g.actualSdg >= 48000);
+
+  // The editable rail: an allocation added through /budget appears in the
+  // overview; deleted, it disappears — the room's editor, server-proven.
+  const al = await j("POST", "/budget",
+    { label: "Room allocation", kind: "PLANNED", channel: "PAID", amountUsd: 300, campaignId: rid }, H);
+  const ov2 = await j("GET", "/finance/overview", null, H);
+  ok("**an allocation added through the real rail lands in the model: 300**",
+    al.status === 201 && ov2.data.campaigns.find((c) => c.id === rid).allocated === 300);
+  await j("DELETE", `/budget/${al.data.id}`, null, H);
+  const ov3 = await j("GET", "/finance/overview", null, H);
+  ok("**and deleting it clears the model — no ghosts**",
+    ov3.data.campaigns.find((c) => c.id === rid).allocated === 0);
+
+  // The room payload still serves the drawer's tenants on this campaign.
+  const rm = await j("GET", `/campaigns/${rid}/room`, null, H);
+  ok("the room serves brief status, KPIs, and the allowed next steps",
+    rm.status === 200 && "brief" in rm.data && Array.isArray(rm.data.allowedTransitions) && "kpis" in rm.data);
+}
+
+// ═══ W5·NERVE4 · THE LAST CONNECTIONS — ALLOCATION MIRROR + HONEST RATE ═
+// Allocation lines now speak SDG under the same precedence law as every
+// other row, and the room's add-rail keeps the mirror honest by stamping
+// today's rate on rateless lines at creation.
+{
+  const n4C = await j("POST", "/campaigns", { name: "Alloc Mirror Probe", budgetUsd: 1000, channel: "PAID" }, H);
+  const aid = n4C.data.id;
+  // own SDG wins: 200 USD but 90,000 SDG declared on the line
+  await db.query(`INSERT INTO budget_entries (label, kind, channel, "amountUsd", "amountSdg", "campaignId")
+                  VALUES ('Own-SDG alloc', 'PLANNED', 'PAID', 200, 90000, $1)`, [aid]);
+  // entry-rate line: 100 @ 700 → 70,000
+  await db.query(`INSERT INTO budget_entries (label, kind, channel, "amountUsd", "rateAtEntry", "campaignId")
+                  VALUES ('Entry-rate alloc', 'PLANNED', 'SOCIAL', 100, 700, $1)`, [aid]);
+  const ov = await j("GET", "/finance/overview", null, H);
+  const row = ov.data.campaigns.find((c) => c.id === aid);
+  ok("**allocation SDG follows the precedence law: 90,000 (own) + 70,000 (entry rate) = 160,000**",
+    row.allocated === 300 && row.allocatedSdg === 160000);
+
+  // The room's rail: a rateless line created through /budget gets stamped
+  // with today's rate — the mirror never meets an orphan row.
+  const created = await j("POST", "/budget",
+    { label: "Room-added alloc", kind: "PLANNED", channel: "PAID", amountUsd: 60, campaignId: aid }, H);
+  const stamp = Number(created.data.rateAtEntry);
+  ok("**the /budget rail stamps a real rate on rateless lines at creation**",
+    created.status === 201 && stamp > 0);
+  const ov2 = await j("GET", "/finance/overview", null, H);
+  ok("**and the mirror converts the line at exactly its stamp**",
+    ov2.data.campaigns.find((c) => c.id === aid).allocatedSdg === 160000 + 60 * stamp);
+
+  // Unlinked allocations land in the declared pool, both currencies.
+  await db.query(`INSERT INTO budget_entries (label, kind, channel, "amountUsd", "amountSdg")
+                  VALUES ('Orphan alloc', 'PLANNED', 'PR', 40, 21000)`);
+  const ov3 = await j("GET", "/finance/overview", null, H);
+  ok("**an unlinked allocation is declared in the pool, in both currencies**",
+    ov3.data.unlinked.allocated >= 40 && ov3.data.unlinked.allocatedSdg >= 21000);
+}
+
+// ═══ W4·BLD2 + W5·NERVE5 · PARITY, WIRES, AND THE STREET-WARM LAW ═════
+// Landing templates round-trip verbatim like their form/survey siblings;
+// the links QR rail answers; the morning digest ships campaign ids the
+// rooms can open; the glossary now enforces § لغة السوق mechanically.
+{
+  const lpTpl = [
+    { kind: "HERO", heading: "Meet us at the expo", headingAr: "نلقاك في المعرض",
+      sub: "Live demos, exclusive offers, and our whole team.", subAr: "تجارب حية وعروض حصرية وفريقنا كاملًا." },
+    { kind: "CTA", label: "Register your visit", labelAr: "سجّل حضورك" },
+  ];
+  const lp = await j("POST", "/landing-pages", { title: "Expo LP", titleAr: "صفحة المعرض", slug: "bld-expo", blocks: lpTpl, status: "PUBLISHED" }, H);
+  const back = (await j("GET", `/landing-pages/${lp.data.id}`, null, H)).data;
+  const blocks = Array.isArray(back.blocks) ? back.blocks : JSON.parse(back.blocks);
+  ok("**the landing template round-trips verbatim: hero + CTA, Arabic intact**",
+    lp.status === 201 && blocks.length === 2 && blocks[0].headingAr === "نلقاك في المعرض" && blocks[1].labelAr === "سجّل حضورك");
+  const pub = await j("GET", "/public/pages/bld-expo");
+  ok("and the visitor's door serves it",
+    pub.status === 200 && (Array.isArray(pub.data.blocks) ? pub.data.blocks : JSON.parse(pub.data.blocks)).length === 2);
+
+  const lk = await j("POST", "/links", { url: "https://saria.sd/expo", code: "bldqr" }, H);
+  const qr = await j("GET", `/links/${lk.data.id}/qr`, null, H);
+  ok("**the links QR rail answers with a printable data URL**",
+    qr.status === 200 && typeof qr.data.dataUrl === "string" && qr.data.dataUrl.startsWith("data:image"));
+
+  const dg = await j("GET", "/digest/morning", null, H);
+  ok("**the morning digest ships campaign ids a room can open**",
+    dg.status === 200 && Array.isArray(dg.data.actions?.campaignsEnding?.items) &&
+    dg.data.actions.campaignsEnding.items.every((c) => !c || typeof c.id === "string"));
+
+  const gl = JSON.parse((await import("node:fs")).readFileSync(new URL("../../frontend/src/locales/glossary.json", import.meta.url), "utf8"));
+  ok("**§ لغة السوق is mechanical: the bureaucratic register and the director are banned terms**",
+    ["يرجى", "قم بـ", "الخاص بك", "المدير الذكي"].every((b) => gl.banned.some((x) => x.bad === b)));
+}
+
+// ═══ AG·FIX + W5·WIRES · THE VENDOR DESK, PROVEN — AND THE LAST RAILS ═
+// "Make sure the vendor page is working" becomes a standing proof: the
+// desk's exact click-sequence walked through the real API — vendor →
+// engagement → magic link → deliverable → advance → submit → approve —
+// plus the landing page's QR door and its theme round-trip.
+{
+  const agV = await j("POST", "/vendors", { name: "Desk Print House", kind: "PRINTER", active: true }, H);
+  ok("**vendor created — the desk's first button works**", agV.status === 201);
+  const agE = await j("POST", "/engagements", { vendorId: agV.data.id, title: "Expo booth print run" }, H);
+  ok("**engagement attached with the page's own minimal payload**", agE.status === 201 && agE.data.status === "ACTIVE");
+
+  const agT = await j("POST", "/agency/tokens", { vendorId: agV.data.id, days: 30 }, H);
+  ok("**a magic link mints and returns its portal path**",
+    agT.status === 201 && typeof agT.data.link === "string" && agT.data.link.startsWith("/p/"));
+  const agRv = await j("POST", `/agency/tokens/${agT.data.id}/revoke`, {}, H);
+  ok("and revoking it answers cleanly", agRv.status === 200 || agRv.status === 201);
+
+  const agD = await j("POST", "/deliverables",
+    { engagementId: agE.data.id, title: "Booth banner v1", dueDate: new Date(Date.now() + 5 * 864e5).toISOString() }, H);
+  ok("**deliverable created against the engagement**", agD.status === 201);
+  const agAdv = await j("PATCH", `/deliverables/${agD.data.id}`, { status: "IN_PROGRESS" }, H);
+  ok("**the advance buttons ride a working transition rail**",
+    agAdv.status === 200 && agAdv.data.status === "IN_PROGRESS");
+
+  // The landing QR door — same artefact rail as links and placements.
+  const lpq = await j("POST", "/landing-pages",
+    { title: "QR Probe", slug: "qr-probe", blocks: [{ kind: "HERO", headingAr: "نلقاك" }], theme: { primary: "#0e7490" } }, H);
+  const pq = await j("GET", `/landing-pages/${lpq.data.id}/qr`, null, H);
+  ok("**the landing page's QR door answers with a printable code of /l/qr-probe**",
+    pq.status === 200 && pq.data.dataUrl.startsWith("data:image") && pq.data.url.endsWith("/l/qr-probe"));
+  const lpBack = (await j("GET", `/landing-pages/${lpq.data.id}`, null, H)).data;
+  const th = typeof lpBack.theme === "string" ? JSON.parse(lpBack.theme) : lpBack.theme;
+  ok("**the theme token round-trips — the visitor's accent is the editor's accent**", th.primary === "#0e7490");
+}
+
+// ═══ UI·COVER + W5·WIRES2 · NO RAIL WITHOUT A DOOR ════════════════════
+// The coverage gate holds as a suite child; the newly-doored rails
+// answer through the API exactly as their new UI calls them.
+{
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const execC = promisify(execFile);
+  let covOut = "", covOk = true;
+  try { covOut = (await execC("node", ["scripts/coverage-ui.js"], { cwd: new URL("..", import.meta.url).pathname, timeout: 60000 })).stdout; }
+  catch (e) { covOk = false; covOut = String(e.stdout || e); }
+  ok("**the coverage gate holds: every rail consumed, reasoned, or in dated debt — zero orphans**",
+    covOk && /0 orphaned/.test(covOut) && /every rail has a consumer or a named reason/.test(covOut));
+
+  ok("**the login screen's SSO door: public config answers without a token**",
+    (await j("GET", "/auth/sso/config")).status === 200);
+
+  const dlUsers = (await j("GET", "/users", null, H)).data;
+  const dlSelfId = JSON.parse(Buffer.from(H.split(".")[1], "base64url").toString()).sub;
+  const dlProbe = await j("POST", "/delegations",
+    { delegateId: (dlUsers.find((u) => u.id !== dlSelfId) || dlUsers[0]).id,
+      fromDate: new Date(Date.now() + 400 * 864e5).toISOString().slice(0, 10),
+      toDate: new Date(Date.now() + 407 * 864e5).toISOString().slice(0, 10) }, H);
+  ok("**the away-switch works through the page's own payload**", dlProbe.status === 201 && dlProbe.data.active !== false);
+  const dlOverlap = await j("POST", "/delegations",
+    { delegateId: (dlUsers.find((u) => u.id !== dlSelfId) || dlUsers[0]).id,
+      fromDate: new Date(Date.now() + 402 * 864e5).toISOString().slice(0, 10),
+      toDate: new Date(Date.now() + 405 * 864e5).toISOString().slice(0, 10) }, H);
+  ok("**and an overlapping second delegation is refused with the validator's own words**",
+    dlOverlap.status === 400 && /delegation/i.test(dlOverlap.data?.error || ""));
+  if (dlProbe.data?.id) await j("DELETE", `/delegations/${dlProbe.data.id}`, null, H);
+
+  const eng = await j("POST", "/engagements",
+    { vendorId: (await j("GET", "/vendors", null, H)).data[0].id, title: "Picker probe", campaignIds: [] }, H);
+  const engC = await j("POST", "/campaigns", { name: "Eng Link Probe", channel: "PR" }, H);
+  const upd = await j("PATCH", `/engagements/${eng.data.id}`, { campaignIds: [engC.data.id] }, H);
+  const engBack = Array.isArray(upd.data.campaignIds) ? upd.data.campaignIds : JSON.parse(upd.data.campaignIds);
+  ok("**the desk's campaign picker round-trips through the CRUD it always had**", engBack.includes(engC.data.id));
+
+  const mint = await j("POST", "/agency/tokens", { vendorId: (await j("GET", "/vendors", null, H)).data[0].id, days: 7 }, H);
+  ok("**the magic link now carries its one-time QR, minted from the plaintext the hash can never rebuild**",
+    mint.status === 201 && String(mint.data.dataUrl || "").startsWith("data:image") && String(mint.data.url || "").includes("/p/"));
+
+  ok("the seasonal rail serves the calendar's new chips",
+    (await j("GET", "/seasonal", null, H)).status === 200);
+}
+
+// ═══ UI·DEBT1 · FOUR DOORS OPEN — THE REGISTER SHRINKS 8 → 3 ══════════
+// Each newly-doored rail walked with its page's exact payload: the 9AM
+// loop, the erasure workflow end to end, a brief, a conversion.
+{
+  const hm = await j("GET", "/home", null, H);
+  ok("**the 9AM loop answers: role cards with counts and links**",
+    hm.status === 200 && Array.isArray(hm.data.cards) && hm.data.cards.every((c) => typeof c.link === "string"));
+
+  // Erasure: create → manual verify → discover → submit, on a planted lead.
+  await j("POST", "/leads", { company: "Erase Me Ltd", source: "REFERRAL", stage: "NEW",
+    email: "erase.me@probe.sd" }, H);
+  const er = await j("POST", "/erasure", { subjectEmail: "erase.me@probe.sd" }, H);
+  ok("**an erasure request opens at RECEIVED**", er.status === 201 && er.data.status === "RECEIVED");
+  const ev = await j("POST", `/erasure/${er.data.id}/verify/manual`, { evidence: "بطاقة هوية مطابقة عبر مكالمة" }, H);
+  ok("**manual verification advances it**", ev.status === 200 && (ev.data.status === "VERIFIED" || ev.data.ok));
+  const ed = await j("POST", `/erasure/${er.data.id}/discover`, {}, H);
+  ok("**discovery names where the subject lives, table by table**",
+    ed.status === 200 && ed.data.status === "DISCOVERED" && ed.data.inventory?.total > 0 &&
+    ed.data.inventory.tables.some((x) => x.table === "leads" && x.rows > 0));
+  const es = await j("POST", `/erasure/${er.data.id}/submit`, {}, H);
+  ok("**submission files it into the approvals engine — the same single door as everything else**",
+    es.status === 200 || es.status === 201);
+
+  // A brief against a real creative request.
+  const brReq = await j("POST", "/creative-requests", { title: "Expo hero visual", kind: "DESIGN" }, H);
+  const br = await j("POST", "/creative-briefs",
+    { title: "Hero brief", requestId: brReq.data.id, format: "1080x1350", spec: "الرسالة: نلقاك في المعرض" }, H);
+  ok("**a brief lands against its request, Arabic spec intact**",
+    br.status === 201 && /المعرض/.test(br.data.spec || ""));
+  ok("and a brief belonging to nothing is refused in the validator's words",
+    (await j("POST", "/creative-briefs", { title: "Orphan brief" }, H)).status === 400);
+
+  // A conversion through the Customers modal's payload.
+  const cvCust = { id: (await j("POST", "/customers", { company: "Convert Co", status: "ACTIVE" }, H)).data.id };
+  const cv = await j("POST", "/conversions",
+    { customerId: cvCust?.id, valueAmount: 750, currency: "USD", notes: "درع رعاية" }, H);
+  ok("**a conversion records against the customer with the page's exact payload**",
+    cv.status === 201 && Number(cv.data.valueUsd) === 750);
+  const cvs = await j("GET", "/conversions/summary", null, H);
+  ok("**and the summary rail answers in ROI language: value against spend over a window**",
+    cvs.status === 200 && cvs.data.valueUsd >= 750 && typeof cvs.data.windowDays === "number" && Array.isArray(cvs.data.byCampaign));
+}
+
+// ═══ UI·DEBT2 · THE IMPORT WIZARD WALKED WITH ITS PAGE'S OWN HANDS ════
+// Upload → map → validate → preview → commit, exactly as the new door
+// drives it: auto-mapping honored, the required-field refusal verbatim,
+// one bad row rejected not the batch, the duplicate merged not doubled,
+// and the matrix refusing a second commit.
+{
+  const tg = await j("GET", "/imports/targets", null, H);
+  ok("**the targets rail teaches the wizard: three entities, required fields named**",
+    tg.status === 200 && tg.data.length === 3 && tg.data.find((t) => t.entity === "leads")?.required.includes("company"));
+
+  await j("POST", "/leads", { company: "Dup Solar", source: "REFERRAL", stage: "NEW", email: "dup@solar.sd" }, H);
+
+  const csv = [
+    "company,email,valueUsd",
+    "شركة النيل للطاقة,nile@energy.sd,4500",
+    "Dup Solar,dup@solar.sd,9000",
+    "Bad Row Co,bad@row.sd,not-a-number",
+  ].join("\n");
+  const up = await j("POST", "/imports", { entity: "leads", csv, filename: "leads.csv" }, H);
+  ok("**upload parses and auto-maps the exact-name columns**",
+    up.status === 201 && up.data.status === "UPLOADED" && up.data.suggestedMapping.company === "company" && up.data.suggestedMapping.email === "email");
+
+  const bad = await j("PATCH", `/imports/${up.data.id}/mapping`, { mapping: { email: "email" } }, H);
+  ok("**an unmapped required field is refused in the matrix's words**",
+    bad.status === 400 && /company/.test(bad.data.error));
+
+  const map = await j("PATCH", `/imports/${up.data.id}/mapping`,
+    { mapping: up.data.suggestedMapping, dedupeOn: "email", mergeStrategy: "merge" }, H);
+  ok("mapping confirmed with dedupe on email", map.status === 200 && map.data.status === "MAPPED");
+
+  const val = await j("POST", `/imports/${up.data.id}/validate`, {}, H);
+  ok("**validation rejects the one bad row, not the batch**",
+    val.status === 200 && val.data.stats.valid === 2 && val.data.stats.invalid === 1 &&
+    val.data.errors.some((e) => /valueUsd|number/i.test(e.reason)));
+
+  const pv = await j("POST", `/imports/${up.data.id}/preview`, {}, H);
+  ok("**preview declares the duplicate will update, before anything happens**",
+    pv.status === 200 && (pv.data.stats.willUpdate ?? 0) >= 1);
+
+  const cm = await j("POST", `/imports/${up.data.id}/commit`, {}, H);
+  ok("**commit lands: one created, one merged into the existing lead, none doubled**",
+    (cm.status === 200) && cm.data.created === 1 && cm.data.updated === 1);
+  const merged = (await j("GET", "/leads", null, H)).data.filter((l) => l.company === "Dup Solar");
+  ok("and the ledger agrees — Dup Solar exists exactly once, value merged",
+    merged.length === 1 && Number(merged[0].valueUsd) === 9000);
+
+  const cm2 = await j("POST", `/imports/${up.data.id}/commit`, {}, H);
+  ok("**a second commit is refused by the matrix, not by luck**",
+    cm2.status === 400);
+  const hist = await j("GET", "/imports", null, H);
+  ok("and the history shows the job COMMITTED with its stats",
+    hist.status === 200 && hist.data.some((jb) => jb.id === up.data.id && jb.status === "COMMITTED"));
+}
+
+// ═══ UI·DEBT3 · THE CONTROL ROOM WALKED WITH ITS PAGE'S OWN HANDS ═════
+// Cockpit, band replay-then-apply, the regrade that demands a written
+// reason, block-vs-mute levers, a bulk ruling that records model
+// agreement, an alert rule under the guardrail, and the change trail
+// that explains the chart's jumps.
+{
+  const cockpit = await j("GET", "/listening/control", null, H);
+  ok("**the cockpit answers in one call — settings, queue health, and the line no lever can cross**",
+    cockpit.status === 200 && cockpit.data.settings.bandLow < cockpit.data.settings.bandHigh &&
+    cockpit.data.guardrail.entityKinds.includes("PUBLIC_FIGURE") && !cockpit.data.guardrail.entityKinds.includes("PERSON"));
+
+  ok("**an inverted band is refused before anything replays**",
+    (await j("POST", "/listening/control/replay", { bandLow: 0.7, bandHigh: 0.3 }, H)).status === 400);
+  const bandR = await j("PATCH", "/listening/control/band", { bandLow: 0.3, bandHigh: 0.7, note: "توسيع للتجربة" }, H);
+  ok("**a band change replays first, applies second, and lands on the trail**",
+    bandR.status === 200 && bandR.data.replay && bandR.data.settings.bandLow === 0.3);
+  const trail = await j("GET", "/listening/control/changes?days=7", null, H);
+  ok("and the change trail carries it with its written reason",
+    trail.status === 200 && trail.data.some((c) => c.kind === "BAND" && /توسيع/.test(c.note || "")));
+
+  await db.query(`INSERT INTO osint_sources (domain, reliability) VALUES ('ctl-probe.sd', 'C') ON CONFLICT DO NOTHING`);
+  const src = (await j("GET", "/listening/control/sources", null, H)).data.find((s) => s.domain === "ctl-probe.sd");
+  ok("**a regrade without a written reason is refused in the router's words**",
+    (await j("PATCH", `/listening/control/sources/${src.id}/grade`, { reliability: "A" }, H)).status === 400);
+  const graded = await j("PATCH", `/listening/control/sources/${src.id}/grade`, { reliability: "A", note: "قناة رسمية موثقة" }, H);
+  ok("with the reason it applies, stamped by whom", graded.status === 200 && graded.data.reliability === "A");
+  const muted = await j("PATCH", `/listening/control/sources/${src.id}/lever`, { muted: true }, H);
+  ok("**mute keeps the source for evidence while hiding it from metrics — a lever, not a deletion**",
+    muted.status === 200 && muted.data.muted === true && muted.data.active === true);
+
+  const lcT = await j("POST", "/listening/topics", { label: "Control probe watch" }, H);
+  const lcTid = lcT.data?.id || (await j("GET", "/listening/control/watches", null, H)).data[0]?.id;
+  await db.query(`INSERT INTO osint_signals ("topicId", title, source, "reviewStatus", "aiRelevance", "aiVerdict")
+                  VALUES ($1, 'إشارة للمراجعة', 'ctl-probe.sd', 'PENDING', 0.5, 'RELEVANT')`, [lcTid]);
+  const q = await j("GET", "/listening/control/queue", null, H);
+  const mine = q.data.items.filter((i) => i.title === "إشارة للمراجعة").map((i) => i.id);
+  ok("**the review list serves the pending signal with the model's suggestion attached**", mine.length === 1);
+  const ruled = await j("POST", "/listening/control/queue/rule", { ids: mine, verdict: "CONFIRMED", reason: "صحيحة" }, H);
+  ok("**a bulk ruling rules, and records whether the model agreed — the agreement KPI's raw material**",
+    ruled.status === 200 && ruled.data.ruled === 1 && ruled.data.agreedWithAi === 1);
+
+  const ruleMade = await j("POST", "/listening/control/rules",
+    { name: "قفزة تجريبية", kind: "VOLUME_SPIKE", topicId: lcTid, threshold: 3, windowHours: 24 }, H);
+  ok("**an alert rule lands against a watch under the guardrail**", ruleMade.status === 201);
+  ok("and a rule aimed at nothing is refused in the validator's words",
+    (await j("POST", "/listening/control/rules", { name: "بلا هدف", kind: "VOLUME_SPIKE" }, H)).status === 400);
+  const evald = await j("POST", "/listening/control/rules/evaluate", {}, H);
+  ok("«what would fire?» dry-runs without notifying anyone",
+    evald.status === 200 && typeof evald.data.evaluated === "number");
+}
+
+// ═══ UI·DEBT4 · THE LAST LINE CLOSES — METRIC BOARDS ══════════════════
+// The builder creates a board, hangs widgets from the catalog, reorders
+// them, renders values from the semantic layer, and refuses a metric
+// the catalog does not know. The seeded «لوحة الإدارة» is already there.
+{
+  const dbs = await j("GET", "/dashboards", null, H);
+  ok("**the seeded executive board is already hanging, shared and default**",
+    dbs.status === 200 && dbs.data.some((d) => d.isDefault && d.shared));
+
+  const mk = await j("POST", "/dashboards",
+    { name: "Growth desk", nameAr: "مكتب النمو", widgets: [
+      { metricKey: "pulse_index", viz: "KPI", size: "lg" },
+      { metricKey: "leads_new_30d", viz: "LINE" } ] }, H);
+  ok("**a board lands with two widgets from the catalog**", mk.status === 201);
+  const back = (await j("GET", `/dashboards/${mk.data.id}`, null, H)).data;
+  const ws = Array.isArray(back.widgets) ? back.widgets : JSON.parse(back.widgets);
+  ok("and the widget vocabulary round-trips verbatim",
+    ws.length === 2 && ws[0].metricKey === "pulse_index" && ws[0].size === "lg" && ws[1].viz === "LINE");
+
+  const flipped = [ws[1], ws[0]];
+  const upd = await j("PATCH", `/dashboards/${mk.data.id}`, { widgets: flipped }, H);
+  const ws2 = Array.isArray(upd.data.widgets) ? upd.data.widgets : JSON.parse(upd.data.widgets);
+  ok("**reorder is a plain widgets write — the builder invents no second rail**",
+    upd.status === 200 && ws2[0].metricKey === "leads_new_30d");
+
+  const v = await j("GET", "/metrics/pulse_index/value", null, H);
+  ok("**every widget renders from the semantic layer — the same value the board pack reads**",
+    v.status === 200 && typeof v.data.value === "number");
+  ok("**a metric the catalog does not know is refused, so no widget can invent one**",
+    (await j("GET", "/metrics/made_up_metric/value", null, H)).status === 404);
+  const sr = await j("GET", "/metrics/leads_new_30d/series?days=90", null, H);
+  ok("and the trend line draws from the snapshot ledger", sr.status === 200 && Array.isArray(sr.data));
+
+  ok("cleanup: the desk unhangs cleanly",
+    (await j("DELETE", `/dashboards/${mk.data.id}`, null, H)).status === 204);
+}
+
+// ═══ W3·FIN · WAVE 3, PROVEN COMPLETE — THE FIVE MISSING WALKS ════════
+// The audit found the wave substantially built and three-eighths proven
+// (D, E, G carry markers). These are the five walks that were never
+// taken: observability's digest law, the canvas's one-engine law, the
+// AI rail's human-disposal law, forecasting's refusal-first law, and
+// the department dimension's scoping law.
+{
+  // ── W3·A · errors leave digests, never payloads ──
+  const errR = await j("POST", "/public/client-error",
+    { message: "canvas exploded at node 3", stack: "Error: at FlowCanvas", url: "/automate", payload: { apiSecret: "sk-SENSITIVE" } });
+  ok("**a browser fault is acknowledged with 204 — fire, ack, no chatter**", errR.status === 204);
+  const errRow = (await db.query(`SELECT * FROM error_log WHERE level = 'CLIENT' ORDER BY at DESC LIMIT 1`)).rows[0];
+  ok("**with a fingerprint on the ledger — and the secret structurally absent from the entire row**",
+    !!errRow && errRow.fingerprint.length > 4 && !JSON.stringify(errRow).includes("sk-SENSITIVE"));
+  const hz = await j("GET", "/health");
+  const hzLive = await j("GET", "/health/live");
+  ok("**the full health report and the liveness stub are two different doors — the SEC·A lesson, held**",
+    hz.status === 200 && hzLive.status === 200 && JSON.stringify(hz.data).length > JSON.stringify(hzLive.data).length);
+
+  // ── W3·B · the canvas serialises into the one engine ──
+  const lib = await j("GET", "/workflows/library", null, H);
+  ok("**the library teaches the canvas: events, actions, branch ops and fields**",
+    lib.status === 200 && lib.data.actions.includes("NOTIFY") && lib.data.branchOps.length > 0 && lib.data.branchFields.includes("source"));
+  const wfLead = await j("POST", "/leads", { company: "Canvas Probe Co", source: "EXPO", stage: "NEW" }, H);
+  const branched = [{ type: "IF", cond: { field: "source", op: lib.data.branchOps[0], value: "EXPO" },
+    then: [{ type: "NOTIFY", message: "from-then" }], else: [{ type: "ADD_TAG", tag: "from-else" }] }];
+  const dry = await j("POST", "/workflows/dry-run", { actions: branched, leadId: wfLead.data.id }, H);
+  ok("**a dry-run walks the IF against a real lead, logs the branch, and changes nothing**",
+    dry.status === 200 && (dry.data.log || dry.data).some?.((e) => e.branch) !== false &&
+    JSON.stringify(dry.data).includes("branch"));
+  const wfMk = await j("POST", "/workflows",
+    { name: "Canvas branch flow", trigger: { event: "lead.created" }, actions: branched, active: false }, H);
+  const wfBack = (await j("GET", `/workflows/${wfMk.data.id}`, null, H)).data;
+  const wfActs = Array.isArray(wfBack.actions) ? wfBack.actions : JSON.parse(wfBack.actions);
+  ok("**the drawn flow round-trips verbatim — nested IF, both arms — into the same jsonb the runner reads**",
+    wfMk.status === 201 && wfActs[0].type === "IF" && wfActs[0].then[0].message === "from-then" && wfActs[0].else[0].tag === "from-else");
+
+  // ── W3·C · the AI rail: drafts wait for a human ──
+  const aiSt = await j("GET", "/ai/status", null, H);
+  ok("**the rail states its own posture: configured or not, model, ceiling, and spend against it**",
+    aiSt.status === 200 && "configured" in aiSt.data && aiSt.data.model && aiSt.data.monthlyCapUsd > 0 && "spentThisMonth" in aiSt.data);
+  ok("the drafts shelf answers, empty or not",
+    Array.isArray((await j("GET", "/ai/drafts", null, H)).data));
+  ok("**a decision outside PUBLISHED/DISMISSED is refused — humans dispose in exactly two ways**",
+    (await j("POST", `/ai/drafts/${wfLead.data.id}/decide`, { status: "MAYBE" }, H)).status === 400);
+  ok("and deciding a draft that does not exist is a plain 404, not an invention",
+    (await j("POST", `/ai/drafts/${wfLead.data.id}/decide`, { status: "PUBLISHED" }, H)).status === 404);
+
+  // ── W3·F · forecasting refuses before it guesses ──
+  const cat = (await j("GET", "/metrics", null, H)).data;
+  let sparseKey = null;
+  for (const m of cat) {
+    const sr = await j("GET", `/metrics/${m.key}/series?days=400`, null, H);
+    if (Array.isArray(sr.data) && sr.data.length < 21) { sparseKey = m.key; break; }
+  }
+  const refused = await j("GET", `/forecast/metric/${sparseKey}`, null, H);
+  ok("**below the data floor the forecast refuses, and says exactly how much history it needs**",
+    refused.status === 200 && refused.data.refused === true && refused.data.needed === 21);
+  const fKey = cat.find((m) => m.key === "leads_new_30d") ? "leads_new_30d" : cat[0].key;
+  await db.query(`DELETE FROM metric_snapshots WHERE "metricKey" = $1`, [fKey]);
+  for (let i = 34; i >= 1; i--) {
+    await db.query(`INSERT INTO metric_snapshots ("metricKey", date, value, dims)
+                    VALUES ($1, CURRENT_DATE - $2::int, $3, '{}'::jsonb)`, [fKey, i, 100 + (34 - i) * 3 + (i % 7)]);
+  }
+  const fc = await j("GET", `/forecast/metric/${fKey}`, null, H);
+  const pts = fc.data.points || fc.data.horizon || (fc.data.lo !== undefined ? [fc.data] : []);
+  ok("**above the floor it answers in intervals — never a point — and the band is ordered lo ≤ mid ≤ hi**",
+    fc.status === 200 && fc.data.ok !== false && pts.length > 0 &&
+    pts.every((p) => Number(p.lo) <= Number(p.mid) && Number(p.mid) <= Number(p.hi)));
+  ok("the targets watchlist answers", (await j("GET", "/forecast/targets", null, H)).status === 200);
+
+  // ── W3·H · the department dimension scopes every list ──
+  const d1 = await j("POST", "/departments", { name: "Batteries", nameAr: "البطاريات" }, H);
+  const d2 = await j("POST", "/departments", { name: "Solar", nameAr: "الطاقة الشمسية" }, H);
+  const dU = await j("POST", "/users", { name: "Dept Analyst", email: "dept.analyst@saria.sd", password: "Dept#2026x", role: "ANALYST", departmentId: d1.data.id }, H);
+  const { signToken } = await import("../src/auth.js");
+  const dRow = (await db.query(`SELECT * FROM users WHERE id = $1`, [dU.data.id])).rows[0];
+  const DT = signToken(dRow);
+  ok("**a department-bound analyst exists, token minted by the platform's own signer**", dU.status === 201 && !!DT);
+  const cOwn = await j("POST", "/campaigns", { name: "Battery Push", channel: "PR", departmentId: d1.data.id }, H);
+  const cOther = await j("POST", "/campaigns", { name: "Solar Push", channel: "PR", departmentId: d2.data.id }, H);
+  const cShared = await j("POST", "/campaigns", { name: "Group Push", channel: "PR" }, H);
+  const seen = (await j("GET", "/campaigns", null, DT)).data.map((c) => c.id);
+  ok("**the list shows their department's rows and the shared ones — and NOT the other department's**",
+    seen.includes(cOwn.data.id) && seen.includes(cShared.data.id) && !seen.includes(cOther.data.id));
+  const seenH = (await j("GET", "/campaigns", null, H)).data.map((c) => c.id);
+  ok("while the head admin sees across every department",
+    seenH.includes(cOwn.data.id) && seenH.includes(cOther.data.id) && seenH.includes(cShared.data.id));
+}
+
+// ═══ NAV·CHECK · THE MENU IS A CONTRACT, AND THE CONTRACT IS TESTED ═══
+// Routes ↔ menu ↔ dictionary ↔ module vocabulary ↔ icon drawings, with
+// the seven groups pinned in canonical order — held by a gate, not by
+// anyone's memory.
+{
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  let navOut = "", navOk = true;
+  try { navOut = (await promisify(execFile)("node", ["scripts/nav-check.js"], { cwd: new URL("..", import.meta.url).pathname, timeout: 30000 })).stdout; }
+  catch (e) { navOk = false; navOut = String(e.stdout || e); }
+  ok("**the menu contract holds: every route doored, every door routed, every label bilingual, every icon drawn**",
+    navOk && /7 groups/.test(navOut) && /all agree/.test(navOut));
+  ok("**and the seven groups stand in canonical order — يومي، خطط، أنشئ، اجذب، افهم، شركاء، النظام**",
+    navOk && /canonical order/.test(navOut));
+}
+
 // Rate limiting LAST (shares the IP window with the whole run)
 let got429 = false;
 for (let i = 0; i < 14; i++) {

@@ -20,7 +20,7 @@ If all three pass, you hold a machine that can build, verify, and **recover** Pu
 4. **ADMIN-GUIDE.md** — every operator-facing behaviour, written for the client's admin; it is also your feature map.
 5. **DEPLOYMENT.md** and **INSTALLER.md** — how an instance reaches production and how a new client instance is stood up.
 6. **DESIGN.md** (Nabd) and **BAYAN.md** — how Pulse looks and how it speaks Arabic; `npm run lint:ar` fails the build on register drift.
-7. The briefs, when you touch their territory: **PERSONA-AUDIT.md**, **RED-TEAM-BRIEF.md**, **CMO** material inside the masterplan, **OSINT-BRIEF.md**, **WAVE-3-BRIEF.md**, **W2A-EXECUTION-BRIEF.md**, **SOCIAL-API-BRIEF.md**, **MMM-STAGE2-BRIEF.md**, **SOC2-BRIEF.md**.
+7. The briefs, when you touch their territory: **PERSONA-AUDIT.md**, **RED-TEAM-BRIEF.md**, **CMO** material inside the masterplan, **OSINT-BRIEF.md**, **WAVE-3-BRIEF.md**, **W2A-EXECUTION-BRIEF.md**, **SOCIAL-API-BRIEF.md**, **MMM-STAGE2-BRIEF.md**, **SOC2-BRIEF.md**, **UX-LANGUAGE-BRIEF.md**, **NERVE-BRIEF.md**.
 8. **CONTINUITY.md** — this file; `npm run continuity:check` asserts it references every script and every root document, so neither can quietly outgrow it.
 
 ## Systems & access register — honest, no secrets in this file
@@ -39,7 +39,7 @@ Every **Founder only** row above is the risk. Rotations: `npm run secrets:audit`
 
 ## Operations index — every command, one line each
 
-`npm run dev` local API with reload · `npm start` production API · `npm run db:apply` apply schema (`supabase/setup.sql` fresh, `supabase/migrations/APPLY-LATEST.sql` on existing) · `npm run seed` generic starter data · `npm run seed:demo` full demo instance (113/113 tables covered) · `npm test` the whole regression · `npm run docs:census` regenerate the table census · `npm run docs:check` fail if docs and schema diverge · `npm run lint:ar` Bayan Arabic lint · `npm run secrets:migrate` / `secrets:audit` / `secrets:rotate` as above · `npm run soc2:evidence` dated audit-evidence pack · `npm run continuity:drill` the recovery rehearsal · `npm run continuity:check` this file's completeness gate.
+`npm run dev` local API with reload · `npm start` production API · `npm run db:apply` apply schema (`supabase/setup.sql` fresh, `supabase/migrations/APPLY-LATEST.sql` on existing) · `npm run seed` generic starter data · `npm run seed:demo` full demo instance (113/113 tables covered) · `npm test` the whole regression · `npm run docs:census` regenerate the table census · `npm run docs:check` fail if docs and schema diverge · `npm run lint:ar` Bayan Arabic lint · `npm run secrets:migrate` / `secrets:audit` / `secrets:rotate` as above · `npm run soc2:evidence` dated audit-evidence pack · `npm run continuity:drill` the recovery rehearsal · `npm run continuity:check` this file's completeness gate · `npm run coverage:ui` every backend rail has a UI consumer, a named reason, or a dated debt line — orphans fail CI · `npm run nav:check` routes, menu, dictionary, module flags, and icons reconciled, groups in canonical order — a broken menu contract fails CI.
 
 ## Incident quick cards
 

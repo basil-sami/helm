@@ -12,6 +12,7 @@ interface Block { kind: string; heading?: string; headingAr?: string; sub?: stri
   body?: string; bodyAr?: string; label?: string; labelAr?: string;
   items?: { t: string; tAr?: string; d?: string; dAr?: string }[] }
 interface Payload { slug: string; title: string; titleAr?: string; blocks: Block[];
+  theme?: { primary?: string } | string;
   org: { orgName?: string; orgNameAr?: string; logoUrl?: string; accentColor?: string } | null; form: PubForm | null }
 
 export default function LandingPublic({ slug }: { slug: string }) {
@@ -46,6 +47,10 @@ export default function LandingPublic({ slug }: { slug: string }) {
     );
   }
 
+  const themeObj: { primary?: string } = (typeof data?.theme === "string" ? (() => { try { return JSON.parse(data.theme as string); } catch { return {}; } })() : (data?.theme as { primary?: string })) || {};
+  const okHex = (v?: string) => /^#[0-9a-fA-F]{6}$/.test(v || "");
+  const accent = okHex(themeObj.primary) ? themeObj.primary! : okHex(data?.org?.accentColor) ? data!.org!.accentColor! : "#f59e0b";
+
   return (
     <div className="min-h-dvh bg-paper-50">
       {wave && <ConfirmationWave text={tr("pf_received")} />}
@@ -64,7 +69,7 @@ export default function LandingPublic({ slug }: { slug: string }) {
           <header key={i} className="bg-ink-950 px-5 pb-14 pt-10 text-center text-paper-50">
             <h1 className="mx-auto max-w-2xl text-3xl font-bold leading-tight sm:text-4xl">{L(b.heading, b.headingAr)}</h1>
             {(b.sub || b.subAr) && <p className="mx-auto mt-3 max-w-xl text-paper-50/65">{L(b.sub, b.subAr)}</p>}
-            <svg viewBox="0 0 200 24" className="mx-auto mt-8 h-6 w-56 text-amber-500 opacity-80" aria-hidden="true">
+            <svg viewBox="0 0 200 24" className="mx-auto mt-8 h-6 w-56 opacity-80" style={{ color: accent }} aria-hidden="true">
               <path d="M0 12 H62 L72 12 78 3 86 21 94 12 H200" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </header>
@@ -88,7 +93,7 @@ export default function LandingPublic({ slug }: { slug: string }) {
         );
         if (b.kind === "CTA") return (
           <section key={i} className="px-5 py-6 text-center">
-            <button onClick={() => formRef.current?.scrollIntoView({ behavior: "smooth" })} className="btn-amber px-8 py-3 text-base">
+            <button onClick={() => formRef.current?.scrollIntoView({ behavior: "smooth" })} className="rounded-xl px-8 py-3 text-base font-semibold text-ink-950" style={{ backgroundColor: accent }}>
               {L(b.label, b.labelAr) || tr("pf_send")}
             </button>
           </section>

@@ -25,6 +25,15 @@ export default function Studio() {
   const { can } = useAuth();
   const w = can("studio", "write");
   const { data: reqs, reload } = useFetch<Req[]>("/creative-requests");
+  const { data: briefs, reload: reloadBr } = useFetch<{ id: string; title: string; format?: string; dueDate?: string; requestId?: string; engagementId?: string; spec?: string }[]>("/creative-briefs");
+  const { data: brEngs } = useFetch<{ id: string; title: string; vendorName?: string }[]>("/engagements");
+  const [brNew, setBrNew] = useState<{ title: string; requestId?: string; engagementId?: string; format: string; dueDate: string; spec: string } | null>(null);
+  const [brErr, setBrErr] = useState("");
+  const saveBrief = async () => {
+    if (!brNew?.title) return;
+    try { await api.post("/creative-briefs", brNew); setBrNew(null); setBrErr(""); reloadBr(); }
+    catch (e) { setBrErr((e as Error).message); }
+  };
   const { data: users } = useFetch<UserRow[]>("/users");
   const [editing, setEditing] = useState<Partial<Req> | null>(null);
   const [err, setErr] = useState("");
@@ -118,6 +127,46 @@ export default function Studio() {
           </div>
         )}
       </Modal>
+
+      {/* ── the briefs rail gets its door ── */}
+      <Card>
+        <SectionTitle action={<button onClick={() => setBrNew({ title: "", format: "", dueDate: "", spec: "" })} className="btn-ghost text-xs">+ {tr("br_new")}</button>}>
+          📋 {tr("br_title")}
+        </SectionTitle>
+        <p className="-mt-1 mb-2 text-xs text-ink-500">{tr("br_sub")}</p>
+        {brErr && <p className="mb-2 text-xs text-clay-600" dir="auto">{brErr}</p>}
+        <div className="space-y-1.5">
+          {(briefs || []).slice(0, 10).map((b) => (
+            <div key={b.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-paper-200 bg-white px-2.5 py-1.5 text-xs">
+              <span className="min-w-0 truncate font-medium text-ink-800">{b.title}
+                {b.format && <span className="ms-2 text-[10px] text-ink-400" dir="ltr">{b.format}</span>}
+              </span>
+              {b.dueDate && <span className="kpi-num shrink-0 text-[11px] text-ink-400" dir="ltr">{b.dueDate.slice(0, 10)}</span>}
+            </div>
+          ))}
+          {briefs && briefs.length === 0 && <p className="text-xs text-ink-400">{tr("br_none")}</p>}
+        </div>
+        {brNew && (
+          <div className="mt-3 space-y-2">
+            <input className="input" placeholder={tr("title")} value={brNew.title} onChange={(e) => setBrNew({ ...brNew, title: e.target.value })} />
+            <div className="grid grid-cols-2 gap-2">
+              <Select value={brNew.requestId || ""} onChange={(v: string) => setBrNew({ ...brNew, requestId: v || undefined, engagementId: undefined })} placeholder={tr("br_forRequest")}
+                options={(reqs || []).map((r: { id: string; title: string }) => ({ value: r.id, label: r.title }))} />
+              <Select value={brNew.engagementId || ""} onChange={(v: string) => setBrNew({ ...brNew, engagementId: v || undefined, requestId: undefined })} placeholder={tr("br_forEngagement")}
+                options={(brEngs || []).map((e) => ({ value: e.id, label: `${e.vendorName || ""} — ${e.title}` }))} />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <input className="input" dir="ltr" placeholder="1080×1350 / 30s…" value={brNew.format} onChange={(e) => setBrNew({ ...brNew, format: e.target.value })} />
+              <input type="date" className="input" value={brNew.dueDate} onChange={(e) => setBrNew({ ...brNew, dueDate: e.target.value })} />
+            </div>
+            <textarea className="input min-h-20 text-xs" placeholder={tr("br_specPh")} value={brNew.spec} onChange={(e) => setBrNew({ ...brNew, spec: e.target.value })} />
+            <div className="flex gap-2">
+              <button onClick={saveBrief} className="btn-amber text-xs">{tr("save")}</button>
+              <button onClick={() => setBrNew(null)} className="btn-ghost text-xs">{tr("cancel")}</button>
+            </div>
+          </div>
+        )}
+      </Card>
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import { useToast } from "../components/Toast";
 import { api } from "../lib/api";
 import { fmtDate } from "../lib/format";
+import { Modal } from "../components/ui";
 
 interface Link { id: string; code: string; url: string; campaignId?: string; campaignName?: string; channel?: string; clicks: number; lastClickAt?: string; createdAt: string }
 interface CampaignRow { id: string; name: string }
@@ -17,6 +18,11 @@ export default function Links() {
   const { data: campaigns } = useFetch<CampaignRow[]>("/campaigns");
   const [form, setForm] = useState({ url: "", code: "", campaignId: "", channel: "" });
   const [saving, setSaving] = useState(false);
+  const [qr, setQr] = useState<{ dataUrl: string; code: string } | null>(null);
+  const showQr = async (l: Link) => {
+    try { const d = await api.get<{ dataUrl: string }>(`/links/${l.id}/qr`); setQr({ dataUrl: d.dataUrl, code: l.code }); }
+    catch { toast.push(tr("saveError"), "error"); }
+  };
 
   const create = async () => {
     if (!/^https?:\/\/.+/.test(form.url)) return toast.push(tr("saveError"), "error");
@@ -78,6 +84,7 @@ export default function Links() {
                   <td className="px-4 py-3"><span className="kpi-num text-ink-800">{l.clicks}</span>
                     {l.lastClickAt && <span className="ms-2 text-[11px] text-ink-400">{fmtDate(l.lastClickAt, lang)}</span>}</td>
                   <td className="px-4 py-3 text-end">
+                    <button onClick={() => showQr(l)} className="rounded-lg bg-ink-900 px-2 py-0.5 text-[11px] font-medium text-paper-50">⬛ QR</button>
                     <button onClick={() => copy(l.code)} className="text-xs text-steel-600 hover:underline">{tr("lk_copy")}</button>
                     {can("campaigns") && <button onClick={async () => { if (confirm(tr("confirmDelete"))) { await api.del(`/links/${l.id}`); reload(); } }} className="ms-3 text-xs text-clay-600 hover:underline">{tr("delete")}</button>}
                   </td>
@@ -87,6 +94,15 @@ export default function Links() {
           </table></div>
         )}
       </Card>
+
+      <Modal open={!!qr} onClose={() => setQr(null)} title={qr ? `/r/${qr.code}` : ""}>
+        {qr && (
+          <div className="text-center">
+            <img src={qr.dataUrl} alt="QR" className="mx-auto h-52 w-52 rounded-xl border border-paper-200 bg-white p-2" />
+            <p className="mt-2 text-xs text-ink-500" dir="auto">{tr("lk_qrHint")}</p>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

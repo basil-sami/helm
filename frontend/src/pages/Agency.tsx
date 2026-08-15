@@ -3,6 +3,7 @@ import { Card, SectionTitle, Field, Select, Modal, StatusPill, Empty, SkeletonRo
 import { useAuth } from "../context/AuthContext";
 import { useI18n } from "../context/I18nContext";
 import { api } from "../lib/api";
+import { useToast } from "../components/Toast";
 import { fmtDate, daysUntil } from "../lib/format";
 
 // ── AGENCY — external vendor management ──────────────────────────────
@@ -10,7 +11,8 @@ import { fmtDate, daysUntil } from "../lib/format";
 // become data) · invoices→budget bridge · magic-link portal tokens.
 
 interface Vendor { id: string; name: string; kind: string; phone?: string; email?: string; notes?: string; active: boolean }
-interface Engagement { id: string; vendorId: string; vendorName?: string; title: string; scope?: string; feeUsd: number; startDate?: string; endDate?: string; status: string; ownerName?: string }
+interface Engagement { id: string; vendorId: string; vendorName?: string; title: string; scope?: string; feeUsd: number; startDate?: string; endDate?: string; status: string; ownerName?: string 
+  campaignIds?: string[];}
 interface Deliv { id: string; engagementId: string; engagementTitle?: string; vendorName?: string; title: string; briefTitle?: string; dueDate?: string; status: string; revisionCount: number; submittedUrl?: string; submittedAt?: string }
 interface Invoice { id: string; vendorId: string; vendorName?: string; engagementTitle?: string; number: string; amountUsd: number; rateAtEntry?: number; status: string; paidAt?: string }
 interface Approval { id: string; entity: string; entityId: string; status: string }
@@ -21,6 +23,8 @@ interface Comment { id: string; author: string; authorName: string; body: string
 const DNEXT: Record<string, string[]> = { BRIEFED: ["IN_PROGRESS"], IN_PROGRESS: ["SUBMITTED"], SUBMITTED: ["IN_REVIEW"], REVISION: ["IN_PROGRESS"] };
 
 export default function Agency() {
+  const { tr } = useI18n();
+  const toast = useToast();
   const { can } = useAuth();
   const w = can("agency", "write");
   const { data: vendors, reload: reloadV } = useFetch<Vendor[]>("/vendors");
@@ -31,7 +35,8 @@ export default function Agency() {
   const reloadAll = () => { reloadV(); reloadE(); reloadD(); reloadI(); reloadA(); };
   const pendingFor = (entity: string, id: string) => (approvals || []).find((a) => a.entity === entity && a.entityId === id);
   const decide = async (apId: string, status: "APPROVED" | "REJECTED", note?: string) => {
-    await api.post(`/approvals/${apId}/decide`, { status, note });
+    try { await api.post(`/approvals/${apId}/decide`, { status, note }); }
+    catch (e) { return toast.push((e as Error).message || tr("saveError"), "error"); }
     reloadAll();
   };
 
@@ -46,18 +51,23 @@ export default function Agency() {
 
 // ── Vendors + scorecard + tokens + engagements ───────────────────────
 function Vendors({ vendors, engagements, canWrite, reload }: { vendors: Vendor[] | null; engagements: Engagement[] | null; canWrite: boolean; reload: () => void }) {
+  const toast = useToast();
+  const { data: vCamps } = useFetch<{ id: string; name: string; nameAr?: string }[]>("/campaigns");
   const { lang, tr, el } = useI18n();
   const [editing, setEditing] = useState<Partial<Vendor> | null>(null);
   const [open, setOpen] = useState<Vendor | null>(null);
   const [newEng, setNewEng] = useState<Partial<Engagement> | null>(null);
   const save = async () => {
     if (!editing?.name) return;
-    if (editing.id) await api.patch(`/vendors/${editing.id}`, editing); else await api.post("/vendors", editing);
-    setEditing(null); reload();
+    try {
+      if (editing.id) await api.patch(`/vendors/${editing.id}`, editing); else await api.post("/vendors", editing);
+      setEditing(null); reload(); toast.push(tr("saved"), "success");
+    } catch (e) { toast.push((e as Error).message || tr("saveError"), "error"); }
   };
   const saveEng = async () => {
     if (!newEng?.title || !newEng.vendorId) return;
-    await api.post("/engagements", newEng); setNewEng(null); reload();
+    try { await api.post("/engagements", newEng); setNewEng(null); reload(); toast.push(tr("saved"), "success"); }
+    catch (e) { toast.push((e as Error).message || tr("saveError"), "error"); }
   };
   return (
     <Card>
@@ -89,6 +99,23 @@ function Vendors({ vendors, engagements, canWrite, reload }: { vendors: Vendor[]
       <Modal open={!!open} onClose={() => setOpen(null)} title={open?.name || ""}
         footer={canWrite ? <><button onClick={() => { setEditing(open); setOpen(null); }} className="btn-ghost me-auto">{tr("edit")}</button><button onClick={() => setOpen(null)} className="btn-ghost">{tr("close")}</button></> : undefined}>
         {open && <VendorDrawer vendor={open} engagements={(engagements || []).filter((e) => e.vendorId === open.id)} canWrite={canWrite} onNewEng={() => { setNewEng({ vendorId: open.id, status: "ACTIVE" }); setOpen(null); }} />}
+            <div>
+              <span className="label">{tr("fin_linkCampaigns")}</span>
+              <div className="max-h-28 space-y-1 overflow-y-auto rounded-xl border border-paper-200 bg-white p-2">
+                {(vCamps || []).map((c) => (
+                  <label key={c.id} className="flex items-center gap-2 text-xs text-ink-700">
+                    <input type="checkbox"
+                      checked={((newEng?.campaignIds as string[]) || []).includes(c.id)}
+                      onChange={(e) => {
+                        const cur = ((newEng?.campaignIds as string[]) || []);
+                        setNewEng({ ...newEng!, campaignIds: e.target.checked ? [...cur, c.id] : cur.filter((x) => x !== c.id) });
+                      }} />
+                    <span className="truncate">{lang === "ar" && c.nameAr ? c.nameAr : c.name}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
       </Modal>
 
       <Modal open={!!editing} onClose={() => setEditing(null)} title={editing?.id ? tr("edit") : tr("ag_newVendor")}
@@ -138,18 +165,25 @@ function Vendors({ vendors, engagements, canWrite, reload }: { vendors: Vendor[]
 }
 
 function VendorDrawer({ vendor, engagements, canWrite, onNewEng }: { vendor: Vendor; engagements: Engagement[]; canWrite: boolean; onNewEng: () => void }) {
+  const toast = useToast();
   const { lang, tr, el } = useI18n();
   const { data: sc } = useFetch<Scorecard>(`/vendors/${vendor.id}/scorecard`, [vendor.id]);
   const { data: tokens, reload: reloadT } = useFetch<Token[]>(`/agency/tokens?vendorId=${vendor.id}`, [vendor.id]);
   const [days, setDays] = useState("30");
   const [minted, setMinted] = useState("");
+  const [mintQr, setMintQr] = useState("");
   const mint = async () => {
-    const r = await api.post<Token & { link: string }>("/agency/tokens", { vendorId: vendor.id, days: Number(days) });
-    const url = `${window.location.origin}${r.link}`;
-    setMinted(url); try { await navigator.clipboard.writeText(url); } catch { /* clipboard optional */ }
-    reloadT();
+    try {
+      const r = await api.post<Token & { link: string; dataUrl?: string }>("/agency/tokens", { vendorId: vendor.id, days: Number(days) });
+      const url = `${window.location.origin}${r.link}`;
+      setMinted(url); setMintQr(r.dataUrl || ""); try { await navigator.clipboard.writeText(url); } catch { /* clipboard optional */ }
+      reloadT();
+    } catch (e) { toast.push((e as Error).message || tr("saveError"), "error"); }
   };
-  const revoke = async (t: Token) => { await api.post(`/agency/tokens/${t.id}/revoke`, {}); reloadT(); };
+  const revoke = async (t: Token) => {
+    try { await api.post(`/agency/tokens/${t.id}/revoke`, {}); reloadT(); }
+    catch (e) { toast.push((e as Error).message || tr("deleteError"), "error"); }
+  };
   const live = (tokens || []).filter((t) => !t.revoked && new Date(t.expiresAt) > new Date());
   return (
     <div className="space-y-4">
@@ -191,6 +225,12 @@ function VendorDrawer({ vendor, engagements, canWrite, onNewEng }: { vendor: Ven
             <button onClick={mint} className="btn-amber text-xs">{tr("ag_mintLink")}</button>
           </div>
           {minted && <div className="mt-2 break-all rounded-lg bg-white px-2 py-1.5 text-[11px] text-moss-600" dir="ltr">✓ {tr("ag_copied")} · {minted}</div>}
+          {mintQr && (
+            <div className="mt-2 text-center">
+              <img src={mintQr} alt="QR" className="mx-auto h-36 w-36 rounded-xl border border-paper-200 bg-white p-1.5" />
+              <p className="mt-1 text-[10px] text-ink-400" dir="auto">{tr("ag_qrOnce")}</p>
+            </div>
+          )}
           {live.length > 0 && (
             <div className="mt-2 space-y-1">
               {live.map((t) => (
@@ -222,16 +262,23 @@ function Deliverables({ delivs, engagements, canWrite, reload, pendingFor, decid
   pendingFor: (e: string, id: string) => Approval | undefined;
   decide: (apId: string, s: "APPROVED" | "REJECTED", note?: string) => Promise<void>;
 }) {
+  const toast = useToast();
   const { lang, tr, el } = useI18n();
   const [editing, setEditing] = useState<Partial<Deliv> | null>(null);
   const [thread, setThread] = useState<Deliv | null>(null);
   const [revising, setRevising] = useState<{ apId: string; note: string } | null>(null);
   const save = async () => {
     if (!editing?.title || !editing.engagementId) return;
-    if (editing.id) await api.patch(`/deliverables/${editing.id}`, editing); else await api.post("/deliverables", editing);
+    try {
+      if (editing.id) await api.patch(`/deliverables/${editing.id}`, editing); else await api.post("/deliverables", editing);
+      toast.push(tr("saved"), "success");
+    } catch (e) { return toast.push((e as Error).message || tr("saveError"), "error"); }
     setEditing(null); reload();
   };
-  const advance = async (d: Deliv, to: string) => { await api.patch(`/deliverables/${d.id}`, { status: to }); reload(); };
+  const advance = async (d: Deliv, to: string) => {
+    try { await api.patch(`/deliverables/${d.id}`, { status: to }); reload(); }
+    catch (e) { toast.push((e as Error).message || tr("saveError"), "error"); }
+  };
   return (
     <Card>
       <SectionTitle action={canWrite && (engagements?.length || 0) > 0 && <button onClick={() => setEditing({ engagementId: engagements![0].id })} className="btn-ghost text-xs">+ {tr("add")}</button>}>
@@ -311,12 +358,14 @@ function Deliverables({ delivs, engagements, canWrite, reload, pendingFor, decid
 }
 
 function Thread({ deliv, canWrite }: { deliv: Deliv; canWrite: boolean }) {
+  const toast = useToast();
   const { lang, tr } = useI18n();
   const { data: comments, reload } = useFetch<Comment[]>(`/deliverables/${deliv.id}/comments`, [deliv.id]);
   const [body, setBody] = useState("");
   const post = async () => {
     if (!body.trim()) return;
-    await api.post(`/deliverables/${deliv.id}/comments`, { body }); setBody(""); reload();
+    try { await api.post(`/deliverables/${deliv.id}/comments`, { body }); setBody(""); reload(); }
+    catch (e) { toast.push((e as Error).message || tr("saveError"), "error"); }
   };
   return (
     <div className="space-y-3">
@@ -345,6 +394,7 @@ function Invoices({ invoices, vendors, engagements, canWrite, reload, pendingFor
   pendingFor: (e: string, id: string) => Approval | undefined;
   decide: (apId: string, s: "APPROVED" | "REJECTED", note?: string) => Promise<void>;
 }) {
+  const toast = useToast();
   const { lang, tr } = useI18n();
   const [adding, setAdding] = useState<Partial<Invoice & { engagementId?: string }> | null>(null);
   const save = async () => {

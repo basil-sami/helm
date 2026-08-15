@@ -1,4 +1,4 @@
-import { all, get, run } from "./db.js";
+import { all, get, run, tx } from "./db.js";
 import { evalCond } from "./automate-engine.js";
 
 // ═══ W4·B · THE DATA FOUNDATION ═══════════════════════════════════════
@@ -107,17 +107,26 @@ export function buildRows(job) {
     if (i !== -1) idx[field] = i;
   }
   const out = [], errors = [];
-  rows.slice(1).forEach((cells, n) => {
+  rows.slice(1).forEach((cells, rowIdx) => {
     const rec = {};
+    let rowError = null;
     for (const [field, spec] of Object.entries(target.fields)) {
       let v = idx[field] !== undefined ? cells[idx[field]] : undefined;
       if ((v === undefined || v === "") && spec.default !== undefined) v = spec.default;
       if (v === undefined || v === "") { rec[field] = null; continue; }
-      rec[field] = spec.number ? (Number.isFinite(parseFloat(v)) ? parseFloat(v) : null) : String(v).slice(0, 500);
+      if (spec.number) {
+        const num = parseFloat(v);
+        // A number field that cannot parse is a per-row ERROR, never a
+        // silent null — a null here once sailed through validation and
+        // detonated at commit against a NOT NULL column.
+        if (!Number.isFinite(num)) { rowError = `${field} must be a number, got "${String(v).slice(0, 40)}"`; break; }
+        rec[field] = num;
+      } else rec[field] = String(v).slice(0, 500);
     }
+    if (rowError) { errors.push({ row: rowIdx + 2, reason: rowError }); return; }
     const missing = target.required.filter((f) => rec[f] === null || rec[f] === undefined || rec[f] === "");
-    if (missing.length) errors.push({ row: n + 2, reason: `missing required: ${missing.join(", ")}` });
-    else out.push({ row: n + 2, rec });
+    if (missing.length) errors.push({ row: rowIdx + 2, reason: `missing required: ${missing.join(", ")}` });
+    else out.push({ row: rowIdx + 2, rec });
   });
   return { rows: out, errors };
 }
@@ -160,37 +169,47 @@ export async function previewImport(job) {
 export async function commitImport(job, userId) {
   const target = IMPORT_TARGETS[job.entity];
   const { marked } = await previewImport(job);
-  let created = 0, updated = 0, skipped = 0;
-  for (const r of marked) {
-    if (r.duplicate === "file") { skipped++; continue; }
-    if (r.duplicate === "db") {
-      if (job.mergeStrategy === "skip") { skipped++; continue; }
-      const sets = [], vals = [r.existingId];
-      for (const [f, v] of Object.entries(r.rec)) {
-        if (v === null && job.mergeStrategy === "merge") continue; // merge never overwrites with blanks
-        vals.push(v); sets.push(`"${f}" = $${vals.length}`);
+  // All rows or none of them: a mid-commit failure must never leave the
+  // job half-applied while its status still claims PREVIEWED.
+  return tx(async (t) => {
+    let created = 0, updated = 0, skipped = 0;
+    for (const r of marked) {
+      if (r.duplicate === "file") { skipped++; continue; }
+      if (r.duplicate === "db") {
+        if (job.mergeStrategy === "skip") { skipped++; continue; }
+        const sets = [], vals = [r.existingId];
+        for (const [f, v] of Object.entries(r.rec)) {
+          if (v === null && job.mergeStrategy === "merge") continue; // merge never overwrites with blanks
+          vals.push(v); sets.push(`"${f}" = $${vals.length}`);
+        }
+        if (sets.length) { await t.run(`UPDATE ${target.table} SET ${sets.join(", ")} WHERE id = $1`, vals); updated++; }
+        else skipped++;
+        continue;
       }
-      if (sets.length) { await run(`UPDATE ${target.table} SET ${sets.join(", ")} WHERE id = $1`, vals); updated++; }
-      else skipped++;
-      continue;
+      // Null columns are OMITTED so database defaults apply — an explicit
+      // null bypasses DEFAULT and detonates on NOT NULL columns.
+      const entries = Object.entries(r.rec).filter(([, v]) => v !== null);
+      const cols = entries.map(([c]) => c), vals = entries.map(([, v]) => v);
+      await t.run(`INSERT INTO ${target.table} (${cols.map((c) => `"${c}"`).join(", ")})
+                 VALUES (${cols.map((_, i) => `$${i + 1}`).join(", ")})`, vals);
+      created++;
+      // Consent is recorded at the moment of import, not assumed afterwards.
+      if (job.consentBasis && (r.rec.email || r.rec.phone) && job.entity !== "contacts") {
+        // Inside the transaction a failed statement aborts everything, so
+        // the optional consent echo gets its own savepoint.
+        await t.run("SAVEPOINT consent_sp");
+        try {
+          const entry = JSON.stringify([{ basis: job.consentBasis, source: job.consentSource || "IMPORT",
+                                          at: new Date().toISOString(), via: "import" }]);
+          await t.run(
+            `INSERT INTO contacts (name, email, phone, company, consent) VALUES ($1,$2,$3,$4,$5::jsonb)`,
+            [r.rec.contactName || r.rec.name || r.rec.company || "—", r.rec.email || null,
+             r.rec.phone || null, r.rec.company || null, entry]);
+        } catch { await t.run("ROLLBACK TO SAVEPOINT consent_sp"); }
+      }
     }
-    const cols = Object.keys(r.rec), vals = Object.values(r.rec);
-    await run(`INSERT INTO ${target.table} (${cols.map((c) => `"${c}"`).join(", ")})
-               VALUES (${cols.map((_, i) => `$${i + 1}`).join(", ")})`, vals);
-    created++;
-    // Consent is recorded at the moment of import, not assumed afterwards.
-    if (job.consentBasis && (r.rec.email || r.rec.phone) && job.entity !== "contacts") {
-      // The consent ledger is the existing contacts.consent jsonb array —
-      // one shape for consent in the product, not a second one for imports.
-      const entry = JSON.stringify([{ basis: job.consentBasis, source: job.consentSource || "IMPORT",
-                                      at: new Date().toISOString(), via: "import" }]);
-      await run(
-        `INSERT INTO contacts (name, email, phone, company, consent) VALUES ($1,$2,$3,$4,$5::jsonb)`,
-        [r.rec.contactName || r.rec.name || r.rec.company || "—", r.rec.email || null,
-         r.rec.phone || null, r.rec.company || null, entry]).catch(() => {});
-    }
-  }
-  return { created, updated, skipped };
+    return { created, updated, skipped };
+  });
 }
 
 // ── Segments on the shared predicate engine ──────────────────────────

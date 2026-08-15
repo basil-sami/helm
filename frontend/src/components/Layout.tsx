@@ -11,43 +11,63 @@ import CommandPalette from "./CommandPalette";
 import NotificationsBell from "./NotificationsBell";
 import SecurityModal from "./SecurityModal";
 
-const NAV: { to: string; key: string; icon: string; mod?: string; flag?: string }[] = [
-  { to: "/", key: "nav_dashboard", icon: "grid" },
-  { to: "/morning", key: "nav_morning", icon: "sun" },
-  { to: "/brain", key: "nav_brain", icon: "brain", mod: "brain", flag: "brain" },
-  { to: "/playbooks", key: "nav_playbooks", icon: "scroll", mod: "brain", flag: "brain" },
-  { to: "/analytics", key: "nav_analytics", icon: "chart", mod: "analytics" },
-  { to: "/planning", key: "nav_planning", icon: "compass", mod: "planning", flag: "planning" },
-  { to: "/growth", key: "nav_growth", icon: "sprout", mod: "planning", flag: "planning" },
-  { to: "/campaigns", key: "nav_campaigns", icon: "target", mod: "campaigns" },
-  { to: "/products", key: "nav_products", icon: "box", mod: "campaigns" },
-  { to: "/audience", key: "nav_audience", icon: "persona", mod: "campaigns" },
-  { to: "/links", key: "nav_links", icon: "link", mod: "campaigns" },
-  { to: "/calendar", key: "nav_calendar", icon: "calendar" },
-  { to: "/publish", key: "nav_publish", icon: "send", mod: "publish", flag: "publish" },
-  { to: "/leads", key: "nav_leads", icon: "users", mod: "leads" },
-  { to: "/customers", key: "nav_customers", icon: "handshake", mod: "leads" },
-  { to: "/events", key: "nav_events", icon: "flag", mod: "events", flag: "events" },
-  { to: "/budget", key: "nav_budget", icon: "coins", mod: "budget" },
-  { to: "/tasks", key: "nav_tasks", icon: "check", mod: "tasks" },
-  { to: "/social", key: "nav_social", icon: "share", mod: "social", flag: "social" },
-  { to: "/inbox", key: "nav_inbox", icon: "tray", mod: "social", flag: "social" },
-  { to: "/media", key: "nav_media", icon: "megaphone", mod: "social", flag: "media" },
-  { to: "/media-plans", key: "nav_mediaplans", icon: "qr", mod: "media", flag: "media" },
-  { to: "/listening", key: "nav_listening", icon: "pulse", mod: "__listening", flag: "listening" },
-  { to: "/intel", key: "nav_intel", icon: "radar", mod: "intel", flag: "intel" },
-  { to: "/web", key: "nav_web", icon: "globe", mod: "intel", flag: "intel" },
-  { to: "/studio", key: "nav_studio", icon: "palette", mod: "studio", flag: "studio" },
-  { to: "/library", key: "nav_library", icon: "folder", mod: "content", flag: "content" },
-  { to: "/agency", key: "nav_agency", icon: "briefcase", mod: "agency", flag: "agency" },
-  { to: "/approvals", key: "nav_approvals", icon: "stamp" },
-  { to: "/contacts", key: "nav_contacts", icon: "book", mod: "leads" },
-  { to: "/automate", key: "nav_automate", icon: "zap", mod: "automate", flag: "automate" },
-  { to: "/reach", key: "nav_reach", icon: "wave", mod: "reach", flag: "reach" },
-  { to: "/forms", key: "nav_forms", icon: "form", mod: "automate", flag: "automate" },
-  { to: "/pages", key: "nav_pages", icon: "layout", mod: "automate", flag: "automate" },
-  { to: "/surveys", key: "nav_surveys", icon: "poll", mod: "research", flag: "research" },
+type NavItem = { to: string; key: string; icon: string; mod?: string; flag?: string };
+// W4·NAV — seven groups, nothing lost, one thing found: /report had no
+// menu entry at all until this registry. Filtering rules are unchanged
+// (module flags + permissions); a group whose items are all hidden
+// disappears whole.
+const NAV_GROUPS: { key: string; items: NavItem[] }[] = [
+  { key: "navg_day", items: [
+    { to: "/", key: "nav_dashboard", icon: "grid" },
+    { to: "/morning", key: "nav_morning", icon: "sun" },
+    { to: "/tasks", key: "nav_tasks", icon: "check", mod: "tasks" },
+    { to: "/approvals", key: "nav_approvals", icon: "stamp" },
+    { to: "/inbox", key: "nav_inbox", icon: "tray", mod: "social", flag: "social" },
+  ]},
+  { key: "navg_plan", items: [
+    { to: "/planning", key: "nav_planning", icon: "compass", mod: "planning", flag: "planning" },
+    { to: "/growth", key: "nav_growth", icon: "sprout", mod: "planning", flag: "planning" },
+    { to: "/campaigns", key: "nav_campaigns", icon: "target", mod: "campaigns" },
+    { to: "/calendar", key: "nav_calendar", icon: "calendar" },
+    { to: "/events", key: "nav_events", icon: "flag", mod: "events", flag: "events" },
+    { to: "/budget", key: "nav_budget", icon: "coins", mod: "budget" },
+    { to: "/media-plans", key: "nav_mediaplans", icon: "qr", mod: "media", flag: "media" },
+    { to: "/playbooks", key: "nav_playbooks", icon: "scroll", mod: "brain", flag: "brain" },
+    { to: "/audience", key: "nav_audience", icon: "persona", mod: "campaigns" },
+    { to: "/products", key: "nav_products", icon: "box", mod: "campaigns" },
+  ]},
+  { key: "navg_create", items: [
+    { to: "/publish", key: "nav_publish", icon: "send", mod: "publish", flag: "publish" },
+    { to: "/studio", key: "nav_studio", icon: "palette", mod: "studio", flag: "studio" },
+    { to: "/library", key: "nav_library", icon: "folder", mod: "content" },
+    { to: "/social", key: "nav_social", icon: "share", mod: "social", flag: "social" },
+    { to: "/links", key: "nav_links", icon: "link", mod: "campaigns" },
+  ]},
+  { key: "navg_capture", items: [
+    { to: "/forms", key: "nav_forms", icon: "form", mod: "automate", flag: "automate" },
+    { to: "/pages", key: "nav_pages", icon: "layout", mod: "automate", flag: "automate" },
+    { to: "/surveys", key: "nav_surveys", icon: "poll", mod: "research", flag: "research" },
+    { to: "/automate", key: "nav_automate", icon: "zap", mod: "automate", flag: "automate" },
+    { to: "/leads", key: "nav_leads", icon: "users", mod: "leads" },
+    { to: "/customers", key: "nav_customers", icon: "handshake", mod: "leads" },
+    { to: "/contacts", key: "nav_contacts", icon: "book", mod: "leads" },
+  ]},
+  { key: "navg_insight", items: [
+    { to: "/analytics", key: "nav_analytics", icon: "chart", mod: "analytics" },
+    { to: "/report", key: "nav_report", icon: "doc", mod: "analytics" },
+    { to: "/web", key: "nav_web", icon: "globe", mod: "intel", flag: "intel" },
+    { to: "/listening", key: "nav_listening", icon: "pulse", mod: "__listening", flag: "listening" },
+    { to: "/intel", key: "nav_intel", icon: "radar", mod: "intel", flag: "intel" },
+    { to: "/brain", key: "nav_brain", icon: "brain", mod: "brain", flag: "brain" },
+  ]},
+  { key: "navg_partners", items: [
+    { to: "/agency", key: "nav_agency", icon: "briefcase", mod: "agency", flag: "agency" },
+    { to: "/media", key: "nav_media", icon: "megaphone", mod: "social", flag: "media" },
+    { to: "/reach", key: "nav_reach", icon: "wave", mod: "reach", flag: "reach" },
+  ]},
 ];
+// Kept for the mobile tab bar and any flat consumers.
+export const NAV: NavItem[] = NAV_GROUPS.flatMap((g) => g.items);
 
 function Icon({ name }: { name: string }) {
   const common = "h-[18px] w-[18px]";
@@ -100,6 +120,8 @@ function Icon({ name }: { name: string }) {
       return (<svg className={common} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 12.5l5 5L20 6"/></svg>);
     case "share":
       return (<svg className={common} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8.2 10.8l7.6-3.6M8.2 13.2l7.6 3.6"/></svg>);
+    case "doc":
+      return (<svg className={common} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M6 2h9l4 4v16H6z"/><path d="M15 2v4h4M9 12h6M9 16h6"/></svg>);
     case "shield":
       return (<svg className={common} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"/></svg>);
     case "book":
@@ -138,16 +160,23 @@ export default function Layout({ children }: { children: ReactNode }) {
   const { lang, tr, toggle, el } = useI18n();
   const loc = useLocation();
   const orgLabel = (lang === "ar" ? branding.orgNameAr || branding.orgName : branding.orgName) || tr("appName");
-  const visible = NAV.filter((i) => {
+  const itemVisible = (i: NavItem) => {
     if (i.flag && !moduleOn(i.flag)) return false; // client's plan hides the territory
     if (!i.mod) return true;
     if (i.mod === "__listening") return can("intel", "read") || can("social", "read");
     return can(i.mod, "read");
-  });
-  const nav = isAdmin
-    ? [...visible, { to: "/users", key: "nav_users", icon: "shield" },
-       { to: "/system", key: "nav_system", icon: "pulse-line" }, { to: "/settings", key: "nav_settings", icon: "grid" }]
-    : visible;
+  };
+  const groups = NAV_GROUPS
+    .map((g) => ({ key: g.key, items: g.items.filter(itemVisible) }))
+    .filter((g) => g.items.length > 0);
+  if (isAdmin) {
+    groups.push({ key: "navg_admin", items: [
+      { to: "/users", key: "nav_users", icon: "shield" },
+      { to: "/system", key: "nav_system", icon: "pulse-line" },
+      { to: "/settings", key: "nav_settings", icon: "grid" },
+    ]});
+  }
+  const nav = groups.flatMap((g) => g.items);
   const [drawer, setDrawer] = useState(false);
   useEffect(() => { setDrawer(false); }, [loc.pathname]);
   const preferred = ["/calendar", "/tasks", "/leads", "/listening", "/campaigns"];
@@ -166,16 +195,25 @@ export default function Layout({ children }: { children: ReactNode }) {
           </div>
         </div>
 
-        <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
-          {nav.map((item) => {
-            const active = item.to === "/" ? loc.pathname === "/" : loc.pathname.startsWith(item.to);
-            return (
-              <NavLink key={item.to} to={item.to} className={`nav-link ${active ? "nav-link-active" : ""}`}>
-                <Icon name={item.icon} />
-                <span>{tr(item.key)}</span>
-              </NavLink>
-            );
-          })}
+        <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-4">
+          {groups.map((g) => (
+            <div key={g.key}>
+              <div className="mb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.16em] text-paper-200/40">
+                {tr(g.key)}
+              </div>
+              <div className="space-y-1">
+                {g.items.map((item) => {
+                  const active = item.to === "/" ? loc.pathname === "/" : loc.pathname.startsWith(item.to);
+                  return (
+                    <NavLink key={item.to} to={item.to} className={`nav-link ${active ? "nav-link-active" : ""}`}>
+                      <Icon name={item.icon} />
+                      <span>{tr(item.key)}</span>
+                    </NavLink>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </nav>
 
         <div className="border-t border-white/5 p-3">

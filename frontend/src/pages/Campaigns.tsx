@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { useState, useEffect } from "react";
 import { useFetch, StatusPill, Field, Select, Modal, Money } from "../components/ui";
 import { DataTable } from "../components/DataTable";
 import { useToast } from "../components/Toast";
@@ -6,7 +7,6 @@ import { useAuth } from "../context/AuthContext";
 import ExportButton from "../components/ExportButton";
 import { useI18n } from "../context/I18nContext";
 import { api } from "../lib/api";
-import { useEffect } from "react";
 import { fmtMoney } from "../lib/format";
 import { fmtDate, toDateInput } from "../lib/format";
 
@@ -87,8 +87,82 @@ function BriefPanel({ campaignId }: { campaignId: string }) {
 
 export default function Campaigns() {
   const { lang, tr, el } = useI18n();
+  const { can } = useAuth();
   const toast = useToast();
   const { data, loading, reload } = useFetch<Campaign[]>("/campaigns");
+  // W5·NERVE2 — the war room finally gets its screen; the nerve is its
+  // first tenant. Backend has existed since W4·A with no UI consumer —
+  // the interrupted-run pattern, caught by asking "who fetches /room?".
+  const [room, setRoomState] = useState<Campaign | null>(null);
+  const [params, setParams] = useSearchParams();
+  const setRoom = (c: Campaign | null) => {
+    setRoomState(c);
+    setParams(c ? { room: c.id } : {}, { replace: true });
+  };
+  // W5·NERVE4 — the deep-link: /campaigns?room=<id> opens the drawer, so
+  // the Finance Model (and anything else) can point straight at a room.
+  useEffect(() => {
+    if (!room) return;
+    const h = (e: KeyboardEvent) => {
+      if (e.key === "Escape") return setRoom(null);
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      const list = data || [];
+      const i = list.findIndex((x) => x.id === room.id);
+      if (i < 0) return;
+      const step = e.key === "ArrowRight" ? 1 : -1;      // logical order; RTL users read the list top-down anyway
+      const nxt = list[i + step];
+      if (nxt) setRoom(nxt);
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [room, data]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const rid = params.get("room");
+    if (rid && !room && data) {
+      const c = data.find((x) => x.id === rid);
+      if (c) setRoomState(c);
+    }
+  }, [data]);  // eslint-disable-line react-hooks/exhaustive-deps
+  const [bump, setBump] = useState(0);
+  const [toState, setToState] = useState<string | null>(null);  // pending transition target
+  const [learnings, setLearnings] = useState("");
+  const [transErr, setTransErr] = useState("");
+  const [alLabel, setAlLabel] = useState("");
+  const [alAmount, setAlAmount] = useState("");
+  const [alChannel, setAlChannel] = useState("PAID");
+  const [alSdg, setAlSdg] = useState("");
+  const roomData = useFetch<{
+    brief: { kpiMetric?: string; kpiTarget?: number } | null;
+    kpis: { cplUsd: number | null; roiPct: number | null; itemCount: number };
+    allowedTransitions: string[];
+    campaign: { status: string; retro?: string | null; retroAr?: string | null };
+  } | null>(room ? `/campaigns/${room.id}/room` : "", [room?.id, bump]);
+  const allocs = useFetch<{ id: string; label: string; kind: string; channel: string; amountUsd: number; amountSdg?: number; campaignId?: string }[]>(
+    room ? "/budget" : "", [room?.id, bump]);
+  const myAllocs = (allocs.data || []).filter((b) => b.kind === "PLANNED" && b.campaignId === room?.id);
+  const doTransition = async (to: string) => {
+    setTransErr("");
+    try {
+      await api.post(`/campaigns/${room!.id}/transition`, { to, ...(to === "COMPLETED" && learnings ? { learnings } : {}) });
+      setToState(null); setLearnings(""); setRoom({ ...room!, status: to });
+      setBump((b) => b + 1); reload(); toast.push(tr("saved"), "success");
+    } catch (e) { setTransErr((e as Error).message); }
+  };
+  const addAlloc = async () => {
+    if (!alLabel || !Number(alAmount)) return;
+    try {
+      await api.post("/budget", { label: alLabel, kind: "PLANNED", channel: alChannel, amountUsd: Number(alAmount),
+        ...(Number(alSdg) > 0 ? { amountSdg: Number(alSdg) } : {}), campaignId: room!.id });
+      setAlLabel(""); setAlAmount(""); setAlSdg(""); setBump((b) => b + 1);
+    } catch { toast.push(tr("saveError"), "error"); }
+  };
+  const nerve = useFetch<{
+    money: { planned: number; committed: number; actual: number; pct: number | null; health: string | null;
+             plannedSdg: number; actualSdg: number } | null;
+    tissue: Record<string, number | null>;
+    objectives: { id: string; label: string; labelAr?: string; status: string }[];
+  } | null>(room ? `/nerve/campaigns/${room.id}` : "", [room?.id, bump]);
   const { data: users } = useFetch<UserRow[]>("/users");
   const [filter, setFilter] = useState("");
   const [editing, setEditing] = useState<Partial<Campaign> | null>(null);
@@ -153,7 +227,7 @@ export default function Campaigns() {
             render: (c) => (
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="font-medium text-ink-800">{lang === "ar" && c.nameAr ? c.nameAr : c.name}</span>
+                  <button onClick={() => setRoom(c)} className="text-start font-medium text-ink-800 hover:underline">{lang === "ar" && c.nameAr ? c.nameAr : c.name}</button>
                   {!!c.leadCount && (
                     <span className="rounded-full bg-steel-500/12 px-2 py-0.5 text-[11px] text-steel-600">{c.leadCount} {tr("camp_leads")}</span>
                   )}
@@ -198,6 +272,149 @@ export default function Campaigns() {
             <Field label={tr("businessUnit")}><input className="input" value={editing.businessUnit || ""} onChange={(e) => setEditing({ ...editing, businessUnit: e.target.value })} /></Field>
             <Field label={tr("owner")}><Select value={editing.ownerId || ""} onChange={(v) => setEditing({ ...editing, ownerId: v })} placeholder={tr("unassigned")} options={(users || []).map((u) => ({ value: u.id, label: u.name }))} /></Field>
             {editing.id && <div className="col-span-2"><BriefPanel campaignId={editing.id} /></div>}
+          </div>
+        )}
+      </Modal>
+
+      {/* ── W5·NERVE2 · the campaign room, nerve-first ── */}
+      <Modal open={!!room} onClose={() => setRoom(null)}
+        title={room ? (lang === "ar" && room.nameAr ? room.nameAr : room.name) : ""}>
+        {room && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <StatusPill value={room.status} />
+              <span className="text-xs text-ink-500">{room.businessUnit} · {el(room.channel)}</span>
+            </div>
+            {nerve.data?.money && (
+              <div className="rounded-xl border border-paper-200 bg-white p-3">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-ink-800">🫀 {tr("fin_title")}</span>
+                  {nerve.data.money.health && (
+                    <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold ${
+                      nerve.data.money.health === "OVER" ? "bg-clay-500/15 text-clay-700"
+                      : nerve.data.money.health === "WATCH" ? "bg-amber-500/15 text-amber-700"
+                      : "bg-moss-500/12 text-moss-700"}`}>
+                      {tr(`fin_h_${nerve.data.money.health}`)}{nerve.data.money.pct != null ? ` ${nerve.data.money.pct}%` : ""}
+                    </span>
+                  )}
+                </div>
+                <div className="kpi-num mt-1 text-sm text-ink-700" dir="ltr">
+                  {fmtMoney(nerve.data.money.actual, "USD", lang)} + {fmtMoney(nerve.data.money.committed, "USD", lang)} / {fmtMoney(nerve.data.money.planned, "USD", lang)}
+                </div>
+                <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-paper-200" dir="ltr">
+                  {(() => { const p = nerve.data!.money!;
+                    const load = p.planned > 0 ? Math.min(150, ((p.actual + p.committed) / p.planned) * 100) : 0;
+                    const aPct = p.planned > 0 ? Math.min(100, (p.actual / p.planned) * 100) : 0;
+                    return (<div className="flex h-full"><div className="bg-ink-800" style={{ width: `${aPct}%` }} /><div className="bg-amber-500/70" style={{ width: `${Math.max(0, load - aPct)}%` }} /></div>);
+                  })()}
+                </div>
+              </div>
+            )}
+            {nerve.data?.tissue && (
+              <div>
+                <span className="label">{tr("nerve_tissue")}</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {Object.entries(nerve.data.tissue).filter(([, v]) => (v ?? 0) > 0).map(([k, v]) => (
+                    <span key={k} className="rounded-full bg-paper-100 px-2.5 py-1 text-[11px] text-ink-700">
+                      <b className="kpi-num">{v}</b> {tr(`nerve_${k}`)}
+                    </span>
+                  ))}
+                  {Object.values(nerve.data.tissue).every((v) => !v) && (
+                    <span className="text-xs text-ink-400">{tr("nerve_empty")}</span>
+                  )}
+                </div>
+              </div>
+            )}
+            {(nerve.data?.objectives?.length ?? 0) > 0 && (
+              <div>
+                <span className="label">{tr("nerve_serves")}</span>
+                <div className="space-y-1">
+                  {nerve.data!.objectives.map((o) => (
+                    <div key={o.id} className="rounded-lg bg-paper-100 px-2.5 py-1.5 text-xs text-ink-700" dir="auto">
+                      🧭 {lang === "ar" && o.labelAr ? o.labelAr : o.label}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ── the room's remaining tenants: brief · KPIs · transitions · retro ── */}
+            {roomData.data && (
+              <>
+                <div className={`rounded-lg px-2.5 py-1.5 text-xs ${roomData.data.brief ? "bg-moss-500/10 text-moss-700" : "bg-amber-500/10 text-amber-800"}`} dir="auto">
+                  {roomData.data.brief ? `✓ ${tr("nerve_briefOk")}` : `⚠ ${tr("nerve_briefMissing")}`}
+                </div>
+                {(roomData.data.kpis.cplUsd != null || roomData.data.kpis.roiPct != null) && (
+                  <div className="flex flex-wrap gap-3 text-xs text-ink-600" dir="auto">
+                    {roomData.data.kpis.cplUsd != null && (
+                      <span>{tr("nerve_cpl")}: <b className="kpi-num" dir="ltr">${roomData.data.kpis.cplUsd.toLocaleString()}</b></span>
+                    )}
+                    {roomData.data.kpis.roiPct != null && (
+                      <span>{tr("nerve_roi")}: <b className={`kpi-num ${roomData.data.kpis.roiPct >= 0 ? "text-moss-700" : "text-clay-600"}`} dir="ltr">{roomData.data.kpis.roiPct}%</b></span>
+                    )}
+                  </div>
+                )}
+                {can("campaigns", "write") && roomData.data.allowedTransitions.length > 0 && (
+                  <div>
+                    <span className="label">{tr("nerve_next")}</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {roomData.data.allowedTransitions.map((t) => (
+                        <button key={t} onClick={() => (t === "COMPLETED" ? setToState(t) : doTransition(t))}
+                          className="rounded-full border border-paper-300 bg-paper-100 px-2.5 py-1 text-[11px] text-ink-700 hover:border-amber-500/40 hover:bg-amber-500/[.06]">
+                          → {el(t)}
+                        </button>
+                      ))}
+                    </div>
+                    {toState === "COMPLETED" && (
+                      <div className="mt-2 space-y-1.5">
+                        <textarea className="input min-h-16 text-xs" placeholder={tr("nerve_learnings")}
+                          value={learnings} onChange={(e) => setLearnings(e.target.value)} />
+                        <div className="flex gap-2">
+                          <button onClick={() => doTransition("COMPLETED")} className="btn-amber text-xs">✓ {el("COMPLETED")}</button>
+                          <button onClick={() => setToState(null)} className="btn-ghost text-xs">{tr("cancel")}</button>
+                        </div>
+                      </div>
+                    )}
+                    {transErr && <p className="mt-1.5 text-xs text-clay-600" dir="auto">{transErr}</p>}
+                  </div>
+                )}
+                {(roomData.data.campaign.retro || roomData.data.campaign.retroAr) && (
+                  <div>
+                    <span className="label">{tr("nerve_retro")}</span>
+                    <p className="whitespace-pre-wrap rounded-lg bg-paper-100 px-2.5 py-1.5 text-xs text-ink-700" dir="auto">
+                      {lang === "ar" ? (roomData.data.campaign.retroAr || roomData.data.campaign.retro) : (roomData.data.campaign.retro || roomData.data.campaign.retroAr)}
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* ── allocations, editable from the room ── */}
+            {can("budget", "write") && (
+              <div>
+                <span className="label">{tr("nerve_alloc")}</span>
+                <div className="space-y-1">
+                  {myAllocs.map((b) => (
+                    <div key={b.id} className="flex items-center justify-between gap-2 rounded-lg bg-paper-100 px-2.5 py-1.5 text-xs">
+                      <span className="min-w-0 truncate text-ink-700" dir="auto">{b.label} <span className="text-[10px] text-ink-400">{el(b.channel)}</span></span>
+                      <span className="flex shrink-0 items-center gap-2">
+                        <b className="kpi-num" dir="ltr">${Number(b.amountUsd).toLocaleString()}{Number(b.amountSdg) > 0 ? ` · ${Number(b.amountSdg).toLocaleString()} SDG` : ""}</b>
+                        <button onClick={async () => { try { await api.del(`/budget/${b.id}`); setBump((x) => x + 1); } catch { toast.push(tr("deleteError"), "error"); } }}
+                          className="text-clay-600 hover:text-clay-700">✕</button>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-1.5 flex gap-1.5">
+                  <input className="input h-8 flex-1 text-xs" placeholder={tr("nerve_allocLabel")} value={alLabel} onChange={(e) => setAlLabel(e.target.value)} dir="auto" />
+                  <input className="input h-8 w-20 text-xs" placeholder="USD" dir="ltr" type="number" value={alAmount} onChange={(e) => setAlAmount(e.target.value)} />
+                  <input className="input h-8 w-24 text-xs" placeholder="SDG" dir="ltr" type="number" value={alSdg} onChange={(e) => setAlSdg(e.target.value)} />
+                  <Select value={alChannel} onChange={setAlChannel}
+                    options={["SOCIAL", "PAID", "EVENT", "PR", "EMAIL", "WEB", "BTL"].map((c) => ({ value: c, label: el(c) }))} />
+                  <button onClick={addAlloc} className="btn-amber text-xs">+</button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </Modal>

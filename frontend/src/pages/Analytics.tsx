@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useFetch, Card, Field, Select, Modal, SectionTitle, SkeletonCards } from "../components/ui";
+import { MetricBoards } from "../components/MetricBoards";
 import { useToast } from "../components/Toast";
 import { useI18n } from "../context/I18nContext";
 import { useAuth } from "../context/AuthContext";
@@ -95,6 +96,7 @@ function OverviewTab() {
   if (loading || !data) return <SkeletonCards count={4} />;
   return (
     <div className="space-y-4">
+      <MetricBoards />
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="flex items-center justify-center p-5"><PulseDial value={data.pulse.value} /></Card>
         <Card className="p-4 lg:col-span-2">

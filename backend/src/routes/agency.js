@@ -1,4 +1,5 @@
 import { Router } from "express";
+import QRCode from "qrcode";
 import crypto from "node:crypto";
 import { crudRouter } from "../crud.js";
 import { all, get, run } from "../db.js";
@@ -200,7 +201,12 @@ portalTokensRouter.post("/", async (req, res, next) => {
     // The plaintext is returned exactly once, here — the link beside it
     // contains the same string, so withholding the field would break the
     // API for no gain. Every later read sees only the hash.
-    res.status(201).json({ ...r, token, link: `/p/${token}` });
+    // W5·WIRES2 — the QR is generated NOW, from the plaintext we hold
+    // exactly once; the stored hash can never mint a code again.
+    const base = (process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
+    const fullUrl = `${base}/p/${token}`;
+    const dataUrl = await QRCode.toDataURL(fullUrl, { width: 512, margin: 1, color: { dark: "#1b1b1f", light: "#faf7f0" } });
+    res.status(201).json({ ...r, token, link: `/p/${token}`, url: fullUrl, dataUrl });
   } catch (e) { next(e); }
 });
 

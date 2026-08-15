@@ -75,3 +75,18 @@ The charter governs labels *and*: empty states, validation and error messages, n
 - Every cluster's Definition of Done includes Bayan compliance: `npm run lint:ar` green, copy **written** rather than translated.
 - New concepts are added to `glossary.json` when they are introduced, not retroactively.
 - Contributor rule: if you are unsure how to say something, say it the way a Sudanese marketing manager would say it out loud in a meeting — then check it against §1.
+
+
+---
+
+## § لغة السوق — Market Language (W4·AR)
+
+Bayan's first duty was correctness — no transliteration, no bureaucratic register. This section adds the second duty: **the register of an Arabic-native CMO in a board meeting**, applied first to navigation and the builders, binding on everything after.
+
+1. **Executive marketing vocabulary.** الاستقطاب والتحويل for acquisition & conversion; الولاء for retention; العلاقات الإعلامية for press outreach; قياس الترشيح for NPS and قياس الرضا for CSAT. If a Gulf or Sudanese CMO would not say the word to their board, it does not go in the menu.
+2. **Honesty in naming.** The AI is المستشار الذكي — an adviser, never المدير. Pulse's own law is that AI drafts and humans dispose; the language must not promote the machine above the human. (Was: «المدير الذكي». Changed.)
+3. **The disambiguation rule.** التواصل is banned as a screen name — it collided between social media and press outreach. Every surface carries its precise name: وسائل التواصل for social, العلاقات الإعلامية for outreach. A menu word that needs a second look is a wrong word.
+4. **Rail discipline.** Navigation labels are at most two words, noun-first, definite article used consistently. Group headers name the *job* (يومك، التخطيط، الاستقطاب والتحويل)، not the software category.
+5. **Respondent-facing copy is written for the street, not the office.** Form and survey templates say «رقم الهاتف (واتساب)» and «نلقاك في الفعالية» — warm, direct, regional — never «يرجى إدخال رقم الهاتف الخاص بكم».
+
+Before/after this pass: «التواصل» → «العلاقات الإعلامية» · «المدير الذكي» → «المستشار الذكي» · «النمو» → «النمو والولاء» (the screen is loyalty + referrals; say so).

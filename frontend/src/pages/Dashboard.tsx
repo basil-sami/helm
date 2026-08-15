@@ -1,4 +1,5 @@
 import { useFetch, Card, SectionTitle, StatusPill, Empty, SkeletonCards } from "../components/ui";
+import { Link } from "react-router-dom";
 import { useNavigate } from "react-router-dom";
 import { useI18n } from "../context/I18nContext";
 import { useAuth } from "../context/AuthContext";
@@ -37,10 +38,25 @@ export default function Dashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { data, loading } = useFetch<Dash>("/dashboard");
+  const { data: home } = useFetch<{ role: string; cards: { key: string; count: number; overdue?: number; stale?: number; items?: unknown[]; link: string }[] } | null>("/home");
 
   if (loading || !data) {
     return (
       <div className="space-y-6">
+      {/* W4·E finally reaches its user: what does Pulse want from me today? */}
+      {home && home.cards.some((c) => c.count > 0) && (
+        <div className="flex flex-wrap gap-2">
+          {home.cards.filter((c) => c.count > 0).map((c) => (
+            <Link key={c.key} to={c.link}
+              className="flex items-center gap-2 rounded-xl border border-paper-200 bg-white px-3 py-2 text-sm shadow-sm hover:border-amber-500/40">
+              <b className="kpi-num text-lg text-ink-900">{c.count}</b>
+              <span className="text-ink-700">{tr(`home_${c.key}`)}</span>
+              {(c.overdue || 0) > 0 && <span className="rounded-full bg-clay-500/15 px-1.5 py-0.5 text-[10px] font-bold text-clay-700">{c.overdue} {tr("home_overdue")}</span>}
+              {(c.stale || 0) > 0 && <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">{c.stale} {tr("home_stale")}</span>}
+            </Link>
+          ))}
+        </div>
+      )}
         <div className="space-y-2"><div className="skeleton h-7 w-64" /><div className="skeleton h-4 w-48" /></div>
         <SkeletonCards count={4} />
         <SkeletonCards count={3} />

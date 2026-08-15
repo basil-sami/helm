@@ -34,3 +34,28 @@ export async function run(text, params = []) {
 }
 
 export const now = () => new Date().toISOString();
+
+/** One client, pinned, for multi-statement writes. On the pool this
+ *  checks out a single connection; in tests it is the PGlite client
+ *  itself. A thrown error rolls everything back — a commit is all rows
+ *  or none of them. */
+export async function tx(fn) {
+  const injected = globalThis.__PULSE_DB_CLIENT__ || null;
+  const c = injected || await pool().connect();
+  const q = (text, params = []) => c.query(text, params.map((v) => (v === undefined ? null : v)));
+  try {
+    await q("BEGIN");
+    const out = await fn({
+      run: q,
+      all: async (t, p) => (await q(t, p)).rows,
+      get: async (t, p) => (await q(t, p)).rows[0] || null,
+    });
+    await q("COMMIT");
+    return out;
+  } catch (e) {
+    try { await q("ROLLBACK"); } catch { /* connection already gone */ }
+    throw e;
+  } finally {
+    if (!injected) c.release();
+  }
+}
