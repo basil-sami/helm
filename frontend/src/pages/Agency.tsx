@@ -11,8 +11,7 @@ import { useToast } from "../components/Toast";
 // become data) · invoices→budget bridge · magic-link portal tokens.
 
 interface Vendor { id: string; name: string; kind: string; phone?: string; email?: string; notes?: string; active: boolean }
-interface Engagement { id: string; vendorId: string; vendorName?: string; title: string; scope?: string; feeUsd: number; startDate?: string; endDate?: string; status: string; ownerName?: string }
-  campaignIds?: string[];}
+interface Engagement { id: string; vendorId: string; vendorName?: string; title: string; scope?: string; feeUsd: number; startDate?: string; endDate?: string; status: string; ownerName?: string; campaignIds?: string[] }
 interface Deliv { id: string; engagementId: string; engagementTitle?: string; vendorName?: string; title: string; briefTitle?: string; dueDate?: string; status: string; revisionCount: number; submittedUrl?: string; submittedAt?: string }
 interface Invoice { id: string; vendorId: string; vendorName?: string; engagementTitle?: string; number: string; amountUsd: number; rateAtEntry?: number; status: string; paidAt?: string }
 interface Approval { id: string; entity: string; entityId: string; status: string }
