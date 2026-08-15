@@ -808,6 +808,80 @@ Packs are data, not assumptions. In **Settings → Seasonal**, deactivate what d
 
 **Bulk decisions.** Select several approvals and decide them together. Each is processed exactly as if decided one at a time: same permission checks, same side-effects (an approved invoice still releases its budget entry), same audit trail. Items already decided are reported as skipped rather than silently overwritten.
 
+## The finance model — one nerve (W5·NERVE)
+
+**Budget** now opens with the money truth in one triad per campaign: **المخطط** (the envelope you set on the campaign), **الملتزم** (invoices on the desk awaiting signature, plus booked outdoor placements), and **المصروف** (ad spend plus every SPENT ledger entry — approved agency invoices flow in automatically through the existing release rail, so nothing is ever counted twice). Each campaign shows a two-tone bar — dark for spent, amber for committed — with a health pill: **ضمن الحد** under 90%, **اقترب من الحد** from 90%, **تجاوز الحد** at 100%. Money Pulse cannot link to a campaign is shown as its own honest line — *"link these rows to their campaigns to complete the nerve"* — never hidden and never guessed into a campaign.
+
+**Control lives at the signature.** When an invoice reaches the approvals inbox, its preview now states plainly: *"this approval takes «campaign» to N% of its envelope"* — plain ink when comfortable, amber from 90%, clay past 100%. Pulse informs; the signature stays yours.
+
+**Strategy closes the loop.** Every objective in **Planning** can link its campaigns; the objective card then carries a nerve line — the campaigns it drives and their combined spent + committed against planned — so strategy, money, execution, and outcome read as one sentence. The campaign nerve itself (`/api/nerve`) counts everything a campaign touches: content, slots, leads, links, forms, events, placements, spend, invoices, tasks, and the objectives it serves.
+
+## Wave 3, in your hands (W3·FIN)
+
+**Draw your automations.** In Automate, the workflow editor is a canvas: chain actions, add a ◆ branch — *if the lead's source is EXPO, notify the desk; otherwise tag it* — and **dry-run the whole flow against a real lead before saving**: Pulse shows which branch would fire and what each step would do, changing nothing. The flow you draw is the flow that runs; there is no second engine.
+
+**Forecasts that refuse before they guess.** Ask for a metric's outlook and Pulse answers in a **range**, never a single number — and below 21 observations it declines outright and tells you exactly how much history it needs. A refusal is the platform protecting your decisions from confident noise.
+
+**The adviser drafts; you dispose.** Everything المستشار الذكي produces waits on the drafts shelf until a person publishes or dismisses it — those are the only two verbs. Its posture is always inspectable: configured or not, which model, the monthly ceiling, and spend against it.
+
+**Faults leave fingerprints, never payloads.** When something breaks — even in the browser — it lands on the error ledger as a fingerprint and a digest; the data itself is structurally absent. And **department scoping is everywhere**: a department-bound teammate sees their rows and the shared ones, while the GM sees across the group.
+
+## Build your own metric boards (UI·DEBT4)## Build your own metric boards (UI·DEBT4)
+
+At the top of Analytics, **your boards**: the shared «لوحة الإدارة» is already hanging, and 🧱 build mode lets you make your own. Add a widget by picking any metric from the catalog — the same catalog, the same numbers, that the board pack and the Pulse Index read; a board can never show a figure the platform cannot stand behind. Choose a plain number or a number with its 90-day trend, make it wide if it deserves the room, reorder with a tap, rename in both languages, and share when the desk should see it. Deleting a board deletes only the arrangement — the metrics stay in the catalog.
+
+## The listening control room (UI·DEBT3)## The listening control room (UI·DEBT3)
+
+Tap 🎛 on the Listening page and the pipeline's controls appear — with the fixed line printed at the top: **organizations, brands, products, outlets, and official spokespeople only; no control can widen this.** From there: tune the **review band** (what the model is unsure about goes to a human) — and Pulse always shows you what the change *would have done* to the last week before you apply it, with your reason kept on the trail. Grade **sources** A–F; a regrade demands a written reason, always. Two levers per source, for two different problems: **block** stops collection entirely; **mute** keeps collecting for the evidence file but hides the source from alerts and metrics. Work the **review list** in bulk — assign to a colleague, confirm or reject with one reason — and each ruling's toast tells you how often the model's suggestion matched yours (the suggestion is a 🤖 chip, never a ruling). Build **alert rules** — volume spikes, negative bursts, grade-A mentions, emerging topics, optionally only when two independent sources agree — and ask «ما الذي سينطلق؟» to dry-run them without notifying anyone. Every change lands on the **trail**, so when a chart jumps, the room can tell you why.
+
+## Bring your spreadsheets## Bring your spreadsheets — the import wizard (UI·DEBT2)
+
+Day one at any company starts with existing lists, so **Leads, Contacts, and Customers each carry an ⬆ import button** now. Paste your CSV or pick the file; Pulse reads the headers and guesses the column mapping — you confirm it, with required fields marked ●. Choose what counts as a duplicate (email or phone) and what to do on a match: **fill blanks only** — never overwrite what you already know — or skip the row. Then three honest steps: **check** (bad rows are named one by one — a wrong number in one line rejects that line, never your whole file), **preview** (how many will be created, how many will update existing records — before anything happens), and **run**. The result says exactly what happened: created, updated, skipped. Importing contacts also records the consent basis and list source on every row, at the moment of import — not assumed afterwards. And an import lands **all rows or none**: if anything goes wrong mid-way, nothing is half-applied.
+
+## Four more doors## Four more doors — the morning cards, erasure, briefs, conversions (UI·DEBT1)
+
+**Your Dashboard now opens with your morning.** Small cards answer one question — what does Pulse want from me today? — follow-ups on you, approvals waiting, each with overdue and stale badges, each a single tap to the work itself. **Data-erasure requests live on the Contacts page**: open one with the person's email, verify their identity (by emailed link, or manually — Pulse will insist you record *how* you established identity before it accepts), discover every table where they appear, then submit — the erasure passes through the same approvals door as everything else, and erasure anonymizes rather than deletes, so your historical numbers stand. **Studio gained its briefs card** — one clear brief saves three revision rounds; every brief belongs to a creative request or an engagement, and the platform refuses one that belongs to nothing. **Customers gained the 💰 button**: record a conversion's value in two taps, attribution inherited from the customer's campaign so it lands in the right room, with the header showing value against spend and ROI over the window.
+
+## No rail without a door (UI·COVER + W5·WIRES2)## No rail without a door (UI·COVER + W5·WIRES2)
+
+A standing gate now guarantees what this platform kept re-learning by hand: **every backend capability has a UI consumer, a named reason, or a dated debt line** — and an unexplained orphan fails the build. Its first run found **thirteen whole rails with no door**, and five of them opened this session: **the SSO sign-in button** on the login screen (the identity feature existed for months with no way to use it) plus the **SSO connections card** on System with a one-tap health test; **approval delegation** on the Approvals page — hand your signature to a colleague for a date window, revoke any time, refusals shown in the validator's own words; **seasonal moments** as chips on the Calendar; and the **engagement → campaigns picker** on the vendor desk, closing the loop the schema always carried. The board pack gained **Top campaigns by spend** — five rows with health percentages, each a door into its room. And a minted **portal link now shows its QR once**, generated from the plaintext at the only moment it exists — hand the vendor the code on paper; the stored hash can never rebuild it. Eight remaining rails are registered as dated debt the gate prints on every single run.
+
+## The vendor desk speaks up## The vendor desk speaks up — and the last consumers (AG·FIX + W5·WIRES)
+
+**Every action on the Agencies page now answers you.** Saving a vendor or engagement, approving or returning a deliverable, advancing its status, minting or revoking a portal link, posting a comment — each one confirms in a toast, and when the platform refuses (a permission edge, a validation rule, a transition the state machine won't allow), **the refusal's own words appear on screen** instead of a button that silently does nothing. The desk's full sequence — vendor → engagement → magic link → deliverable → advance — is now walked by the test suite on every push, so "the vendor page works" is a standing proof, not an assurance.
+
+**Landing pages got their last two doors.** Each card carries a ⬛ QR chip — a printable code of the page's public address, the same offline rail links and outdoor placements use. And each page has a **color**: pick it in the editor, see it live in the visitor preview, and the published page honors it — falling back to your brand accent, then to Pulse amber, in that order.
+
+## Landing pages join the builder family## Landing pages join the builder family — and the last wires (W4·BLD2 + W5·NERVE5)
+
+**Landing pages now start from a template too**: عرض خاص, صفحة فعالية, or عرض منتج — each a complete bilingual page in the exact block language the visitor's page renders (hero with the pulse line, features, call-to-action), with the **live visitor preview** beside the editor and slugs that write themselves. **Every tracked link now carries a ⬛ QR chip** — tap it for a printable code of the short link, the same offline-attribution rail the outdoor plans use. **Morning Pulse gained its missing list**: campaigns approaching their end date, each one opening its room in a tap. On **Budget**, tapping a department filters the campaign bars to that department; tap again to clear. And inside a campaign room, **← → move between campaigns** and Esc closes.
+
+**The market language is now law, mechanically.** The Bayan glossary bans the bureaucratic register (يرجى، الرجاء، قم بـ، الخاص بك) and the dishonest title («المدير الذكي» — the AI is a مستشار, and the build fails if anyone promotes it again). The sweep caught four hiding places the earlier rename missed; all four now say المستشار الذكي in both languages.
+
+## The last connections (W5·NERVE4)
+
+**Every campaign name is now a door.** In the Finance Model and on Planning's objective lines, tapping a campaign's name opens its room directly — `/campaigns?room=…` is a real address you can share, and the drawer opens itself when you arrive. **Departments joined the Finance Model** with their own triad lines, so a GM reads the money by قسم as easily as by campaign. And **allocations now speak SDG directly**: type the SDG amount on the line when you know it — a line with its own SDG keeps it, a line without gets today's rate stamped at creation, and the مخصصات mirror follows each line's own truth like every other row in the model.
+
+## The room, completed (W5·NERVE3)
+
+The campaign room now holds everything a decision needs in one drawer. A **brief line** tells you plainly whether the brief exists — and warns that activation requires one before you hit the wall. **CPL and ROI** appear the moment the campaign has leads and spend to compute them from. The **next step** buttons offer exactly the transitions the matrix allows from the current status — completing a campaign opens a small learnings box first, and any refusal (like the missing-brief gate) is shown in the drawer in plain words, not swallowed. A completed campaign shows its **retro** right there. And the campaign's **allocations** are editable in place: add a line with its label, amount, and channel, delete one with a tap — every change rides the same budget rail as the Budget page, and the مخصصات chip updates immediately. The Finance Model also gained a **by-channel** row, and both the department and channel rollups now speak SDG under the same reconciliation law as everything else.
+
+## The campaign room, allocations, and the SDG mirror (W5·NERVE2)
+
+**Tap a campaign's name** and its room opens: the money bar with its health pill, the connected tissue as counted chips — content, scheduled posts, leads, links, forms, submissions, events, placements, spend rows, invoices, tasks — and the objectives this campaign serves. One tap, the whole nerve.
+
+**Allocations live inside the envelope.** PLANNED budget lines now appear on each campaign's row in the Finance Model as a small **مخصصات** chip — the plan's own line items against the envelope you set. If the allocations add up to more than the envelope itself, the chip turns clay and says so: **تتجاوز الغلاف** — a named flag, never a silent overflow.
+
+**The SDG mirror, honestly.** Under the USD triad, the Finance Model now shows the same money **بالجنيه السوداني** — and in a volatile currency, each row converts at *its own* truth: a row that recorded its SDG amount keeps it; a row that recorded its entry-day rate uses it; only a row that recorded neither uses today's rate. The mirror line states what share of the money carries entry-day truth, so nobody mistakes a mirror for an accounting system.
+
+## The menu, in seven groups (W4·NAV)
+
+The sidebar is organized by the job you came to do: **يومك / Your Day** (dashboard, morning brief, tasks, approvals, inbox), **التخطيط / Plan**, **النشر والإبداع / Create & Publish**, **الاستقطاب والتحويل / Capture & Convert**, **القياس والفهم / Insight**, **الشركاء / Partners**, and — for admins — **الإدارة / Admin**. Nothing moved out of reach: every screen kept its address, module flags and permissions hide exactly what they hid before, and a group whose modules are all off disappears whole. One screen gained a door it never had: the **Executive Report** now sits under Insight instead of living only at a URL.
+
+## Forms and surveys start from a template (W4·BLD)
+
+**Forms → New** and **Surveys → New** open a builder, not a blank. Pick a quick-start — طلب تواصل, تسجيل فعالية, طلب عرض سعر for forms; NPS, CSAT, تقييم فعالية for surveys — and a complete bilingual draft appears, ready to edit. Add items from the type chips, reorder with the arrows, mark required with one tap; option lists appear only where they mean something. The **live preview** beside the editor shows the exact respondent view — Arabic-first with a language toggle — including required markers and your success message, so what you publish is what you saw. Slugs write themselves from the name; you only touch them if you care.
+
 ## Approvals show the thing (W4·UX)
 
 Every pending approval now carries **what you are approving**, in the list and again in the decision dialog: a scheduled post shows its title, caption (Arabic or English, whichever you read), platform and format, the slot time, and the attached image or video; an invoice shows the vendor, number and amount; a deliverable shows its title, due date, revision round and the submitted file; an asset version shows the file itself. Click the entity name to jump to its home screen. If Pulse ever meets an approval type it does not know how to preview, it says so by showing nothing extra — the inbox keeps working and the decision buttons stay live.

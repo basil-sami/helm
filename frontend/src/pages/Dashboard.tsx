@@ -39,7 +39,7 @@ export default function Dashboard() {
   const { user, isAdmin } = useAuth();
   const navigate = useNavigate();
   const { data, loading } = useFetch<Dash>("/dashboard");
-  const { data: home } = useFetch<RoleHome>("/home");
+const { data: home } = useFetch<RoleHome>("/home");
   const { data: checklist } = useFetch<Checklist>("/home/checklist");
 
   if (loading || !data) {

@@ -5,7 +5,8 @@ import { useI18n } from "../context/I18nContext";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../components/Toast";
 import { fmtNum } from "../lib/format";
-import { ReactNode } from "react";
+import { ReactNode, useState } from "react";
+import { ListeningControl } from "../components/ListeningControl";
 
 interface Listening {
   summary: { mentions8w: number; sovPct: number | null; negSharePct: number; brandSentiment: number };
@@ -40,6 +41,7 @@ export default function Listening() {
   const { can } = useAuth();
   const toast = useToast();
   const { data, loading } = useFetch<Listening>("/listening");
+  const [controlOpen, setControlOpen] = useState(false);
 
   if (loading || !data) {
     return (
@@ -66,10 +68,18 @@ export default function Listening() {
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-bold text-ink-900">{tr("li_title")}</h1>
+        {can("intel", "read") && (
+          <button onClick={() => setControlOpen(!controlOpen)}
+            className={`rounded-xl border px-3 py-1.5 text-xs font-medium ${controlOpen ? "border-amber-500/40 bg-amber-500/10 text-amber-700" : "border-paper-300 bg-white text-ink-700 hover:bg-paper-100"}`}>
+            🎛 {tr("lc_title")}
+          </button>
+        )}
         <p className="text-sm text-ink-500">{tr("li_subtitle")}</p>
       </div>
 
       {/* Pulse scorecard */}
+      {controlOpen && <ListeningControl />}
+
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Kpi label={tr("li_mentions8w")} value={fmtNum(s.mentions8w, lang)} />
         <Kpi label={tr("li_sov")} value={s.sovPct === null ? "—" : `${s.sovPct}%`} sub={s.sovPct === null ? tr("li_noTopics") : undefined} tone="text-amber-700" />

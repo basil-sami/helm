@@ -158,13 +158,43 @@ const PREVIEWERS = {
   },
   invoices: async (ids) => {
     const rows = await all(
-      `SELECT i.id, i.number, i."amountUsd", ven.name AS "vendorName"
-       FROM invoices i LEFT JOIN vendors ven ON ven.id = i."vendorId"
+      `SELECT i.id, i.number, i."amountUsd", i."campaignId", ven.name AS "vendorName",
+              c.name AS "campaignName", c."budgetUsd"
+       FROM invoices i
+       LEFT JOIN vendors ven ON ven.id = i."vendorId"
+       LEFT JOIN campaigns c ON c.id = i."campaignId"
        WHERE i.id = ANY($1::uuid[])`, [ids]);
-    return new Map(rows.map((r) => [r.id, {
-      kind: "invoices", title: `${r.vendorName || "—"} · ${r.number}`,
-      amountUsd: Number(r.amountUsd) || 0,
-    }]));
+    // W5·NERVE — control at the signature: for a campaign-linked invoice
+    // the preview states where this approval takes the envelope. The pct
+    // uses the same triad math as /finance/overview: a RECEIVED invoice
+    // is already inside `committed`, so its pctAfter equals the
+    // campaign's current pct — approval moves it committed → actual,
+    // same total, one money truth.
+    const campIds = [...new Set(rows.map((r) => r.campaignId).filter(Boolean))];
+    const pctByCamp = new Map();
+    if (campIds.length) {
+      const [sp, le, pe, pl] = await Promise.all([
+        all(`SELECT "campaignId" k, SUM("amountUsd")::float u FROM ad_spend WHERE "campaignId" = ANY($1::uuid[]) GROUP BY 1`, [campIds]),
+        all(`SELECT "campaignId" k, SUM("amountUsd")::float u FROM budget_entries WHERE kind = 'SPENT' AND "campaignId" = ANY($1::uuid[]) GROUP BY 1`, [campIds]),
+        all(`SELECT "campaignId" k, SUM("amountUsd")::float u FROM invoices WHERE status = 'RECEIVED' AND "campaignId" = ANY($1::uuid[]) GROUP BY 1`, [campIds]),
+        all(`SELECT mp."campaignId" k, SUM(pl."costUsd")::float u FROM media_placements pl JOIN media_plans mp ON mp.id = pl."planId" WHERE mp."campaignId" = ANY($1::uuid[]) GROUP BY 1`, [campIds]),
+      ]);
+      const acc = new Map(campIds.map((k) => [k, 0]));
+      for (const g of [sp, le, pe, pl]) for (const r of g) acc.set(r.k, (acc.get(r.k) || 0) + (r.u || 0));
+      for (const k of campIds) pctByCamp.set(k, acc.get(k) || 0);
+    }
+    return new Map(rows.map((r) => {
+      const planned = Number(r.budgetUsd) || 0;
+      const load = r.campaignId ? (pctByCamp.get(r.campaignId) || 0) : null;
+      const pctAfter = r.campaignId && planned > 0 ? Math.round((load / planned) * 1000) / 10 : null;
+      return [r.id, {
+        kind: "invoices", title: `${r.vendorName || "—"} · ${r.number}`,
+        amountUsd: Number(r.amountUsd) || 0,
+        budgetContext: r.campaignId
+          ? { campaignName: r.campaignName, pctAfter, planned }
+          : null,
+      }];
+    }));
   },
   deliverables: async (ids) => {
     const rows = await all(

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useFetch, Card, SectionTitle, Modal, SkeletonCards } from "../components/ui";
 import { api } from "../lib/api";
 import { useI18n } from "../context/I18nContext";
@@ -48,6 +48,20 @@ export default function System() {
     users: { id: string; name: string; role: string; active: boolean; isAdmin: boolean; lastLoginAt: string | null; dormant: boolean }[];
   }>("/security/access-review");
 
+  const [ssoList, setSsoList] = useState<{ id: string; name: string; issuer: string; active: boolean; ssoRequired: boolean }[] | null>(null);
+  const [ssoNew, setSsoNew] = useState<{ name: string; issuer: string; clientId: string; clientSecret: string } | null>(null);
+  const [ssoMsg, setSsoMsg] = useState("");
+  const loadSso = () => api.get<typeof ssoList>("/sso").then(setSsoList).catch(() => setSsoList([]));
+  useEffect(() => { loadSso(); }, []);  // eslint-disable-line react-hooks/exhaustive-deps
+  const saveSso = async () => {
+    if (!ssoNew?.name || !ssoNew.issuer || !ssoNew.clientId) return;
+    try { await api.post("/sso", ssoNew); setSsoNew(null); setSsoMsg(""); loadSso(); }
+    catch (e) { setSsoMsg((e as Error).message); }
+  };
+  const testSso = async (id: string) => {
+    try { const r = await api.post<{ ok: boolean; note?: string }>(`/sso/${id}/test`, {}); setSsoMsg(r.ok ? `✓ ${tr("sso_testOk")}` : (r.note || "✗")); }
+    catch (e) { setSsoMsg((e as Error).message); }
+  };
   const verifyChain = async () => {
     setChainErr(""); setChain(null);
     try { setChain(await api.get("/security/audit-verify")); }
@@ -219,6 +233,40 @@ export default function System() {
                   </span>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+      </Card>
+
+      {/* ── SEC·B finally gets its door: SSO connections ── */}
+      <Card>
+        <SectionTitle action={<button onClick={() => setSsoNew({ name: "", issuer: "", clientId: "", clientSecret: "" })} className="btn-ghost text-xs">+ {tr("sso_add")}</button>}>
+          🔐 {tr("sso_title")}
+        </SectionTitle>
+        {ssoMsg && <p className="mb-2 text-xs text-ink-600" dir="auto">{ssoMsg}</p>}
+        <div className="space-y-1">
+          {(ssoList || []).map((c) => (
+            <div key={c.id} className="flex flex-wrap items-center justify-between gap-2 text-xs">
+              <span className="flex min-w-0 items-center gap-2">
+                <span className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${c.active ? "bg-moss-500" : "bg-ink-300"}`} />
+                <span className="truncate font-medium text-ink-800">{c.name}</span>
+                <span className="truncate text-[10px] text-ink-400" dir="ltr">{c.issuer}</span>
+                {c.ssoRequired && <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700">{tr("sso_required")}</span>}
+              </span>
+              <button onClick={() => testSso(c.id)} className="text-steel-600 hover:underline">{tr("sso_test")}</button>
+            </div>
+          ))}
+          {ssoList && ssoList.length === 0 && <p className="text-xs text-ink-400">{tr("sso_none")}</p>}
+        </div>
+        {ssoNew && (
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <input className="input" placeholder={tr("name")} value={ssoNew.name} onChange={(e) => setSsoNew({ ...ssoNew, name: e.target.value })} />
+            <input className="input" dir="ltr" placeholder="https://issuer…" value={ssoNew.issuer} onChange={(e) => setSsoNew({ ...ssoNew, issuer: e.target.value })} />
+            <input className="input" dir="ltr" placeholder="Client ID" value={ssoNew.clientId} onChange={(e) => setSsoNew({ ...ssoNew, clientId: e.target.value })} />
+            <input className="input" dir="ltr" type="password" placeholder="Client secret" value={ssoNew.clientSecret} onChange={(e) => setSsoNew({ ...ssoNew, clientSecret: e.target.value })} />
+            <div className="flex gap-2 sm:col-span-2">
+              <button onClick={saveSso} className="btn-amber text-xs">{tr("save")}</button>
+              <button onClick={() => setSsoNew(null)} className="btn-ghost text-xs">{tr("cancel")}</button>
             </div>
           </div>
         )}

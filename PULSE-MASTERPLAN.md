@@ -938,3 +938,245 @@ The bus factor is a people problem; this cluster ships its **technical share** a
 
 ### Horizon (final form)
 **W4·X WhatsApp broadcasts** (deferred by choice, consent-gated) — the only remaining build item. **The appointment** — a second keyholder who has run the drill — the only remaining organizational item, printed by every evidence pack until made.
+
+---
+
+## W4·AR + W4·BLD + W4·NAV — Market Arabic, Builders, Seven Groups (2026-08-14)
+
+Source: `UX-LANGUAGE-BRIEF.md`. Three tracks, one standard.
+
+**W4·NAV** · 35 flat menu entries → **seven job-named groups** (يومك · التخطيط · النشر والإبداع · الاستقطاب والتحويل · القياس والفهم · الشركاء · الإدارة). Nothing removed, filtering rules byte-identical, mobile tabs untouched — and one genuine find fixed: **the Executive Report page had no menu entry at all**; it now sits under Insight. A static suite test walks the nav registry against the router: every pre-existing route present, `/report` present and routed, ≥7 groups — the IA can no longer silently lose a screen.
+
+**W4·AR** · The CMO pass, codified as **BAYAN § لغة السوق**: executive marketing vocabulary (الاستقطاب والتحويل، الولاء، العلاقات الإعلامية), honesty in naming (**المستشار الذكي، never المدير** — the menu must not promote the machine above the human), the disambiguation rule (التواصل banned as a screen name; it collided between social and outreach), rail discipline (≤2 words), and street-warm respondent copy («نلقاك في الفعالية», never «يرجى إدخال…»). Applied: three precision renames (Reach → العلاقات الإعلامية، AI CMO → المستشار الذكي، Growth → النمو والولاء), seven group names, the full builder vocabulary — 29 new/changed strings, all Bayan-green.
+
+**W4·BLD** · One shared `Builder` for Forms + Surveys: **quick-start templates** (lead capture / RSVP / quote · NPS / CSAT / event feedback, fully bilingual), type-chip palette, ↑↓ reorder, machine-managed item keys (humans never type a database key again), auto-slug from the name, and a **live respondent preview** — RTL Arabic-first with a language toggle — beside the editor. Zero backend changes: both template payloads are posted **verbatim** through the real API and read back intact by tests, and a respondent submits the templated form through the public door in-suite.
+
+**The gates guarded themselves twice this session:** SEC·E's continuity check failed the build the moment `UX-LANGUAGE-BRIEF.md` landed unregistered (fixed by registering it), and the nav test caught its own wrong regex before it could bless a missing route.
+
+### State
+**113 tables · 1,324/1,324 checks · 82-metric catalog · 9 production dependencies · zero schema changes.**
+
+### Recorded, not built
+Landing-pages builder parity (templates + preview, same `Builder` family) · Links page quick-copy + QR chip · the deep dict pass beyond navigation/builders (the § لغة السوق charter now governs it).
+
+---
+
+## W5·NERVE — One Money Truth, One Connected Spine (2026-08-14)
+
+Source: `NERVE-BRIEF.md` (architected during the outage, executed on reconnection after a byte-perfect post-outage audit: 113 tables, 1,324/1,324 confirmed before a line changed).
+
+**The baseline audit reshaped the design twice, both times for the better:** invoices carry `campaignId` **directly** (no engagement mediation, no allocation-split question), and invoice approval **already writes the SPENT budget entry** — so the triad reads **ledgers, not documents**: المخطط = `campaigns.budgetUsd` · الملتزم = RECEIVED invoices + booked placements on campaign-linked plans · المصروف = `ad_spend` + `budget_entries(SPENT)`. Approved money flows into actual through the existing rail — **money never gets a second writer, nothing counts twice**. PAID is a cash status, not a spend event, and stays out of the triad by declared design. Health at (actual+committed)/planned: ضمن الحد / اقترب من الحد / تجاوز الحد at 90/100.
+
+**Unlinked money is declared** — a first-class pool on the overview («أموال غير مربوطة بحملة»), never zeroed, never guessed into a campaign: grounded-or-silent applied to finance. **Two reconciliations are law and test**: campaign rows + unlinked pool ≡ totals, and the channel rollup decomposes exactly the same actual.
+
+**Control at the signature** · the invoices previewer computes the same triad and the approval card states *"this approval takes «X» to N% of its envelope"* — a RECEIVED invoice already sits inside committed, so pctAfter ≡ current pct (approval just moves it committed→actual; one truth). Amber ≥90, clay ≥100. Warn, never block.
+
+**Strategy joins the spine** · `objectives."campaignIds" jsonb` (columns-only ×3 SQL surfaces; engagements' own pattern; 113 preserved) with a checkbox picker in Planning and a nerve line per objective; `GET /api/nerve/campaigns/:id` returns money + twelve tissue counts + the objectives served (`@> jsonb` containment). Finance wears the budget module's own permission gate — proven by a parity test, not a new gate.
+
+**Thirteen planted-number checks, first-run green**: 10,000/3,000/5,500 = 85% ضمن الحد → 95% اقترب → 110% تجاوز with the clay signature line at exactly 110% · unlinked 777 lands only in the pool · both reconciliations exact · tissue counts equal planted rows · the objective loop closes.
+
+**Recorded, not built:** the Nerve panel inside the campaign room UI (endpoint shipped + tested; panel wiring next) · budget_entries kind=PLANNED as per-campaign allocation detail lines · SDG mirror of the triad via rateAtEntry.
+
+### State
+**113 tables · 1,337/1,337 checks · 82-metric catalog · 9 production dependencies · columns-only schema change.**
+
+---
+
+## W5·NERVE2 — The Room, the Allocations, the Mirror (2026-08-14)
+
+The three recorded items from W5·NERVE, shipped — and the baseline audit upgraded the first one: asking "who fetches `/room`?" revealed the W4·A war-room backend had **no UI consumer at all** — the interrupted-run pattern, again caught by an audit rather than a user. So "wire the nerve panel into the room" became "**build the room**": tapping a campaign's name opens its drawer — money bar + health pill, twelve tissue chips, the objectives served — with the nerve endpoint as first tenant. (The room payload's remaining sections — brief, retro, links — join the drawer next; recorded.)
+
+**Allocations inside the envelope** · `budget_entries kind=PLANNED` per campaign surfaces as an allocation chip on the Finance Model; `allocated > planned` raises **overAllocated** — a named clay flag («تتجاوز الغلاف»), never a silent overflow, proven by a planted 150-of-100 case.
+
+**The SDG mirror, per-row honest** · Each money row converts at *its own truth*, in strict precedence: its recorded `amountSdg` first, its `rateAtEntry` second, today's settings rate last — proven by a planted trio (100@600 + 50@today + 40-with-own-26,000 = **exactly 111,000**) and a committed invoice at its 550 entry rate. A campaign's own `budgetSdg` outranks any conversion (1,300,000 wins over 2,000×500). The overview declares `sdgMeta { currentRate, atEntrySharePct }` — the mirror names what share of the money carries entry-day truth. **The SDG totals reconcile by the same law as USD**: campaigns + unlinked ≡ totals, now a standing test. Two bugs were mine and caught in-run: triadRows never SELECTed `budgetSdg`, and the nerve's money projection dropped the mirror fields — both one-line fixes the planted numbers refused to let pass.
+
+### State
+**113 tables · 1,345/1,345 checks · 82-metric catalog · 9 production dependencies · zero schema changes this wave.**
+
+### Recorded, not built
+Room drawer's remaining tenants (brief status, retro, quick transition) · department/channel SDG rollups · allocation lines editable from the room itself.
+
+---
+
+## W5·NERVE3 — The Room Completed (2026-08-14)
+
+The three recorded items from W5·NERVE2, shipped.
+
+**The room's remaining tenants** · The drawer now consumes the full W4·A `/room` payload: brief status (green «الموجز جاهز» / amber «لا موجز بعد — التفعيل يتطلبه»), CPL + ROI when computable, **quick transitions** offering exactly `allowedTransitions` from the matrix — COMPLETED opens a learnings box first, and a refused transition (the brief gate) surfaces its server message in the drawer verbatim — and the retro renders once written. Transition and allocation controls are permission-gated (`campaigns`/`budget` write) in the UI while the server remains the enforcer.
+
+**Allocations editable from the room** · add/delete lines ride the existing `/budget` CRUD (rateAtEntry auto-filled at create, so the mirror stays honest) — proven end to end through the API: a 300 allocation posted through the rail lands in the model, and deleting it clears it with no ghosts.
+
+**Rollup mirror** · `byDepartment` gains plannedSdg/committedSdg/actualSdg; `byChannel` gains actualSdg — both under the standing law: the channel SDG decomposition ≡ `totalsSdg.actual`, and a planted department read back exactly 400/260,000 planned · 80/48,000 actual. Budget shows a compact by-channel row.
+
+**One find**: `can` was destructured only inside `BriefPanel` — the main Campaigns component never had permission awareness; it does now.
+
+### State
+**113 tables · 1,351/1,351 checks · 82-metric catalog · 9 production dependencies · zero schema changes.**
+
+### Recorded, not built
+Department SDG rollup surfaced in UI (API shipped) · allocation lines with SDG amounts entered directly in the room · room drawer deep-link (`/campaigns?room=<id>`) for Morning Pulse and Report cross-links.
+
+---
+
+## W5·NERVE4 — The Last Connections (2026-08-14)
+
+The three recorded items from W5·NERVE3, shipped.
+
+**Room deep-link** · `/campaigns?room=<id>` opens the drawer on arrival (URL syncs on open/close, `replace` so the back button behaves). Two consumers wired the same session: **Finance Model campaign rows** and **Planning's objective nerve-line names** are now doors into their rooms — finance → room and strategy → room, the tissue navigable in both directions. Morning Pulse cross-links recorded, not forced: its payload carries no campaign ids today.
+
+**Department rollup surfaced** · the Finance Model shows حسب القسم triad lines (hidden when only one bucket exists — a single-department chart is noise).
+
+**Allocation SDG, directly** · the room's add-row takes an optional SDG amount; `allocatedSdg` joins the model under the **same precedence law** (own SDG → entry rate → today's rate), proven by a planted pair reading exactly 160,000, and the unlinked pool declares orphan allocations in both currencies. **One honest correction mid-proof**: my assertion hardcoded rate 500, but `currentRate()` carries a 60-second cache — the test now asserts the real contract (a real rate is stamped; the mirror converts at exactly that stamp), which is stronger than the constant it replaced.
+
+### State
+**113 tables · 1,355/1,355 checks · 82-metric catalog · 9 production dependencies · zero schema changes.**
+
+### Recorded, not built
+Morning Pulse / Report campaign-id enrichment so their mentions can deep-link into rooms · department rollup tap-through (department → its campaigns filtered) · room drawer keyboard navigation.
+
+---
+
+## W4·BLD2 + W4·AR2 + W5·NERVE5 — Parity, Wires, and the Street-Warm Law (2026-08-14)
+
+Six recorded items, one session, three interrupted-run catches.
+
+**Landing builder parity (W4·BLD2)** · `LP_TEMPLATES` (عرض خاص / صفحة فعالية / عرض منتج, fully bilingual) + `LandingPreview` mirroring `LandingPublic`'s exact four-block vocabulary (HERO with the ECG line, TEXT, FEATURES, CTA, plus the form marker) + auto-slug — Pages.tsx now reads like Forms and Surveys: template bar, editor left, visitor's truth right. Round-trip proven through `/landing-pages` and served through the public door.
+
+**Links quick-copy + QR (W4·BLD2)** · Quick-copy already existed; the finding was better: **`GET /links/:id/qr` existed on the link-builder router with no consumer** — the interrupted-run pattern in miniature. The Links page now carries the ⬛ QR chip and modal on the existing rail; the test pins the printable data URL.
+
+**Morning → rooms (W5·NERVE5)** · Second catch: the digest computed `campaignsEnding` **with ids** and Morning never rendered it. The fifth list now exists — «حملات تقترب من نهايتها» — each item a door into its room. **Dept tap-through** filters the Finance Model's campaign bars in place; **room keyboard**: ←/→ walk campaigns, Esc closes.
+
+**The deep dict pass (W4·AR2), made durable** · § لغة السوق became mechanical: six glossary bans (يرجى، الرجاء، قم بـ، قم بت، الخاص بك، الخاصة بك) landed against an **already-clean dictionary** — 1,677 entries, zero hits, the street-warm law was being kept; now it fails builds instead of relying on memory. Third catch: banning «المدير الذكي» surfaced **four** hiding places the W4·AR nav rename missed (`brain_cmo`, `brain_empty`, `brain_notConfigured`, `brain_notConfiguredHint`) — all dethroned to المستشار الذكي / AI Adviser in both languages, and no future contributor can reinstate the director without a red build.
+
+### State
+**113 tables · 1,360/1,360 checks · 82-metric catalog · 9 production dependencies · zero schema changes.**
+
+### Recorded, not built
+Report-side campaign deep-links (the board pack names campaigns without ids today) · LandingPreview theme tokens (per-client palette in the miniature) · QR chip on landing-page cards (same rail, one more consumer).
+
+---
+
+## AG·FIX + W5·WIRES — The Vendor Desk, Proven; The Last Consumers (2026-08-15)
+
+**The vendor-page audit ("make sure it is working").** The rails were healthy — every mount correct, the suite's portal tests green — but the page itself had the failure mode users describe as "not working": **nine unguarded mutations and no toast anywhere** (the main component lacked even `useI18n` — the decide path had no feedback channel at all). Any refusal — permission edge, validation, a transition the deliverable state machine won't allow, module flag — rendered as a button that silently did nothing. Fixed uniformly: every mutation on the desk (save vendor, save engagement, decide, request-revision, advance, deliverable save, comment, mint, revoke) is guarded, confirms on success, and **surfaces the server's own refusal verbatim**. And the desk's exact click-sequence is now a standing suite walk — vendor → engagement → magic link (`/p/…`, plaintext-once by SEC·A design) → revoke → deliverable → advance — eight checks that keep "the vendor page works" true on every push. One test-side correction en route: my assertion expected `/portal/`; the guest door is `/p/` — the constant class of error again, fixed toward the real contract.
+
+**W5·WIRES** · **Landing QR**: `GET /landing-pages/:id/qr` on the same artefact rail (mounted before CRUD so `/:id/qr` is not shadowed), ⬛ chip + printable modal on every card — pinned to `/l/<slug>`. **Theme token**: `theme.primary` now flows editor → `LandingPreview` → `LandingPublic` with the honest chain **page theme → client brand accent (`org.accentColor`, discovered in the payload) → Nabd amber**; round-trip pinned at `#0e7490`. **Report deep-links — recorded precisely, not forced**: the board pack renders no campaign *entities* (metrics dims carry names as chart labels only); the vehicle would be a "top campaigns" report section — a feature for a future wave, not a wire.
+
+### State
+**113 tables · 1,368/1,368 checks · 82-metric catalog · 9 production dependencies · zero schema changes.**
+
+### Recorded, not built
+"Top campaigns" report section (the vehicle for board-pack → room deep-links) · engagement `campaignIds` picker on the desk (schema carries it; UI doesn't offer it yet) · portal-token QR (hand the printed code to a vendor's phone).
+
+---
+
+## UI·COVER + W5·WIRES2 — No Rail Without a Door (2026-08-15)
+
+**The ask generalized the recurring defect** ("make sure everything in the backend or schema has its UI"), so the answer is a **standing gate**, not a sweep: `npm run coverage:ui` (in CI, registered in CONTINUITY.md) asserts every `/api` mount is consumed by the frontend, carries a reasoned permanent allowlist entry (guest portal, cron, webhooks, the pulse.js beacon), or sits in a **dated DEBT register printed loudly on every run**. Honest limitation stated in the script header: mount-level — subroute orphans (the `/room` class) remain the persona audit's job.
+
+**First run: 14 flagged → 13 real orphans** — whole rails shipped with tests and zero frontend references, including SSO sign-in, erasure, and delegation. Five opened this session: **Login SSO button** (+ `/auth/sso/config` public probe) and the **System SSO-connections card** with live test — SEC·B finally usable; **approval delegation card** (window picker, revoke, server refusals verbatim — and the suite now pins both the success and the overlap refusal, after the first probe collided with existing test furniture and proved the validator works); **Calendar seasonal chips**; **engagement `campaignIds` picker** (the CRUD accepted it all along — pure UI). Plus the three carried items: **Report "Top campaigns by spend"** (budget-gated, five rows, health pills, room doors — the board pack's missing tenant), and **portal-token QR minted from the plaintext at the only moment it exists** — the hash can never rebuild it, so the QR ships in the plaintext-once response by design.
+
+**Eight rails in dated debt** (imports · conversions · home — *inspect: possibly superseded* · listening/control · creative-briefs · dashboards · privacy · erasure workflow) — each line carries its date and destination, reprinted by every CI run until closed.
+
+### State
+**113 tables · 1,375/1,375 checks · 82-metric catalog · 9 production dependencies · zero schema changes.**
+
+### § UI-Debt Register
+Living section, owned jointly with `backend/scripts/coverage-ui.js` — amend both together when a line closes.
+Current (2026-08-15, after UI·DEBT4): **ZERO lines.** The register opened at 13 real orphans (2026-08-15), was reduced across four sessions — UI·DEBT1: home, erasure, creative-briefs, conversions · UI·DEBT2: imports · UI·DEBT3: listening/control · UI·DEBT4: dashboards — with privacy reclassified to the permanent allowlist (public subject-confirmation leg). The mechanism stays armed: any future rail without a consumer fails CI unless it enters this register with a date and a destination.
+
+---
+
+## UI·DEBT1 — Four Doors Open; the Register Shrinks 8 → 3 (2026-08-15)
+
+**`/api/home` — fate decided: adopted, not retired.** Inspection revealed it is W4·E, the "9AM loop" — per-role action cards computed from live data, shipped and never consumed. The Dashboard now opens with it: what does Pulse want from me today, with overdue/stale badges and one-tap doors.
+
+**`/api/erasure` — SEC·C finally reaches the operator.** A full workflow card on Contacts: open a request (`subjectEmail` — the first contract lesson of the session), send the verification email or verify manually, discover where the subject lives table by table, submit into the same approvals door as everything else. Two rail contracts corrected on *my* side, and one on the UI I had just written: manual verification refuses without **`evidence`** — "Record how identity was established" — so the card now demands the identity note inline before it will call the rail. The suite walks the entire chain on a planted lead.
+
+**`/api/creative-briefs`** — Studio's briefs card: list + create against a creative request *or* an engagement; the orphan-brief refusal is pinned in the validator's own words. **`/api/conversions`** — not a definitions admin but a **recorder**: 💰 on every Customers row, amount + currency + notes, campaign attribution inherited so the value lands in its room; the header chip speaks the summary rail's real language — value against spend over a window, with ROI. **`/api/privacy`** — reclassified: it is the *public* subject-confirmation leg of erasure, consumed by the data subject's emailed link; permanent allowlist with that reason, not debt.
+
+Session pattern worth naming: **four of six failures were my consumers being shallower than the rails** (`email` vs `subjectEmail`, `note` vs `evidence`, a WON lead is not yet a customer, `count/totalUsd` vs the ROI payload). The rails were right every time; the contracts won every time.
+
+### State
+**113 tables · 1,384/1,384 checks · 82-metric catalog · 9 production dependencies · zero schema changes.**
+
+---
+
+## UI·DEBT2 — The Import Wizard Gets Its Door, and Its First Walk Finds a Rail Bug (2026-08-15)
+
+**The door.** W4·B's five-state import machine (UPLOADED → MAPPED → VALIDATED → PREVIEWED → COMMITTED) finally has its UI: one generic `ImportWizard` component, three doors — ⬆ on **Leads**, **Contacts** (with consent basis + list source captured at the mapping step), and **Customers** (conversions). The job's `status` IS the stepper; the UI never invents a sixth state; every refusal is the matrix speaking verbatim. Paste or pick a file, confirm the auto-guessed column mapping (required fields marked ●), choose dedupe key and merge strategy (**fill blanks only** / skip), check the rows, preview what will happen, then run it — `{created, updated, skipped}` on the way out.
+
+**The bug the first walk found — two defects in the shipped W4·B rail:**
+1. **Validation lied about numbers.** A `number:true` field fed "not-a-number" coerced to a silent `null` and *passed* validation, then detonated at commit against `leads."valueUsd" NOT NULL` — a 500 **after some rows had already landed**, with the job still claiming PREVIEWED. Fixed at `buildRows`: an unparsable number is a per-row error in the errors ledger, never a silent null.
+2. **Commit was not atomic.** Fixed with a new platform primitive: **`tx(fn)` in db.js** — pins ONE client (pool checkout in production, the PGlite client in tests; naive `BEGIN` through the pool would land on a different connection), all rows or none. Inside it, the optional consent echo gets its own SAVEPOINT so it can fail without aborting the import, and **null columns are omitted from INSERT** so database DEFAULTs apply — an explicit null bypasses DEFAULT, which was half the detonation.
+
+The suite's eleven-check walk pins all of it: auto-mapping, the required-field refusal, one bad row rejected not the batch, the duplicate declared at preview and merged not doubled at commit, value updated to the newer figure, a second commit refused by the matrix, and the job COMMITTED in history.
+
+### State
+**113 tables · 1,394/1,394 checks · 82-metric catalog · 9 production dependencies · zero schema changes.**
+
+### § UI-Debt Register (after this session)
+Two lines: `/api/listening/control` · `/api/dashboards`.
+
+---
+
+## UI·DEBT3 — The Control Room Gets Its Door, and Finds the Dead Echo (2026-08-15)
+
+**The door.** W4·F's seventeen-verb listening control-plane finally has its UI: `ListeningControl.tsx`, mounted behind a 🎛 toggle on the Listening page (intel-read to see, intel-write to touch). The cockpit strip shows live/paused, review backlog against SLA, per-provider search budgets with the 80% warning, and **the guardrail line printed verbatim from the server** — ORG · BRAND · PRODUCT · OUTLET · PUBLIC_FIGURE, "no control can widen this." Then the cards: **band calibration with replay-before-apply** (preview what the last 7 days would have done, then apply with a written note that lands on the trail); **sources** with Admiralty grade chips, the admin regrade demanding its written reason inline, and the two levers explained in the UI's own words — block stops ingestion, mute keeps collecting for evidence but hides from alerts and metrics; **watches** with assignee and pause; **the review list** with multi-select, the model's suggestion rendered as a 🤖 chip explicitly labeled "never a ruling," and bulk CONFIRMED/REJECTED whose toast reports how often the model agreed; **alert rules** under the guardrail with the four kinds, corroborated-only, and «ما الذي سينطلق؟» dry-run; and **the change trail** that explains the chart's jumps.
+
+**The bug the first walk found — the dead echo.** The bulk-ruling route compared the analyst's verdict (`CONFIRMED/REJECTED`) against the model's verdict (`RELEVANT/NOT_RELEVANT/UNSURE`) **raw** — vocabularies that never intersect, so `agreedWithAi` was structurally always zero. The metrics engine's KPI mapped the two spaces correctly all along (the ledger was never wrong); only the live echo every analyst would see after every ruling was dead. Fixed with the same mapping the KPI uses; the fixture and the UI chip now speak the model's own vocabulary. Third session running where the door's first walk caught what surface tests couldn't — the coverage gate's thesis, proven again.
+
+Bayan also caught the author: «طابور» is banned in the platform's own glossary (a physical line of people); the review queue is «قائمة».
+
+### State
+**113 tables · 1,406/1,406 checks · 82-metric catalog · 9 production dependencies · zero schema changes.**
+
+### § UI-Debt Register (after this session)
+One line: `/api/dashboards`.
+
+---
+
+## UI·DEBT4 — Metric Boards; the Register Hits Zero (2026-08-15)
+
+**The last line closes.** The dashboards rail — CRUD, the seeded «لوحة الإدارة», the `{metricKey, viz, size}` widget vocabulary — gets its builder: `MetricBoards.tsx` atop the Analytics page. Pick a board, flip into 🧱 build mode, hang widgets from **the 82-metric catalog grouped by category** (the palette is the same semantic layer the board pack reads — the modal says so in its own label), choose number or number-with-trend, wide or standard, reorder with ↑↓, rename, share, or start a new board. Every value renders through `GET /metrics/:key/value` and every trend through the snapshot ledger — **no widget can invent a value the catalog cannot compute**, and the suite pins the refusal of an unknown metric key to prove it.
+
+One contract lesson (the recurring class, mild edition): the shared CRUD's DELETE speaks **204 No Content**; my assertion expected 200. The contract won, as always.
+
+**The UI-Debt Register: 13 → 0 in four sessions.** Opened by the coverage gate's first run; every line closed with a real consumer, a suite walk in the page's own payloads, and — three times out of four — a genuine rail bug the door's first walk exposed (the import validation lie and non-atomic commit; the agreement echo comparing vocabularies that never intersect). The gate stays armed in CI: a rail without a door is a failing build.
+
+### State
+**113 tables · 1,414/1,414 checks · 82-metric catalog · 9 production dependencies · zero schema changes.**
+
+### § UI-Debt Register (after this session)
+**Empty.** The mechanism remains — `coverage:ui` in CI, DEBT map in `backend/scripts/coverage-ui.js`, this section as its mirror.
+
+---
+
+## W3·FIN — Wave 3, Proven Complete (2026-08-15)
+
+**The audit before the build found the build.** "Do the remaining for Wave 3" opened with the mandatory census, and the census reshaped the session: all eight clusters exist on disk — `observability.js`, `ai.js`, `search.js`, `forecast.js`, `mmm.js`, `automate-engine.js`, the schema's `error_log`/`ai_runs`/`search_budget`/`osint_themes` — and the coverage gate being green meant every rail already had its consumer. **FlowCanvas was already wired** as Automate's action editor (this author's own stale note said "unrouted"; the component was the editor all along, 29 dict keys shipped with it). D, E, and G carried suite markers. What Wave 3 was missing was not code but **witness**: five clusters had never been walked.
+
+**The five walks, sixteen checks, all green — zero production changes:**
+- **W3·A** — a browser fault is acknowledged 204 and lands as a CLIENT row carrying a fingerprint, with the planted secret **structurally absent from the entire row** (the digest law); the full health report and the liveness stub remain two different doors (the SEC·A lesson, held).
+- **W3·B** — the library teaches the canvas its vocabulary; a dry-run walks a nested IF against a real lead, logs which branch fired, and changes nothing; the drawn flow round-trips verbatim — both arms — into the same `workflows.actions` jsonb the runner has always read. One engine, no second path.
+- **W3·C** — the rail states its own posture (`configured`, model, ceiling, spend against it); the drafts shelf answers; a decision outside PUBLISHED/DISMISSED is refused — humans dispose in exactly two ways — and deciding a non-existent draft is a plain 404.
+- **W3·F** — below 21 observations the forecast **refuses and says how much history it needs**; above the floor it answers in ordered intervals lo ≤ mid ≤ hi, never a point.
+- **W3·H** — a department-bound analyst (token minted by the platform's own signer — no login, no limiter noise) sees their department's campaigns and the shared ones, **not** the other department's; the head admin sees across all.
+
+**Three consumer-side contract lessons, the recurring class:** the error beacon speaks 204 fire-and-ack; AI status says `configured`, not `enabled`; and the login rate-limiter's shared window means test fixtures mint tokens with `signToken`, never a fresh login late in the run.
+
+### State
+**113 tables · 1,430/1,430 checks · 82-metric catalog · 9 production dependencies · zero schema changes.**
+
+**Wave 3: eight of eight clusters shipped and proven.** Remaining on the whole roadmap: W4·X WhatsApp broadcasts (deferred by choice, consent-gated) · W2·E OSINT hardening full build · the second keyholder appointment (an appointment, not a commit).
+
+---
+
+## NAV·CHECK — The Menu Is a Contract, and the Contract Is Tested (2026-08-15)
+
+**The ask** ("make sure the groups list and menu got ordered, everything working and tested") **becomes a permanent gate**, in the platform's own style: `npm run nav:check` (in CI after `coverage:ui`, registered in CONTINUITY.md, run as a suite child) reconciles five artifacts against each other — **the router, the menu, the dictionary, the module vocabulary, and the icon set**. Every route must have a menu door or a named reason; every door must lead to a route; no path may hang twice; every label must speak both languages; every `flag` must be a module the System page can actually switch (`MODULE_KEYS` imported from `flags.js`) and every `mod` a real permission module (`PERM_MODULES` imported from `auth.js` — the checker holds the menu to the platform's vocabulary, never to a hand-copied list); every icon must have a drawing; and the **seven groups must stand in canonical order**: يومي ← خطط ← أنشئ ← اجذب ← افهم ← شركاء ← النظام. Disorder is a failing build, not a taste note.
+
+**First run: 39 routes ↔ 39 menu items ↔ 7 groups ↔ 38 icons — one real defect.** `/library` carried `flag: "content"`, a switch that has never existed: "content" is permission vocabulary (in `PERM_MODULES`) but not module vocabulary (absent from `MODULE_KEYS`), and its rail mounts ungated by design. The dead flag looked like a control and controlled nothing — removed; the content library is honestly always-on, permission-gated only. Everything else already agreed: W4·NAV's ordering discipline had held, and now it cannot silently stop holding.
+
+### State
+**113 tables · 1,432/1,432 checks · 82-metric catalog · 9 production dependencies · zero schema changes · six standing gates** (docs census · Bayan · continuity · coverage:ui · nav:check · the suite itself).

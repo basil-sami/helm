@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useFetch, Card, Field, Select, Empty } from "../components/ui";
+import { useFetch, Card, Field, Select, Empty, Modal } from "../components/ui";
 import { useI18n } from "../context/I18nContext";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../components/Toast";
@@ -9,7 +9,6 @@ import { fmtDate } from "../lib/format";
 interface Link { id: string; code: string; url: string; campaignId?: string; campaignName?: string; channel?: string; clicks: number; lastClickAt?: string; createdAt: string }
 interface CampaignRow { id: string; name: string }
 interface Presets { sources: string[]; mediums: string[]; campaigns: { id: string; utm: string }[] }
-interface Qr { code: string; url: string; dataUrl: string }
 
 export default function Links() {
   const { lang, tr } = useI18n();
@@ -20,8 +19,12 @@ export default function Links() {
   const { data: presets } = useFetch<Presets>("/links/presets");
   const [form, setForm] = useState({ url: "", code: "", campaignId: "", channel: "" });
   const [utm, setUtm] = useState({ source: "", medium: "", campaign: "", content: "", term: "" });
-  const [qr, setQr] = useState<Qr | null>(null);
+  const [qr, setQr] = useState<{ dataUrl: string; code: string } | null>(null);
   const [saving, setSaving] = useState(false);
+  const showQr = async (l: Link) => {
+    try { const d = await api.get<{ dataUrl: string }>(`/links/${l.id}/qr`); setQr({ dataUrl: d.dataUrl, code: l.code }); }
+    catch { toast.push(tr("saveError"), "error"); }
+  };
 
   const create = async () => {
     if (!/^https?:\/\/.+/.test(form.url)) return toast.push(tr("saveError"), "error");
@@ -88,8 +91,8 @@ export default function Links() {
                   <td className="px-4 py-3"><span className="kpi-num text-ink-800">{l.clicks}</span>
                     {l.lastClickAt && <span className="ms-2 text-[11px] text-ink-400">{fmtDate(l.lastClickAt, lang)}</span>}</td>
                   <td className="px-4 py-3 text-end">
-                     <button onClick={() => copy(l.code)} className="text-xs text-steel-600 hover:underline">{tr("lk_copy")}</button>
-                     <button onClick={async () => { try { setQr(await api.get<Qr>(`/links/${l.id}/qr`)); } catch (e) { toast.push((e as Error).message, "error"); } }} className="ms-3 text-xs text-steel-600 hover:underline">QR</button>
+<button onClick={() => showQr(l)} className="rounded-lg bg-ink-900 px-2 py-0.5 text-[11px] font-medium text-paper-50">⬛ QR</button>
+                    <button onClick={() => copy(l.code)} className="text-xs text-steel-600 hover:underline">{tr("lk_copy")}</button>
                     {can("campaigns") && <button onClick={async () => { if (confirm(tr("confirmDelete"))) { await api.del(`/links/${l.id}`); reload(); } }} className="ms-3 text-xs text-clay-600 hover:underline">{tr("delete")}</button>}
                   </td>
                 </tr>
@@ -98,7 +101,15 @@ export default function Links() {
           </table></div>
         )}
       </Card>
-      {qr && <div className="fixed inset-0 z-50 grid place-items-center bg-ink-950/55 p-4" onClick={() => setQr(null)}><div onClick={(e) => e.stopPropagation()}><Card className="max-w-sm text-center"><img src={qr.dataUrl} alt={`QR ${qr.code}`} className="mx-auto w-full max-w-64" /><a href={qr.dataUrl} download={`${qr.code}.png`} className="btn-amber mt-3 inline-block">{lang === "ar" ? "تنزيل QR" : "Download QR"}</a></Card></div></div>}
+<Modal open={!!qr} onClose={() => setQr(null)} title={qr ? `/r/${qr.code}` : ""}>
+        {qr && (
+          <div className="text-center">
+            <img src={qr.dataUrl} alt="QR" className="mx-auto h-52 w-52 rounded-xl border border-paper-200 bg-white p-2" />
+            <p className="mt-2 text-xs text-ink-500" dir="auto">{tr("lk_qrHint")}</p>
+            <a href={qr.dataUrl} download={`${qr.code}.png`} className="btn-amber mt-3 inline-block">{lang === "ar" ? "تنزيل QR" : "Download QR"}</a>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

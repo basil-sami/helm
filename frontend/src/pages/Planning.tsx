@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { useState } from "react";
 import { useFetch, Card, Field, Select, Modal } from "../components/ui";
 import { useToast } from "../components/Toast";
@@ -10,7 +11,7 @@ interface Objective {
   id: string; label: string; labelAr?: string; metric: string;
   targetValue: number; manualCurrent: number; startDate?: string; endDate?: string;
   businessUnit?: string; ownerId?: string; ownerName?: string; status: string;
-  current: number; progress: number; pace: string;
+  current: number; progress: number; pace: string; campaignIds?: string[];
 }
 interface UserRow { id: string; name: string }
 
@@ -31,6 +32,8 @@ export default function Planning() {
   const toast = useToast();
   const canManage = can("planning");
   const { data, loading, reload } = useFetch<Objective[]>("/planning/objectives");
+  const { data: nerveCamps } = useFetch<{ id: string; name: string; nameAr?: string }[]>("/campaigns");
+  const { data: fin } = useFetch<{ campaigns: { id: string; planned: number; committed: number; actual: number }[] }>("/finance/overview");
   const { data: users } = useFetch<UserRow[]>("/users");
   const [editing, setEditing] = useState<Partial<Objective> | null>(null);
   const [saving, setSaving] = useState(false);
@@ -48,6 +51,7 @@ export default function Planning() {
         targetValue: Number(editing.targetValue) || 0, manualCurrent: Number(editing.manualCurrent) || 0,
         startDate: editing.startDate || null, endDate: editing.endDate || null,
         businessUnit: editing.businessUnit, ownerId: editing.ownerId || null,
+        campaignIds: editing.campaignIds || [],
       };
       if (editing.id) await api.patch(`/planning/objectives/${editing.id}`, payload);
       else await api.post("/planning/objectives", payload);
@@ -109,6 +113,27 @@ export default function Planning() {
                   <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${PACE_TONE[o.pace]}`}>{tr(`pace_${o.pace}`)}</span>
                 </div>
 
+                {(o.campaignIds?.length ?? 0) > 0 && fin && (() => {
+                  // W5·NERVE — strategy → money → execution on one line.
+                  const linked = (fin.campaigns || []).filter((c) => o.campaignIds!.includes(c.id));
+                  const sum = (f: "planned" | "committed" | "actual") => linked.reduce((a, c) => a + (c[f] || 0), 0);
+                  const linkedCamps = (o.campaignIds || [])
+                    .map((id) => (nerveCamps || []).find((x) => x.id === id))
+                    .filter(Boolean).slice(0, 3);
+                  return (
+                    <div className="mt-2 rounded-lg bg-paper-100 px-2.5 py-1.5 text-[11px] text-ink-600" dir="auto">
+                      🧠 {linkedCamps.map((c, i) => (
+                        <span key={c!.id}>{i > 0 && " · "}
+                          <Link to={`/campaigns?room=${c!.id}`} className="hover:underline">{lang === "ar" && c!.nameAr ? c!.nameAr : c!.name}</Link>
+                        </span>
+                      ))}{(o.campaignIds!.length > 3) ? ` +${o.campaignIds!.length - 3}` : ""}
+                      <span className="kpi-num ms-2" dir="ltr">
+                        {fmtVal("PIPELINE_USD", sum("actual"))} + {fmtVal("PIPELINE_USD", sum("committed"))} / {fmtVal("PIPELINE_USD", sum("planned"))}
+                      </span>
+                    </div>
+                  );
+                })()}
+
                 <div className="mt-3 flex items-end justify-between">
                   <div className="kpi-num text-lg text-ink-900">{fmtVal(o.metric, o.current)}</div>
                   <div className="text-sm text-ink-500">{tr("pl_target")}: <span className="kpi-num text-ink-700">{fmtVal(o.metric, o.targetValue)}</span></div>
@@ -147,6 +172,22 @@ export default function Planning() {
             <Field label={tr("pl_end")}><input type="date" className="input" value={editing.endDate || ""} onChange={(e) => setEditing({ ...editing, endDate: e.target.value })} /></Field>
             <Field label={tr("businessUnit")}><input className="input" value={editing.businessUnit || ""} onChange={(e) => setEditing({ ...editing, businessUnit: e.target.value })} /></Field>
             <Field label={tr("owner")}><Select value={editing.ownerId || ""} onChange={(v) => setEditing({ ...editing, ownerId: v })} placeholder={tr("unassigned")} options={(users || []).map((u) => ({ value: u.id, label: u.name }))} /></Field>
+            <div>
+              <span className="label">{tr("fin_linkCampaigns")}</span>
+              <div className="max-h-32 space-y-1 overflow-y-auto rounded-xl border border-paper-200 bg-white p-2">
+                {(nerveCamps || []).map((c) => (
+                  <label key={c.id} className="flex items-center gap-2 text-xs text-ink-700">
+                    <input type="checkbox"
+                      checked={(editing.campaignIds || []).includes(c.id)}
+                      onChange={(e) => {
+                        const cur = editing.campaignIds || [];
+                        setEditing({ ...editing, campaignIds: e.target.checked ? [...cur, c.id] : cur.filter((x) => x !== c.id) });
+                      }} />
+                    <span className="truncate">{lang === "ar" && c.nameAr ? c.nameAr : c.name}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
             {editing.metric === "CUSTOM" && (
               <div className="col-span-2"><Field label={tr("pl_current")}><input type="number" className="input" value={editing.manualCurrent ?? 0} onChange={(e) => setEditing({ ...editing, manualCurrent: Number(e.target.value) })} /></Field></div>
             )}

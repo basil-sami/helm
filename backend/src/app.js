@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import { authRouter } from "./auth.js";
 import { securityRouter } from "./routes/security.js";
+import { financeRouter, nerveRouter } from "./routes/finance.js";
 import {
   campaignsRouter, contentRouter, contentExtraRouter, leadsRouter,
   eventsRouter, budgetRouter, tasksRouter,
@@ -47,7 +48,7 @@ import { creativeRequestsRouter, creativeBriefsRouter, copyBankRouter, brandAsse
 import { vendorsRouter, vendorScorecardRouter, engagementsRouter, deliverablesRouter, deliverableCommentsRouter, invoicesRouter, portalTokensRouter } from "./routes/agency.js";
 import { portalRouter } from "./routes/portal.js";
 import { contactsRouter, contactsConsentRouter } from "./routes/contacts.js";
-import { formsRouter, formsExtraRouter, landingPagesRouter, publicFormsRouter, publicPagesRouter } from "./routes/automate.js";
+import { formsRouter, formsExtraRouter, landingPagesRouter, publicFormsRouter, publicPagesRouter, pagesQrRouter } from "./routes/automate.js";
 import { surveysRouter, surveysExtraRouter, insightsRouter, publicSurveysRouter } from "./routes/research.js";
 import { requireModule } from "./flags.js";
 import { captureRouter } from "./routes/capture.js";
@@ -177,6 +178,7 @@ export function createApp() {
   app.use("/api/contacts", contactsRouter);                                 // core: the audience layer
   app.use("/api/forms", requireModule("automate"), formsExtraRouter);       // /:id/{submissions,stats}
   app.use("/api/forms", requireModule("automate"), formsRouter);
+  app.use("/api/landing-pages", requireModule("automate"), pagesQrRouter);      // /:id/qr before CRUD
   app.use("/api/landing-pages", requireModule("automate"), landingPagesRouter);
   app.use("/api/public/forms", requireModule("automate"), publicFormsRouter);     // /f/:slug data + submit
   app.use("/api/public/pages", requireModule("automate"), publicPagesRouter);     // /l/:slug data
@@ -235,6 +237,8 @@ export function createApp() {
   app.use("/api/sso", ssoAdminRouter);        // admin: connections + auth audit
   app.use("/api/erasure", erasureRouter);     // data-subject erasure and export
   app.use("/api/security", securityRouter);
+  app.use("/api/finance", financeRouter);
+  app.use("/api/nerve", nerveRouter);
   app.use("/api/settings", settingsRouter);
   app.use("/api/storage", storageInfoRouter);
   app.get("/api/health", async (_req, res) => {

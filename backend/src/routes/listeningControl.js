@@ -243,8 +243,12 @@ r.post("/queue/rule", write, async (req, res, next) => {
         WHERE id = ANY($1::uuid[]) AND "reviewStatus" = 'PENDING' RETURNING id, "aiVerdict"`,
       [ids, verdict, req.user.id]);
     // The agreement KPI compares analyst rulings against the model's
-    // recommendation — recorded here, never used to auto-rule.
-    const agreed = done.filter((d) => d.aiVerdict && d.aiVerdict.toUpperCase() === verdict).length;
+    // recommendation — recorded here, never used to auto-rule. The two
+    // live in different vocabularies (CONFIRMED/REJECTED vs RELEVANT/
+    // NOT_RELEVANT), mapped here exactly as the metrics engine maps them
+    // — the raw comparison this replaced was structurally always zero.
+    const wantAi = verdict === "CONFIRMED" ? "RELEVANT" : "NOT_RELEVANT";
+    const agreed = done.filter((d) => d.aiVerdict && d.aiVerdict.toUpperCase() === wantAi).length;
     logAudit(req, "listening.bulkRule", "osint_signals", null, { count: done.length, verdict, reason, agreedWithAi: agreed });
     res.json({ ruled: done.length, requested: ids.length, skipped: ids.length - done.length, agreedWithAi: agreed });
   } catch (e) { next(e); }

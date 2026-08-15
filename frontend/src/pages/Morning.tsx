@@ -4,11 +4,13 @@ import { useI18n } from "../context/I18nContext";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../lib/api";
 import { Link } from "react-router-dom";
+import { fmtDate } from "../lib/format";
 
 // ═══ THE MORNING PULSE — صباح النبض ══════════════════════════════════
 // One calm screen: where the pulse sits, what today asks of you.
 
 interface Briefing {
+  actions?: { campaignsEnding?: { count: number; items: { id: string; name: string; endDate: string }[] } };
   date: string; logged: boolean;
   pulse: { value: number | null; delta: number };
   tasksDue: { id: string; title: string; priority: string; assignee?: string | null }[];
@@ -129,6 +131,14 @@ export default function Morning() {
               <span className="truncate text-ink-800">{l.company}</span>
               <span className="kpi-num shrink-0 rounded-full bg-clay-100 px-2 py-0.5 text-[10px] font-bold text-clay-700" dir="ltr">🔥 {l.score}</span>
             </div>
+          )} />
+
+        <List title={tr("mo_ending")} to="/campaigns" items={b.actions?.campaignsEnding?.items || []} emptyKey="mo_clearE"
+          render={(c: { id: string; name: string; endDate: string }) => (
+            <Link to={`/campaigns?room=${c.id}`} className="flex items-center justify-between gap-2 rounded-lg px-2 py-1 hover:bg-paper-100">
+              <span className="truncate text-sm text-ink-800">{c.name}</span>
+              <span className="kpi-num shrink-0 text-[11px] text-ink-400" dir="ltr">{fmtDate(c.endDate, lang)}</span>
+            </Link>
           )} />
       </div>
 

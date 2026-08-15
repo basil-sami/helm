@@ -37,7 +37,7 @@ export default function Calendar() {
   const { lang, tr, el } = useI18n();
   const toast = useToast();
   const navigate = useNavigate();
-  const [cursor, setCursor] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
+const [cursor, setCursor] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
   const rangeStart = toDateInput(new Date(cursor.getFullYear(), cursor.getMonth(), 1).toISOString());
   const rangeEnd = toDateInput(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).toISOString());
   const { data: feed, loading, reload } = useFetch<Feed>(`/calendar/feed?from=${rangeStart}&to=${rangeEnd}`, [rangeStart, rangeEnd]);
@@ -173,6 +173,16 @@ export default function Calendar() {
 
   return (
     <div className="space-y-4">
+      {(feed?.seasonal || []).filter((s) => s.startDate && new Date(s.startDate) < monthEnd && new Date(s.endDate || s.startDate) >= monthStart).length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+          <span className="font-medium text-ink-500">🗓 {tr("cal_seasonal")}:</span>
+          {(feed?.seasonal || []).filter((s) => s.startDate && new Date(s.startDate) < monthEnd && new Date(s.endDate || s.startDate) >= monthStart).slice(0, 8).map((s) => (
+            <span key={s.id} className="rounded-full bg-paper-100 px-2.5 py-1 text-ink-700" dir="auto">
+              {lang === "ar" && s.nameAr ? s.nameAr : s.name}
+            </span>
+          ))}
+        </div>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <button onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))} className="btn-ghost px-2.5">‹</button>

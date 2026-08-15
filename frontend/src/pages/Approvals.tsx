@@ -9,7 +9,8 @@ import { useAuth } from "../context/AuthContext";
 // ── APPROVALS — one inbox for every sign-off in Pulse ────────────────
 
 interface Preview { kind: string; title?: string; body?: string | null; bodyAr?: string | null;
-  meta?: string | null; mediaUrl?: string | null; amountUsd?: number; when?: string | null }
+  meta?: string | null; mediaUrl?: string | null; amountUsd?: number; when?: string | null;
+  budgetContext?: { campaignName: string; pctAfter: number | null; planned: number } | null }
 interface Approval { id: string; entity: string; entityId: string; stage: string; status: string; note?: string;
   requesterName?: string; approverName?: string; createdAt: string; decidedAt?: string; preview?: Preview | null }
 
@@ -22,6 +23,7 @@ interface Delegation { id: string; approverId: string; approverName?: string; de
 
 // W4·UX — the thing being approved, shown where the decision happens.
 function PreviewBlock({ p, lang }: { p: Preview; lang: "ar" | "en" }) {
+  const { tr } = useI18n();
   const body = lang === "ar" ? (p.bodyAr || p.body) : (p.body || p.bodyAr);
   const isImg = p.mediaUrl && /\.(png|jpe?g|gif|webp)(\?|$)/i.test(p.mediaUrl);
   return (
@@ -37,12 +39,30 @@ function PreviewBlock({ p, lang }: { p: Preview; lang: "ar" | "en" }) {
           {p.when && <span>{fmtDate(p.when, lang)}</span>}
           {p.amountUsd != null && <span className="kpi-num font-semibold text-ink-800">${p.amountUsd.toLocaleString()}</span>}
         </div>
+        {p.budgetContext && p.budgetContext.pctAfter != null && (
+          <div className={`mt-1 text-[11px] ${p.budgetContext.pctAfter >= 100 ? "font-semibold text-clay-600"
+            : p.budgetContext.pctAfter >= 90 ? "font-medium text-amber-700" : "text-ink-500"}`} dir="auto">
+            {tr("fin_takesTo")} «{p.budgetContext.campaignName}» {tr("fin_to")} <span className="kpi-num" dir="ltr">{p.budgetContext.pctAfter}%</span> {tr("fin_ofEnvelope")}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
 export default function Approvals() {
+  const { data: dlg, reload: reloadDlg } = useFetch<{ id: string; approverName: string; delegateName: string; fromDate: string; toDate: string; active: boolean }[]>("/delegations");
+  const { data: dlgUsers } = useFetch<{ id: string; name: string }[]>("/users");
+  const [dlgNew, setDlgNew] = useState<{ delegateId: string; fromDate: string; toDate: string } | null>(null);
+  const [dlgErr, setDlgErr] = useState("");
+  const saveDlg = async () => {
+    if (!dlgNew?.delegateId || !dlgNew.fromDate || !dlgNew.toDate) return;
+    try { await api.post("/delegations", dlgNew); setDlgNew(null); setDlgErr(""); reloadDlg(); }
+    catch (e) { setDlgErr((e as Error).message); }
+  };
+  const dropDlg = async (id: string) => {
+    try { await api.del(`/delegations/${id}`); reloadDlg(); } catch (e) { setDlgErr((e as Error).message); }
+  };
   const { lang, tr } = useI18n();
   const { can, isAdmin } = useAuth();
   const { data, reload } = useFetch<Approval[]>("/approvals");
@@ -147,6 +167,36 @@ export default function Approvals() {
           </div>
         )}
       </Modal>
+
+      {/* ── the away-switch: delegation finally has a door ── */}
+      <Card>
+        <SectionTitle action={<button onClick={() => setDlgNew({ delegateId: "", fromDate: new Date().toISOString().slice(0, 10), toDate: "" })} className="btn-ghost text-xs">+ {tr("dlg_add")}</button>}>
+          🤝 {tr("dlg_title")}
+        </SectionTitle>
+        <p className="-mt-1 mb-2 text-xs text-ink-500">{tr("dlg_sub")}</p>
+        {dlgErr && <p className="mb-2 text-xs text-clay-600" dir="auto">{dlgErr}</p>}
+        <div className="space-y-1">
+          {(dlg || []).filter((d) => d.active).map((d) => (
+            <div key={d.id} className="flex flex-wrap items-center justify-between gap-2 text-xs">
+              <span className="text-ink-700">{d.approverName} ← {d.delegateName}
+                <span className="ms-2 kpi-num text-[10px] text-ink-400" dir="ltr">{d.fromDate?.slice(0, 10)} → {d.toDate?.slice(0, 10)}</span>
+              </span>
+              <button onClick={() => dropDlg(d.id)} className="text-clay-600 hover:underline">{tr("ag_revoke")}</button>
+            </div>
+          ))}
+          {dlg && dlg.filter((d) => d.active).length === 0 && <p className="text-xs text-ink-400">{tr("dlg_none")}</p>}
+        </div>
+        {dlgNew && (
+          <div className="mt-3 flex flex-wrap items-end gap-2">
+            <div className="min-w-40 flex-1"><Select value={dlgNew.delegateId} onChange={(v: string) => setDlgNew({ ...dlgNew, delegateId: v })} placeholder={tr("dlg_to")}
+              options={(dlgUsers || []).map((u) => ({ value: u.id, label: u.name }))} /></div>
+            <input type="date" className="input h-9 w-36" value={dlgNew.fromDate} onChange={(e) => setDlgNew({ ...dlgNew, fromDate: e.target.value })} />
+            <input type="date" className="input h-9 w-36" value={dlgNew.toDate} onChange={(e) => setDlgNew({ ...dlgNew, toDate: e.target.value })} />
+            <button onClick={saveDlg} className="btn-amber text-xs">{tr("save")}</button>
+            <button onClick={() => setDlgNew(null)} className="btn-ghost text-xs">{tr("cancel")}</button>
+          </div>
+        )}
+      </Card>
     </div>
   );
 }

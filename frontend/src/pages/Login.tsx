@@ -12,15 +12,12 @@ export default function Login() {
   const { branding } = useBranding();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [sso, setSso] = useState<{ enabled: boolean; required: boolean; name?: string } | null>(null);
+  useEffect(() => { api.get<{ enabled: boolean; required: boolean; name?: string }>("/auth/sso/config").then(setSso).catch(() => {}); }, []);
   const [otp, setOtp] = useState("");
   const [needOtp, setNeedOtp] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [sso, setSso] = useState<{ enabled: boolean; required: boolean; name?: string } | null>(null);
-
-  useEffect(() => { api.get<{ enabled: boolean; required: boolean; name?: string }>("/auth/sso/config").then(setSso).catch(() => {}); }, []);
-
-  const org = (lang === "ar" ? branding.orgNameAr || branding.orgName : branding.orgName) || "";
 
   const submit = async () => {
     setBusy(true);
@@ -118,6 +115,18 @@ export default function Login() {
             )}
 
             {error && <div className="rounded-lg bg-clay-500/10 px-3 py-2 text-sm text-clay-600">{error}</div>}
+
+            {sso?.enabled && (
+
+              <button type="button" onClick={() => { window.location.href = "/api/auth/sso/start"; }}
+
+                className="mb-2 w-full rounded-xl border border-paper-300 bg-white py-2.5 text-sm font-medium text-ink-800 hover:bg-paper-100">
+
+                🔐 {tr("login_sso")}{sso.name ? ` · ${sso.name}` : ""}
+
+              </button>
+
+            )}
 
             <button onClick={submit} disabled={busy} className="btn-amber w-full">
               {busy ? tr("loading") : tr("signIn")}

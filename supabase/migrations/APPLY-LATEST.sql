@@ -1822,3 +1822,8 @@ drop trigger if exists trg_audit_immutable on audit_log;
 create trigger trg_audit_immutable
   before update or delete on audit_log
   for each row execute function audit_log_immutable();
+
+-- ── W5·NERVE · strategy joins the spine ──────────────────────────────
+-- Objectives link to campaigns the same way engagements do (jsonb id
+-- array): strategy → money → execution → outcome on one line.
+alter table objectives add column if not exists "campaignIds" jsonb not null default '[]';

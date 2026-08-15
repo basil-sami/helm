@@ -4,6 +4,7 @@ import { useI18n } from "../context/I18nContext";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../components/Toast";
 import { api } from "../lib/api";
+import { ImportWizard } from "../components/ImportWizard";
 import { fmtMoney, fmtDate, toDateInput } from "../lib/format";
 
 interface Customer { id: string; company: string; businessUnit?: string; firstWonAt?: string; totalValueUsd: number; status: string; accountOwnerId?: string; ownerName?: string; nextReviewAt?: string; notes?: string }
@@ -14,9 +15,20 @@ const TONE: Record<string, string> = { ACTIVE: "bg-moss-500/15 text-moss-700", D
 
 export default function Customers() {
   const { lang, tr } = useI18n();
+  const [importing, setImporting] = useState(false);
   const { can } = useAuth();
   const toast = useToast();
   const { data, loading, reload } = useFetch<Customer[]>("/customers");
+  const { data: convSum, reload: reloadCv } = useFetch<{ windowDays: number; valueUsd: number; roiPct: number | null } | null>("/conversions/summary");
+  const [conv, setConv] = useState<{ customerId: string; name: string; valueAmount: string; currency: string; notes: string } | null>(null);
+  const [convErr, setConvErr] = useState("");
+  const saveConv = async () => {
+    if (!conv || !(Number(conv.valueAmount) > 0)) return;
+    try {
+      await api.post("/conversions", { customerId: conv.customerId, valueAmount: Number(conv.valueAmount), currency: conv.currency, notes: conv.notes || undefined });
+      setConv(null); setConvErr(""); reloadCv();
+    } catch (e) { setConvErr((e as Error).message); }
+  };
   const { data: fb } = useFetch<Fb>("/feedback");
   const { data: users } = useFetch<UserRow[]>("/users");
   const [editing, setEditing] = useState<Partial<Customer> | null>(null);
@@ -58,7 +70,10 @@ export default function Customers() {
         <div>
           <h1 className="text-xl font-bold text-ink-900">{tr("cu_title")}</h1>
           <p className="text-sm text-ink-500">{tr("cu_sub")}</p>
-          <p className="mt-1 text-xs text-ink-400">{tr("cu_manageHint")}</p>
+<p className="mt-1 text-xs text-ink-400">{tr("cu_manageHint")}</p>
+        {convSum && convSum.valueUsd > 0 && (
+          <p className="mt-1 text-xs text-ink-600">💰 {tr("cv_summary")} ({convSum.windowDays}d): <b className="kpi-num" dir="ltr">${Math.round(convSum.valueUsd).toLocaleString()}</b>{convSum.roiPct != null && <> · ROI <b className={`kpi-num ${convSum.roiPct >= 0 ? "text-moss-700" : "text-clay-600"}`} dir="ltr">{convSum.roiPct}%</b></>}</p>
+        )}
         </div>
         {fb && fb.count > 0 && (
           <div className="rounded-xl border border-paper-200 bg-white px-4 py-2 text-sm">
@@ -98,6 +113,7 @@ export default function Customers() {
                     <td className={`px-4 py-3 ${due ? "font-medium text-clay-600" : "text-ink-600"}`}>{c.nextReviewAt ? fmtDate(c.nextReviewAt, lang) : "—"}</td>
                     <td className="px-4 py-3"><span className={`pill ${TONE[c.status] || TONE.CHURNED}`}>{tr(c.status === "ACTIVE" ? "ACTIVE_C" : c.status)}</span></td>
                     <td className="px-4 py-3 text-end whitespace-nowrap">
+                      {can("leads", "write") && <button onClick={() => setConv({ customerId: c.id, name: c.company, valueAmount: "", currency: "USD", notes: "" })} className="me-3 text-xs text-moss-600 hover:underline">💰 {tr("cv_record")}</button>}
                       <button onClick={() => copyFb(c.id)} className="text-xs text-steel-600 hover:underline">★ {tr("cu_fbLink")}</button>
                       {can("leads") && <button onClick={() => setEditing({ ...c, nextReviewAt: c.nextReviewAt ? toDateInput(c.nextReviewAt) : "" })} className="ms-3 text-xs text-steel-600 hover:underline">{tr("edit")}</button>}
                       {can("leads") && <button onClick={() => remove(c)} className="ms-3 text-xs text-clay-600 hover:underline">{tr("delete")}</button>}
@@ -112,6 +128,7 @@ export default function Customers() {
 
       <Modal open={!!editing} onClose={() => setEditing(null)} title={editing?.id ? editing.company || "" : tr("add")}
         footer={<><button onClick={() => setEditing(null)} className="btn-ghost">{tr("cancel")}</button>
+          <button onClick={() => setImporting(true)} className="btn-ghost text-xs">⬆ {tr("imp_btnConv")}</button>
           <button onClick={save} disabled={saving} className="btn-amber">{tr("save")}</button></>}>
         {editing && (
           <div className="grid grid-cols-2 gap-3">
@@ -132,6 +149,27 @@ export default function Customers() {
           </div>
         )}
       </Modal>
+
+      <Modal open={!!conv} onClose={() => setConv(null)} title={conv ? `${tr("cv_record")} — ${conv.name}` : ""}
+        footer={<><button onClick={() => setConv(null)} className="btn-ghost">{tr("cancel")}</button><button onClick={saveConv} className="btn-amber">{tr("save")}</button></>}>
+        {conv && (
+          <div className="space-y-3">
+            {convErr && <p className="text-xs text-clay-600" dir="auto">{convErr}</p>}
+            <div className="grid grid-cols-2 gap-3">
+              <Field label={tr("cv_amount")}><input className="input" dir="ltr" type="number" min={0} value={conv.valueAmount} onChange={(e) => setConv({ ...conv, valueAmount: e.target.value })} /></Field>
+              <Field label={tr("currency")}>
+                <Select value={conv.currency} onChange={(v: string) => setConv({ ...conv, currency: v })}
+                  options={["USD", "SDG"].map((x) => ({ value: x, label: x }))} />
+              </Field>
+            </div>
+            <Field label={tr("notes")}><input className="input" dir="auto" value={conv.notes} onChange={(e) => setConv({ ...conv, notes: e.target.value })} /></Field>
+            <p className="text-[11px] text-ink-400">{tr("cv_hint")}</p>
+          </div>
+        )}
+      </Modal>
+
+      {importing && <ImportWizard entity="conversions" onClose={() => setImporting(false)}
+        onDone={() => { setImporting(false); reload(); }} />}
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { Router } from "express";
+import QRCode from "qrcode";
 import { fireEvent, recomputeLeadScore } from "../automate-engine.js";
 import { crudRouter } from "../crud.js";
 import { all, get, run } from "../db.js";
@@ -218,5 +219,22 @@ publicPagesRouter.get("/:slug", async (req, res, next) => {
       theme: typeof p.theme === "string" ? JSON.parse(p.theme || "{}") : p.theme,
       org, form: form ? publicFormShape(form) : null,
     });
+  } catch (e) { next(e); }
+});
+
+
+// ── W5·WIRES · the landing page's fair-day artefact ──────────────────
+// Same rail as tracked links and placements: one printable code for the
+// page's public door, mounted before the CRUD so /:id/qr is not shadowed.
+export const pagesQrRouter = Router();
+pagesQrRouter.use(requireAuth);
+pagesQrRouter.get("/:id/qr", requirePerm("automate", "read"), async (req, res, next) => {
+  try {
+    const page = await get(`SELECT id, slug FROM landing_pages WHERE id = $1`, [req.params.id]);
+    if (!page) return res.status(404).json({ error: "Page not found" });
+    const base = (process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
+    const url = `${base}/l/${page.slug}`;
+    const dataUrl = await QRCode.toDataURL(url, { width: 512, margin: 1, color: { dark: "#1b1b1f", light: "#faf7f0" } });
+    res.json({ slug: page.slug, url, dataUrl });
   } catch (e) { next(e); }
 });

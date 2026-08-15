@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Card, SectionTitle, Field, Select, Modal, StatusPill, Empty, SkeletonRows, useFetch } from "../components/ui";
+import { TemplateBar, LandingPreview, LP_TEMPLATES, slugify } from "../components/Builder";
 import { useAuth } from "../context/AuthContext";
 import { useI18n } from "../context/I18nContext";
 import { api } from "../lib/api";
@@ -11,7 +12,8 @@ interface Block { kind: string; heading?: string; headingAr?: string; sub?: stri
   body?: string; bodyAr?: string; label?: string; labelAr?: string;
   items?: { t: string; tAr?: string; d?: string; dAr?: string }[] }
 interface Page { id: string; slug: string; title: string; titleAr?: string; blocks: Block[] | string;
-  formId?: string; formName?: string; campaignId?: string; campaignName?: string; status: string; views: number }
+  formId?: string; formName?: string; campaignId?: string; campaignName?: string; status: string; views: number
+  theme?: { primary?: string };}
 interface FormRow { id: string; name: string }
 interface Campaign { id: string; name: string }
 
@@ -28,6 +30,11 @@ export default function Pages() {
   const [editing, setEditing] = useState<(Partial<Page> & { blocksArr?: Block[] }) | null>(null);
   const [err, setErr] = useState("");
   const [copied, setCopied] = useState("");
+  const [qr, setQr] = useState<{ dataUrl: string; slug: string } | null>(null);
+  const showQr = async (p: Page) => {
+    try { const d = await api.get<{ dataUrl: string }>(`/landing-pages/${p.id}/qr`); setQr({ dataUrl: d.dataUrl, slug: p.slug }); }
+    catch { /* toast below if present */ }
+  };
 
   const openEdit = (p?: Page) => setEditing(p
     ? { ...p, blocksArr: parseBlocks(p.blocks) }
@@ -35,7 +42,7 @@ export default function Pages() {
   const save = async () => {
     if (!editing?.title) return;
     setErr("");
-    const payload = { ...editing, blocks: editing.blocksArr };
+    const payload = { ...editing, blocks: editing.blocksArr, slug: editing.slug || slugify(editing.title || editing.titleAr || "", "page") };
     delete (payload as Record<string, unknown>).blocksArr;
     try {
       if (editing.id) await api.patch(`/landing-pages/${editing.id}`, payload);
@@ -50,6 +57,12 @@ export default function Pages() {
   const setB = (i: number, patch: Partial<Block>) => {
     const arr = [...(editing?.blocksArr || [])]; arr[i] = { ...arr[i], ...patch };
     setEditing({ ...editing!, blocksArr: arr });
+  };
+  const applyTpl = (t: (typeof LP_TEMPLATES)[number]) => {
+    if (editing?.blocksArr?.length && editing.blocksArr.some((b: Block) => b.heading || b.body || b.label) && !confirm(tr("bl_replaceConfirm"))) return;
+    setEditing({ ...editing!,
+      title: editing?.title || t.title, titleAr: editing?.titleAr || t.titleAr,
+      blocksArr: t.blocks.map((b) => ({ ...b })) as Block[] });
   };
   const move = (i: number, dir: -1 | 1) => {
     const arr = [...(editing?.blocksArr || [])];
@@ -78,6 +91,7 @@ export default function Pages() {
                   <span className="kpi-num text-ink-700">{p.views} <span className="text-ink-400">{tr("lp_views")}</span></span>
                   <span className="ms-auto flex gap-2">
                     {p.status === "PUBLISHED" && <a href={`/l/${p.slug}`} target="_blank" rel="noreferrer" className="text-steel-600 hover:underline">{tr("lp_open")} ↗</a>}
+                    <button onClick={() => showQr(p)} className="rounded-lg bg-ink-900 px-2 py-0.5 text-[10px] font-medium text-paper-50">⬛ QR</button>
                     <button onClick={() => copyLink(p)} className="text-steel-600 hover:underline">{copied === p.id ? `✓ ${tr("ag_copied")}` : tr("fm_copyLink")}</button>
                   </span>
                 </div>
@@ -106,10 +120,17 @@ export default function Pages() {
                   options={["DRAFT", "PUBLISHED", "ARCHIVED"].map((s) => ({ value: s, label: el(s) }))} />
               </Field>
             </div>
+            <Field label={tr("lp_themeColor")}>
+              <input type="color" className="h-9 w-full cursor-pointer rounded-lg border border-paper-200 bg-white"
+                value={(editing.theme as { primary?: string } | undefined)?.primary || "#f59e0b"}
+                onChange={(e) => setEditing({ ...editing, theme: { ...(editing.theme as object || {}), primary: e.target.value } })} />
+            </Field>
             <Field label={tr("campaign")}>
               <Select value={editing.campaignId || ""} onChange={(v) => setEditing({ ...editing, campaignId: v || undefined })} placeholder="—"
                 options={(campaigns || []).map((c) => ({ value: c.id, label: c.name }))} />
             </Field>
+            <TemplateBar tpls={LP_TEMPLATES} onApply={applyTpl} />
+            <div className="gap-4 md:grid md:grid-cols-[1fr,300px]">
             <div>
               <div className="mb-1.5 flex items-center justify-between">
                 <span className="label mb-0">{tr("lp_blocks")}</span>
@@ -170,6 +191,19 @@ export default function Pages() {
               </div>
             </div>
             {err && <div className="rounded-lg bg-clay-500/10 px-3 py-2 text-sm text-clay-600">{err}</div>}
+            <div className="mt-3 md:mt-0">
+              <LandingPreview theme={editing.theme as { primary?: string } | undefined} blocks={(editing.blocksArr || []) as import("../components/Builder").LandingBlock[]} title={editing.title} titleAr={editing.titleAr} hasForm={!!editing.formId} />
+            </div>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal open={!!qr} onClose={() => setQr(null)} title={qr ? `/l/${qr.slug}` : ""}>
+        {qr && (
+          <div className="text-center">
+            <img src={qr.dataUrl} alt="QR" className="mx-auto h-52 w-52 rounded-xl border border-paper-200 bg-white p-2" />
+            <p className="mt-2 text-xs text-ink-500" dir="auto">{tr("lk_qrHint")}</p>
           </div>
         )}
       </Modal>

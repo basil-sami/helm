@@ -1,6 +1,8 @@
 import { useFetch, Card, SectionTitle } from "../components/ui";
 import { useNavigate } from "react-router-dom";
 import { HBars, Funnel } from "../components/charts";
+import { Link } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 import { useI18n } from "../context/I18nContext";
 import { useBranding } from "../context/BrandingContext";
 import PulseMark from "../components/PulseMark";
@@ -12,6 +14,9 @@ interface Obj { label: string; labelAr?: string; progress: number; pace: string 
 
 export default function Report() {
   const { lang, tr, el } = useI18n();
+  const { can } = useAuth();
+  const { data: finTop } = useFetch<{ campaigns: { id: string; name: string; nameAr?: string; planned: number; committed: number; actual: number; pct: number | null; health: string | null }[] } | null>(
+    can("budget", "read") ? "/finance/overview" : "", []);
   const { branding, moduleOn } = useBranding();
   const navigate = useNavigate();
   const orgLabel = (lang === "ar" ? branding.orgNameAr || branding.orgName : branding.orgName) || tr("appName");
@@ -95,6 +100,29 @@ export default function Report() {
               <span className="kpi-num ms-2 shrink-0 text-amber-700">{p.er}%</span>
             </div>
           ))}</Card>
+      )}
+
+      {/* ── the board pack's missing tenant: top campaigns, doors included ── */}
+      {finTop && finTop.campaigns.some((c) => c.actual + c.committed > 0) && (
+        <Card>
+          <SectionTitle>🏁 {tr("rp_topCampaigns")}</SectionTitle>
+          <div className="space-y-1.5">
+            {[...finTop.campaigns].filter((c) => c.actual + c.committed > 0)
+              .sort((a, b) => (b.actual + b.committed) - (a.actual + a.committed)).slice(0, 5).map((c) => (
+              <div key={c.id} className="flex items-center justify-between gap-2 text-xs">
+                <Link to={`/campaigns?room=${c.id}`} className="truncate font-medium text-ink-800 hover:underline">
+                  {lang === "ar" && c.nameAr ? c.nameAr : c.name}
+                </Link>
+                <span className="flex shrink-0 items-center gap-2">
+                  {c.health && <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold ${
+                    c.health === "OVER" ? "bg-clay-500/15 text-clay-700" : c.health === "WATCH" ? "bg-amber-500/15 text-amber-700" : "bg-moss-500/12 text-moss-700"}`}>
+                    {c.pct != null ? `${c.pct}%` : ""}</span>}
+                  <span className="kpi-num text-[11px] text-ink-500" dir="ltr">${Math.round(c.actual + c.committed).toLocaleString()}</span>
+                </span>
+              </div>
+            ))}
+          </div>
+        </Card>
       )}
     </div>
   );

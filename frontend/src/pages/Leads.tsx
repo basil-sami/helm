@@ -9,6 +9,7 @@ import { useI18n } from "../context/I18nContext";
 import { useAuth } from "../context/AuthContext";
 
 import { api } from "../lib/api";
+import { ImportWizard } from "../components/ImportWizard";
 import { fmtMoney } from "../lib/format";
 
 interface Lead {
@@ -92,6 +93,7 @@ function LeadTimeline({ leadId }: { leadId: string }) {
 
 export default function Leads() {
   const { lang, tr, el } = useI18n();
+  const [importing, setImporting] = useState(false);
   const toast = useToast();
   const { can } = useAuth();
   const canWrite = can("leads");
@@ -237,6 +239,7 @@ export default function Leads() {
       <Modal open={!!editing} onClose={() => setEditing(null)} title={editing?.id ? tr("edit") : tr("add")}
         footer={<>
           <button onClick={() => setEditing(null)} className="btn-ghost">{tr("cancel")}</button>
+          <button onClick={() => setImporting(true)} className="btn-ghost text-xs">⬆ {tr("imp_btn")}</button>
           <button onClick={save} disabled={saving} className="btn-amber">{tr("save")}</button>
         </>}>
         {editing && (
@@ -285,6 +288,9 @@ export default function Leads() {
         <textarea className="input h-44 font-mono text-xs" dir="ltr" value={imp || ""} onChange={(e) => setImp(e.target.value)}
           placeholder={"company,contactname,phone,email,source,valueusd\nBlue Nile Mills,Omar,+249911111111,omar@bnm.sd,EXPO,5000"} />
       </Modal>
+
+      {importing && <ImportWizard entity="leads" onClose={() => setImporting(false)}
+        onDone={() => { setImporting(false); reload(); }} />}
     </div>
   );
 }

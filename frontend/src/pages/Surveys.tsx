@@ -4,6 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import { useI18n } from "../context/I18nContext";
 import { api } from "../lib/api";
 import { fmtDate } from "../lib/format";
+import { ItemEditor, TemplateBar, PreviewPane, slugify, SURVEY_TEMPLATES } from "../components/Builder";
 
 // ── RESEARCH — surveys that score themselves + insights that rewrite strategy ──
 
@@ -17,7 +18,6 @@ interface Resp { id: string; answers: Record<string, unknown> | string; score?: 
 interface Insight { id: string; title: string; titleAr?: string; body?: string; source: string; impact: string; createdAt: string }
 interface Opt { id: string; name: string }
 
-const QTYPES = ["SCALE", "TEXT", "CHOICE"];
 const parseQs = (v: Q[] | string): Q[] => Array.isArray(v) ? v : (() => { try { return JSON.parse(v || "[]"); } catch { return []; } })();
 
 export default function Surveys() {
@@ -40,7 +40,7 @@ export default function Surveys() {
   const save = async () => {
     if (!editing?.name || !editing.qsArr?.length) return;
     setErr("");
-    const payload = { ...editing, questions: editing.qsArr };
+    const payload = { ...editing, questions: editing.qsArr, slug: editing.slug || slugify(editing.name!, "survey") };
     delete (payload as Record<string, unknown>).qsArr;
     try {
       if (editing.id) await api.patch(`/surveys/${editing.id}`, payload);
@@ -51,6 +51,14 @@ export default function Surveys() {
   const setQ = (i: number, patch: Partial<Q>) => {
     const arr = [...(editing?.qsArr || [])]; arr[i] = { ...arr[i], ...patch };
     setEditing({ ...editing!, qsArr: arr });
+  };
+  const applyTpl = (t: (typeof SURVEY_TEMPLATES)[number]) => {
+    if (editing?.qsArr?.length && !confirm(tr("bl_replaceConfirm"))) return;
+    setEditing({
+      ...editing!,
+      kind: t.kind,
+      qsArr: t.items.map((it, i) => ({ text: "", ...it, key: `q${i + 1}` } as Q)),
+    });
   };
   const copyLink = async (s: Survey) => {
     try { await navigator.clipboard.writeText(`${window.location.origin}/s/${s.slug}`); } catch { /* optional */ }
@@ -114,36 +122,15 @@ export default function Surveys() {
               <Select value={editing.productId || ""} onChange={(v) => setEditing({ ...editing, productId: v || undefined })} placeholder="—"
                 options={(products || []).map((p) => ({ value: p.id, label: p.name }))} />
             </Field>
-            <div>
-              <div className="mb-1.5 flex items-center justify-between">
-                <span className="label mb-0">{tr("sv_questions")}</span>
-                <button onClick={() => setEditing({ ...editing, qsArr: [...(editing.qsArr || []), { key: `q${(editing.qsArr?.length || 0) + 1}`, text: "", type: "TEXT" }] })}
-                  className="btn-ghost text-xs">+ {tr("add")}</button>
+            <TemplateBar tpls={SURVEY_TEMPLATES} onApply={applyTpl} />
+            <div className="gap-4 md:grid md:grid-cols-[1fr,300px]">
+              <div>
+                <span className="label">{tr("sv_questions")}</span>
+                <ItemEditor mode="survey" items={editing.qsArr || []}
+                  onChange={(items) => setEditing({ ...editing, qsArr: items as Q[] })} />
               </div>
-              <div className="space-y-2">
-                {(editing.qsArr || []).map((q, i) => (
-                  <div key={i} className="rounded-lg border border-paper-200 bg-paper-100/50 p-2.5">
-                    <div className="grid grid-cols-3 gap-2">
-                      <input className="input" dir="ltr" placeholder="key" value={q.key} onChange={(e) => setQ(i, { key: e.target.value })} />
-                      <Select value={q.type} onChange={(v) => setQ(i, { type: v })} options={QTYPES.map((t) => ({ value: t, label: t }))} />
-                      <label className="flex items-center justify-between gap-1 text-xs text-ink-600">
-                        <span className="flex items-center gap-1"><input type="checkbox" checked={!!q.required} onChange={(e) => setQ(i, { required: e.target.checked })} /> {tr("fm_required")}</span>
-                        <button onClick={() => setEditing({ ...editing, qsArr: editing.qsArr!.filter((_, j) => j !== i) })} className="text-clay-600">✕</button>
-                      </label>
-                    </div>
-                    <div className="mt-2 grid grid-cols-2 gap-2">
-                      <input className="input" placeholder="السؤال" value={q.textAr || ""} onChange={(e) => setQ(i, { textAr: e.target.value })} />
-                      <input className="input" dir="ltr" placeholder="Question" value={q.text} onChange={(e) => setQ(i, { text: e.target.value })} />
-                    </div>
-                    {q.type === "SCALE" && (
-                      <input className="mt-2 input w-28" dir="ltr" type="number" placeholder="max (10)" value={q.max ?? ""} onChange={(e) => setQ(i, { max: Number(e.target.value) || undefined })} />
-                    )}
-                    {q.type === "CHOICE" && (
-                      <input className="mt-2 input" dir="ltr" placeholder={tr("fm_optionsPh")} value={(q.options || []).join(", ")}
-                        onChange={(e) => setQ(i, { options: e.target.value.split(",").map((o) => o.trim()).filter(Boolean) })} />
-                    )}
-                  </div>
-                ))}
+              <div className="mt-3 md:mt-0">
+                <PreviewPane mode="survey" items={editing.qsArr || []} title={editing.name} titleAr={editing.nameAr} />
               </div>
             </div>
             <label className="flex items-center gap-2 text-sm text-ink-700">
