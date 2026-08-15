@@ -19,6 +19,8 @@ export default function Login() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
+  const org = (lang === "ar" ? branding.orgNameAr || branding.orgName : branding.orgName) || "";
+
   const submit = async () => {
     setBusy(true);
     setError("");
