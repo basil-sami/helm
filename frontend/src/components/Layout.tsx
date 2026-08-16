@@ -295,12 +295,21 @@ export default function Layout({ children }: { children: ReactNode }) {
               </div>
               <button onClick={() => setDrawer(false)} className="ms-auto grid h-8 w-8 place-items-center rounded-lg text-paper-200/70 hover:bg-white/10" aria-label="Close">✕</button>
             </div>
-            <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
-              {nav.map((item) => (
-                <NavLink key={item.to} to={item.to} className={`nav-link ${isActive(item.to) ? "nav-link-active" : ""}`}>
-                  <Icon name={item.icon} />
-                  <span>{tr(item.key)}</span>
-                </NavLink>
+            <nav className="flex-1 space-y-4 overflow-y-auto px-3 py-4">
+              {groups.map((g) => (
+                <div key={g.key}>
+                  <div className="mb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.16em] text-paper-200/40">
+                    {tr(g.key)}
+                  </div>
+                  <div className="space-y-1">
+                    {g.items.map((item) => (
+                      <NavLink key={item.to} to={item.to} className={`nav-link ${isActive(item.to) ? "nav-link-active" : ""}`}>
+                        <Icon name={item.icon} />
+                        <span>{tr(item.key)}</span>
+                      </NavLink>
+                    ))}
+                  </div>
+                </div>
               ))}
             </nav>
             <div className="border-t border-white/5 p-3 pb-[max(env(safe-area-inset-bottom),0.75rem)]">
