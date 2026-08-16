@@ -290,7 +290,13 @@ async function decideOne(id, decision, req) {
       [ap.id, decision, req.user.id, note]
     );
     if (!row) return false;
-    if (rule?.onDecide) await rule.onDecide({ ...ap, note: note ?? ap.note }, decision, req, tx);
+    if (rule?.onDecide) {
+      // The entity may have moved on since the request (e.g. already
+      // published). The decision is recorded regardless; a failed
+      // side-effect is logged, never allowed to strand the approval.
+      try { await rule.onDecide({ ...ap, note: note ?? ap.note }, decision, req, tx); }
+      catch (e) { console.error(`approval side-effect failed for ${ap.entity} ${ap.entityId}:`, e.message); }
+    }
     return true;
   });
   if (!changed) return { ok: false, status: 409, error: "Already decided" };
